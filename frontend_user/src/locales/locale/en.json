@@ -1,0 +1,66 @@
+{
+  "nav": {
+    "home": "Home",
+    "news": "News",
+    "academy": "Academy",
+    "analysis": "Analysis",
+    "collaborate": "Collaborate",
+    "support": "Support",
+    "about": "About",
+    "joinNow": "Join Now",
+    "login":"Login",
+    "register":"Register"
+  },
+  "hero": {
+  "title": "Creator of Money Mentorship-FT",
+  "riskTitle": "⛔️ RISK DISCLAIMER!!!",
+  "notAdvisor": "I am not a financial advisor.",
+  "notAdvice": "This is not financial advice.",
+  "purpose": "The content is provided for informational and educational purposes only.",
+  "research": "Before making any decisions, please do your own research and choose what best fits your needs.",
+  "risk": "All investments involve different forms of risk. Nothing is guaranteed.",
+  "loss": "Please do not invest money that you cannot afford to lose.",
+  "study": "The study ICT",
+  "readMore": "Read More",
+  "videoUnsupported": "Your browser does not support video playback.",
+  "pause": "Pause",
+  "play": "Play",
+  "unmute": "Unmute",
+  "mute": "Mute",
+  "pauseVideo": "Pause video",
+  "playVideo": "Play video",
+  "unmuteVideo": "Unmute video",
+  "muteVideo": "Mute video"
+},
+"disclaimer": {
+  "title": "⛔️ Disclaimer!!!",
+  "intro": "This content is for educational purposes only and reflects personal opinions and is not financial advice. Trading involves risk. Always do your own research before making any financial decisions. We are not responsible for any losses incurred. Past performance does not guarantee future results.",
+  "hypothetical": "Trading performance displayed herein is hypothetical. Hypothetical performance results have many inherent limitations, some of which are described below. No representation is being made that any account will or is likely to achieve profits or losses similar to those shown. In fact, there are frequently sharp differences between hypothetical performance results and the actual results subsequently achieved by any particular trading program. One of the limitations of hypothetical performance trading results is that they are generally prepared with the benefit of hindsight. In addition, hypothetical trading does not involve financial risk, and no hypothetical trading record can completely account for the impact of financial risk in actual trading. For example, the ability to withstand losses or to adhere to a particular trading program in spite of trading losses are material points which can also adversely affect actual trading results. There are numerous other factors related to the markets in general or to the implementation of any specific trading program which cannot be fully accounted for in the preparation of hypothetical performance results and all of which can adversely affect actual trading results.",
+  "futuresOptions": "U.S. Government Required Disclaimer - Commodity Futures Trading Commission Futures and Options trading has large potential rewards, but also large potential risk. You must be aware of the risks and be willing to accept them in order to invest in the futures and options markets. Don't trade with money you can't afford to lose. This is neither a solicitation nor an offer to Buy/Sell futures or options. No representation is being made that any account will or is likely to achieve profits or losses similar to those discussed on this web site. The past performance of any trading system or methodology is not necessarily indicative of future results. Trade at your own risk. The information provided here is of the nature of a general comment only and neither purports nor intends to be, specific trading advice. It has been prepared without regard to any particular person's investment objectives, financial situation and particular needs. Information should not be considered as an offer or enticement to buy, sell or trade.",
+  "advice": "You should seek appropriate advice from your broker, or licensed investment advisor, before taking any action. Past performance does not guarantee future results. Simulated performance results contain inherent limitations. Unlike actual performance records the results may under or over compensate for such factors such as lack of liquidity. No representation is being made that any account will or is likely to achieve profits or losses to those shown.",
+  "lossRisk": "The risk of loss in trading can be substantial. You should therefore carefully consider whether such trading is suitable for you in light of your financial condition. If you purchase or sell Equities, Futures, Currencies or Options you may sustain a total loss of the initial margin funds and any additional funds that you deposit with your broker to establish or maintain your position. If the market moves against your position, you may be called upon by your broker to deposit a substantial amount of additional margin funds, on short notice."
+},
+"community": {
+  "title": "Our Communityies",
+  "subscribers": "{count} Subscribers",
+  "followers": "{count} Followers",
+  "members": "{count} Members",
+  "watchNow": "Watch Now",
+  "followNow": "Follow Now",
+  "joinNow": "Join Now"
+},
+"meeting":{
+  "title":"Activities"
+},
+"partner":{
+  "title":"Partner",
+  "thebest":"The Best Broker in Cambodia",
+  "more":"Learn More"
+},
+"challenge":{
+  "title":"Find Challenge",
+  "demo":"Start your tarlent",
+  "announce":"Comming soon",
+  "rule":"Challenge Rules"
+}
+}
