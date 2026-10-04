@@ -3,7 +3,7 @@ import { setServers } from 'node:dns/promises'
 setServers(['8.8.8.8', '1.1.1.1'])
 import 'dotenv/config'
 import mongoose from 'mongoose'
-import app from './app.js'
+import app from './src/app.js'
 
 async function startServer() {
   try {
