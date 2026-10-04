@@ -448,7 +448,7 @@
 
 <script setup>
 import { computed, nextTick, ref } from 'vue'
-import impactnews from '../components/impactnews.vue'
+import impactnews from '../components/impactnew.vue'
 
 const categories = [
   { value: 'all', label: 'All' },
