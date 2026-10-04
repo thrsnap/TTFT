@@ -1,0 +1,2 @@
+/api/* https://ttft-4.onrender.com/api/:splat 200
+/* /index.html 200
