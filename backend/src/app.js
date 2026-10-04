@@ -20,7 +20,7 @@ app.get('/api/health', (req, res) => {
   })
 })
 
-app.use('/api/economic-events', economicEventRoutes)
+app.use('/api/calendar', economicEventRoutes)
 
 app.use((req, res) => {
   res.status(404).json({
