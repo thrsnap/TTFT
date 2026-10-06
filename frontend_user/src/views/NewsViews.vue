@@ -11,29 +11,22 @@
     <div class="mx-auto min-w-0 max-w-7xl">
       <!-- Page heading -->
       <header
-        class="mb-8
-               max-[768px]:mb-7
-               max-[600px]:mb-6
-               max-[480px]:mb-5
-               max-[414px]:mb-4
-               max-[320px]:mb-3"
+        class="mb-8 max-[768px]:mb-7 max-[600px]:mb-6
+               max-[480px]:mb-5 max-[414px]:mb-4 max-[320px]:mb-3"
       >
         <h1
           class="text-3xl font-bold sm:text-4xl
-                 max-[768px]:text-3xl
-                 max-[600px]:text-[28px]
-                 max-[480px]:text-2xl
-                 max-[414px]:text-[22px]
+                 max-[768px]:text-3xl max-[600px]:text-[28px]
+                 max-[480px]:text-2xl max-[414px]:text-[22px]
                  max-[320px]:text-xl"
         >
-           News
+          News
         </h1>
 
         <p
           class="mt-3 leading-7 text-(--muted-color)
                  max-[600px]:text-sm max-[600px]:leading-6
-                 max-[480px]:mt-2
-                 max-[320px]:text-xs"
+                 max-[480px]:mt-2 max-[320px]:text-xs"
         >
           Explore market stories and financial updates from around the world.
         </p>
@@ -44,11 +37,9 @@
         aria-label="Breaking news"
         class="mb-10 overflow-hidden rounded-2xl
                border border-red-500/30 bg-red-500/10
-               max-[768px]:mb-8
-               max-[600px]:mb-7
+               max-[768px]:mb-8 max-[600px]:mb-7
                max-[480px]:mb-6 max-[480px]:rounded-xl
-               max-[414px]:mb-5
-               max-[320px]:mb-4"
+               max-[414px]:mb-5 max-[320px]:mb-4"
       >
         <div class="flex flex-col md:flex-row">
           <div
@@ -65,7 +56,6 @@
                        animate-ping rounded-full bg-white opacity-60
                        motion-reduce:animate-none"
               ></span>
-
               <span
                 class="relative h-3 w-3 rounded-full bg-white"
               ></span>
@@ -73,8 +63,7 @@
 
             <h2
               class="font-bold uppercase tracking-wide
-                     max-[600px]:text-sm
-                     max-[320px]:text-xs"
+                     max-[600px]:text-sm max-[320px]:text-xs"
             >
               Breaking News
             </h2>
@@ -96,12 +85,9 @@
             @click="openArticle(breakingNews)"
           >
             <div class="min-w-0 wrap-anywhere">
-            
-
               <h3
                 class="font-semibold sm:text-lg
-                       max-[600px]:text-base
-                       max-[480px]:text-sm
+                       max-[600px]:text-base max-[480px]:text-sm
                        max-[320px]:text-[13px]"
               >
                 {{ breakingNews.title }}
@@ -119,28 +105,22 @@
       <section aria-labelledby="latest-news" class="min-w-0">
         <div
           class="mb-6 flex flex-wrap items-end justify-between gap-3
-                 max-[600px]:mb-5
-                 max-[480px]:mb-4
+                 max-[600px]:mb-5 max-[480px]:mb-4
                  max-[414px]:gap-2"
         >
-          <div class="min-w-0">
-            <h2
-              id="latest-news"
-              class="text-2xl font-bold sm:text-3xl
-                     max-[768px]:text-[26px]
-                     max-[600px]:text-2xl
-                     max-[480px]:text-xl
-                     max-[414px]:text-lg
-                     max-[320px]:text-base"
-            >
-              Latest News
-            </h2>
-          </div>
+          <h2
+            id="latest-news"
+            class="text-2xl font-bold sm:text-3xl
+                   max-[768px]:text-[26px] max-[600px]:text-2xl
+                   max-[480px]:text-xl max-[414px]:text-lg
+                   max-[320px]:text-base"
+          >
+            Latest News
+          </h2>
 
           <span
             aria-live="polite"
-            class="text-sm text-(--muted-color)
-                   max-[480px]:text-xs"
+            class="text-sm text-(--muted-color) max-[480px]:text-xs"
           >
             {{ filteredNews.length }} articles
           </span>
@@ -150,8 +130,7 @@
         <div
           role="group"
           aria-label="Filter news by category"
-          class="mb-6 flex flex-wrap gap-2
-                 max-[600px]:mb-5
+          class="mb-6 flex flex-wrap gap-2 max-[600px]:mb-5
                  max-[480px]:mb-4 max-[480px]:gap-1.5
                  max-[320px]:gap-1"
         >
@@ -165,11 +144,9 @@
                    focus-visible:outline-2
                    focus-visible:outline-offset-2
                    focus-visible:outline-indigo-500
-                   max-[768px]:px-4
-                   max-[600px]:px-3.5
+                   max-[768px]:px-4 max-[600px]:px-3.5
                    max-[480px]:px-3 max-[480px]:text-xs
-                   max-[414px]:px-2.5
-                   max-[320px]:px-2"
+                   max-[414px]:px-2.5 max-[320px]:px-2"
             :class="
               selectedCategory === category.value
                 ? 'border-indigo-600 bg-indigo-600 text-white'
@@ -181,6 +158,43 @@
           </button>
         </div>
 
+        <!-- API status -->
+        <div class="mb-3 space-y-2">
+          <p
+            v-if="cryptoLoading || marketLoading"
+            role="status"
+            class="text-sm text-(--muted-color)"
+          >
+            {{
+              cryptoLoading && marketLoading
+                ? 'Loading crypto and market news…'
+                : marketLoading
+                  ? 'Loading market news…'
+                  : 'Loading crypto news…'
+            }}
+          </p>
+
+          <p
+            v-if="cryptoError"
+            role="alert"
+            class="text-sm text-red-500"
+          >
+            {{ cryptoError }}
+          </p>
+
+          <p
+            v-if="marketError"
+            role="alert"
+            class="text-sm text-red-500"
+          >
+            {{ marketError }}
+          </p>
+        </div>
+
+        <p id="scroll-instructions" class="sr-only">
+          Scroll using your mouse wheel, touch, or keyboard.
+        </p>
+
         <!-- Scrollable news area -->
         <div
           ref="newsScroll"
@@ -188,7 +202,7 @@
           role="region"
           aria-label="Latest news cards"
           aria-describedby="scroll-instructions"
-          class="max-h-[75vh] min-w-0 overflow-y-scroll rounded-xl
+          class="max-h-[75vh] min-w-0 overflow-y-auto rounded-xl
                  [scrollbar-gutter:stable]
                  [scrollbar-color:#6366f1_var(--surface-bg)]
                  focus-visible:outline-2
@@ -203,125 +217,122 @@
                  [&::-webkit-scrollbar-thumb]:bg-indigo-500
                  max-[768px]:max-h-[75dvh]"
         >
-          <!-- Keep your existing mouse-wheel behavior -->
+          <!-- No @wheel.prevent: native mouse scrolling works -->
           <div
-  class="grid grid-cols-3 gap-6 p-2 pr-4
-         max-[768px]:grid-cols-3 max-[768px]:gap-3
-         max-[600px]:grid-cols-2 max-[600px]:gap-3
-         max-[480px]:grid-cols-2 max-[480px]:gap-2
-         max-[480px]:p-1 max-[480px]:pr-2
-         max-[414px]:gap-1.5
-         max-[320px]:gap-1 max-[320px]:pr-1"
-  @wheel.prevent
->
+            class="grid grid-cols-3 gap-6 p-2 pr-4
+                   max-[768px]:grid-cols-3 max-[768px]:gap-3
+                   max-[600px]:grid-cols-2 max-[600px]:gap-3
+                   max-[480px]:grid-cols-2 max-[480px]:gap-2
+                   max-[480px]:p-1 max-[480px]:pr-2
+                   max-[414px]:gap-1.5
+                   max-[320px]:gap-1 max-[320px]:pr-1"
+          >
             <p
               v-if="filteredNews.length === 0"
-              class="col-span-full py-12 text-center text-(--muted-color)
+              class="col-span-full py-12 text-center
+                     text-(--muted-color)
                      max-[480px]:py-8 max-[480px]:text-sm"
             >
-              No articles in this category yet.
+              {{
+                cryptoLoading || marketLoading
+                  ? 'Loading articles…'
+                  : 'No articles in this category yet.'
+              }}
             </p>
 
-           <article
-  v-for="article in filteredNews"
-  :key="article.id"
-  class="group flex h-full min-w-0 flex-col
-         overflow-hidden rounded-2xl
-         border border-(--border-color)
-         bg-(--surface-bg)
-         transition-colors duration-300
-         max-[768px]:rounded-xl
-         max-[414px]:rounded-lg"
->
-  <!-- Card image -->
-  <button
-    type="button"
-    :aria-label="`Read article: ${article.title}`"
-    class="block aspect-[16/10] w-full shrink-0
-           overflow-hidden bg-(--input-bg)
-           focus-visible:outline-2
-           focus-visible:-outline-offset-2
-           focus-visible:outline-indigo-500"
-    @click="openArticle(article)"
-  >
-    <img
-      :src="article.image"
-      alt=""
-      loading="lazy"
-      class="h-full w-full object-cover"
-    />
-  </button>
+            <article
+              v-for="article in filteredNews"
+              :key="article.id"
+              class="group flex h-full min-w-0 flex-col
+                     overflow-hidden rounded-2xl
+                     border border-(--border-color)
+                     bg-(--surface-bg)
+                     transition-colors duration-300
+                     max-[768px]:rounded-xl max-[414px]:rounded-lg"
+            >
+              <!-- Card image -->
+              <button
+                type="button"
+                :aria-label="`Read article: ${article.title}`"
+                class="block aspect-[16/10] w-full shrink-0
+                       overflow-hidden bg-(--input-bg)
+                       focus-visible:outline-2
+                       focus-visible:-outline-offset-2
+                       focus-visible:outline-indigo-500"
+                @click="openArticle(article)"
+              >
+                <img
+  :src="article.image || '/images/news/default.jpg'"
+  alt=""
+  loading="lazy"
+  class="h-full w-full object-cover"
+  @error="handleImageError"
+/>
+              </button>
 
-  <!-- Card content -->
-  <div
-    class="flex min-w-0 flex-1 flex-col p-5
-           [overflow-wrap:anywhere]
-           max-[768px]:p-3
-           max-[600px]:p-3
-           max-[480px]:p-2.5
-           max-[414px]:p-2
-           max-[320px]:p-1.5"
-  >
-    <div
-      class="mb-3 flex flex-wrap items-center gap-2
-             text-xs text-(--muted-color)
-             max-[768px]:mb-2 max-[768px]:gap-1
-             max-[480px]:text-[11px]"
-    >
-      <time :datetime="article.date">
-        {{ formatDate(article.date) }}
-      </time>
+              <!-- Card content -->
+              <div
+                class="flex min-w-0 flex-1 flex-col p-5
+                       [overflow-wrap:anywhere]
+                       max-[768px]:p-3 max-[600px]:p-3
+                       max-[480px]:p-2.5 max-[414px]:p-2
+                       max-[320px]:p-1.5"
+              >
+                <div
+                  class="mb-3 flex flex-wrap items-center gap-2
+                         text-xs text-(--muted-color)
+                         max-[768px]:mb-2 max-[768px]:gap-1
+                         max-[480px]:text-[11px]"
+                >
+                  <time :datetime="article.date || undefined">
+                    {{ formatDate(article.date) }}
+                  </time>
 
-      <span aria-hidden="true">•</span>
-      <span>{{ article.author }}</span>
-    </div>
+                  <span aria-hidden="true">•</span>
+                  <span>{{ article.author }}</span>
+                </div>
 
-    <h3
-      class="text-xl font-bold leading-snug
-             max-[768px]:text-base
-             max-[600px]:text-base
-             max-[480px]:text-sm
-             max-[414px]:text-[13px]
-             max-[320px]:text-xs"
-    >
-      {{ article.title }}
-    </h3>
+                <h3
+                  class="text-xl font-bold leading-snug
+                         max-[768px]:text-base max-[600px]:text-base
+                         max-[480px]:text-sm max-[414px]:text-[13px]
+                         max-[320px]:text-xs"
+                >
+                  {{ article.title }}
+                </h3>
 
-    <p
-      class="mt-3 text-sm leading-7 text-(--muted-color)
-             max-[768px]:mt-2 max-[768px]:text-xs
-             max-[768px]:leading-5
-             max-[480px]:line-clamp-3"
-    >
-      {{ article.description }}
-    </p>
+                <p
+                  class="mt-3 text-sm leading-7 text-(--muted-color)
+                         max-[768px]:mt-2 max-[768px]:text-xs
+                         max-[768px]:leading-5
+                         max-[480px]:line-clamp-3"
+                >
+                  {{ article.description }}
+                </p>
 
-    <div
-      class="mt-auto pt-6
-             max-[768px]:pt-4
-             max-[480px]:pt-3
-             max-[320px]:pt-2"
-    >
-      <button
-        type="button"
-        :aria-label="`Read more: ${article.title}`"
-        class="inline-flex min-h-11 items-center gap-2 rounded
-               text-sm font-semibold text-indigo-400
-               transition-colors hover:text-indigo-300
-               in-[.ligh-mode]:text-indigo-700
-               in-[.ligh-mode]:hover:text-indigo-900
-               focus-visible:outline-2
-               focus-visible:outline-indigo-500
-               max-[768px]:text-xs
-               max-[414px]:gap-1"
-        @click="openArticle(article)"
-      >
-        Read More
-        <span aria-hidden="true">→</span>
-      </button>
-    </div>
-  </div>
-</article>
+                <div
+                  class="mt-auto pt-6 max-[768px]:pt-4
+                         max-[480px]:pt-3 max-[320px]:pt-2"
+                >
+                  <button
+                    type="button"
+                    :aria-label="`Read more: ${article.title}`"
+                    class="inline-flex min-h-11 items-center gap-2 rounded
+                           text-sm font-semibold text-indigo-400
+                           transition-colors hover:text-indigo-300
+                           in-[.ligh-mode]:text-indigo-700
+                           in-[.ligh-mode]:hover:text-indigo-900
+                           focus-visible:outline-2
+                           focus-visible:outline-indigo-500
+                           max-[768px]:text-xs max-[414px]:gap-1"
+                    @click="openArticle(article)"
+                  >
+                    Read More
+                    <span aria-hidden="true">→</span>
+                  </button>
+                </div>
+              </div>
+            </article>
           </div>
         </div>
       </section>
@@ -349,8 +360,7 @@
     >
       <div v-if="selectedArticle" class="min-w-0">
         <div
-          class="sticky top-0 z-10 flex items-center
-                 justify-between gap-4
+          class="sticky top-0 z-10 flex items-center justify-between gap-4
                  border-b border-(--border-color)
                  bg-(--surface-bg) px-5 py-4
                  transition-colors duration-300 sm:px-8
@@ -364,7 +374,7 @@
                    in-[.ligh-mode]:text-indigo-700
                    max-[480px]:text-sm"
           >
-            Full Article
+            {{ selectedArticle.link ? 'Article Summary' : 'Full Article' }}
           </span>
 
           <button
@@ -383,12 +393,8 @@
         </div>
 
         <div
-          class="p-5 sm:p-8
-                 max-[768px]:p-6
-                 max-[600px]:p-5
-                 max-[480px]:p-4
-                 max-[414px]:p-3.5
-                 max-[320px]:p-3"
+          class="p-5 sm:p-8 max-[768px]:p-6 max-[600px]:p-5
+                 max-[480px]:p-4 max-[414px]:p-3.5 max-[320px]:p-3"
         >
           <div
             class="mb-4 flex flex-wrap gap-2
@@ -396,7 +402,7 @@
                    [overflow-wrap:anywhere]
                    max-[480px]:mb-3 max-[480px]:text-xs"
           >
-            <time :datetime="selectedArticle.date">
+            <time :datetime="selectedArticle.date || undefined">
               {{ formatDate(selectedArticle.date) }}
             </time>
 
@@ -408,10 +414,8 @@
             id="article-title"
             class="text-2xl font-bold leading-tight sm:text-3xl
                    [overflow-wrap:anywhere]
-                   max-[768px]:text-[28px]
-                   max-[600px]:text-2xl
-                   max-[480px]:text-xl
-                   max-[414px]:text-lg
+                   max-[768px]:text-[28px] max-[600px]:text-2xl
+                   max-[480px]:text-xl max-[414px]:text-lg
                    max-[320px]:text-base"
           >
             {{ selectedArticle.title }}
@@ -422,9 +426,7 @@
             alt=""
             class="mt-6 aspect-video w-full rounded-xl
                    bg-(--input-bg) object-cover
-                   max-[600px]:mt-5
-                   max-[480px]:mt-4
-                   max-[320px]:mt-3"
+                   max-[600px]:mt-5 max-[480px]:mt-4 max-[320px]:mt-3"
           />
 
           <p
@@ -438,6 +440,22 @@
           >
             {{ selectedArticle.content }}
           </p>
+
+          <a
+            v-if="selectedArticle.link"
+            :href="selectedArticle.link"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-5 inline-flex min-h-11 items-center gap-2
+                   rounded text-sm font-semibold text-indigo-400
+                   underline hover:text-indigo-300
+                   in-[.ligh-mode]:text-indigo-700
+                   focus-visible:outline-2
+                   focus-visible:outline-indigo-500"
+          >
+            Read full article at source
+            <span aria-hidden="true">↗</span>
+          </a>
         </div>
       </div>
     </dialog>
@@ -447,9 +465,12 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import impactnews from '../components/impactnew.vue'
-
+import { getCryptoNews } from '../api/cryptoNews.js'
+import { getMarketNews } from '../api/marketNews.js'
+// Marketaux is fetched here directly.
+// No marketNews.js import is required.
 const categories = [
   { value: 'all', label: 'All' },
   { value: 'crypto', label: 'Crypto' },
@@ -464,9 +485,13 @@ const newsScroll = ref(null)
 const selectedArticle = ref(null)
 const articleDialog = ref(null)
 
-// Sample content — replace with your own articles.
-// Place images inside public/images/news/.
-const news = [
+const cryptoLoading = ref(false)
+const cryptoError = ref('')
+const marketLoading = ref(false)
+const marketError = ref('')
+
+// Existing sample articles.
+const news = ref([
   {
     id: 1,
     category: 'markets',
@@ -539,10 +564,19 @@ const news = [
     content:
       'This is a sample article.\n\nAdd your economic calendar preview and verified event details here.',
   },
-]
+])
+
+function articleTimestamp(value) {
+  if (!value) return 0
+
+  const timestamp = new Date(value).getTime()
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
 
 const latestNews = computed(() =>
-  [...news].sort((a, b) => b.date.localeCompare(a.date)),
+  [...news.value].sort(
+    (a, b) => articleTimestamp(b.date) - articleTimestamp(a.date),
+  ),
 )
 
 const filteredNews = computed(() =>
@@ -553,10 +587,11 @@ const filteredNews = computed(() =>
       ),
 )
 
-const breakingNews = news[0]
+const breakingNews = computed(() => latestNews.value[0])
 
 async function selectCategory(category) {
   selectedCategory.value = category
+
   await nextTick()
 
   if (newsScroll.value) {
@@ -564,16 +599,34 @@ async function selectCategory(category) {
   }
 }
 
-function formatDate(date) {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: 'numeric',
+function formatDate(value) {
+  if (!value) return 'Date unavailable'
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Date unavailable'
+  }
+
+  const options = {
+    day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }).format(new Date(`${date}T00:00:00`))
+  }
+
+  // Sample articles contain only a date; do not invent a time.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    options.hour = '2-digit'
+    options.minute = '2-digit'
+    options.hour12 = true
+  }
+
+  return new Intl.DateTimeFormat('en-GB', options).format(date)
 }
 
 async function openArticle(article) {
   selectedArticle.value = article
+
   await nextTick()
 
   const dialog = articleDialog.value
@@ -601,6 +654,79 @@ function closeOnBackdrop(event) {
     event.clientY < rect.top ||
     event.clientY > rect.bottom
 
-  if (outside) closeArticle()
+  if (outside) {
+    closeArticle()
+  }
 }
+
+async function loadCryptoNews() {
+  if (cryptoLoading.value) return
+
+  cryptoLoading.value = true
+  cryptoError.value = ''
+
+  try {
+    const data = await getCryptoNews()
+
+    if (!data || !Array.isArray(data.articles)) {
+      throw new Error('API response does not contain articles')
+    }
+
+    const cryptoArticles = data.articles.map((item, index) => ({
+      id: `crypto-${index + 1}`,
+      category: 'crypto',
+      title: item.title || 'Crypto News',
+      date: item.pubDate || null,
+      author: item.source || 'Crypto News',
+      image: item.imageUrl || '/images/news/crypto.jpg',
+      description: item.description || 'Latest cryptocurrency news.',
+      content: item.description || 'Latest cryptocurrency news.',
+      link: item.link || '',
+    }))
+
+    const otherNews = news.value.filter(
+      (article) => article.category !== 'crypto',
+    )
+
+    news.value = [...otherNews, ...cryptoArticles]
+  } catch (error) {
+    console.error('Crypto news error:', error)
+    cryptoError.value = 'Unable to load crypto news.'
+  } finally {
+    cryptoLoading.value = false
+  }
+}
+async function loadMarketNews() {
+  if (marketLoading.value) return
+
+  marketLoading.value = true
+  marketError.value = ''
+
+  try {
+    const marketArticles = await getMarketNews()
+
+    const otherNews = news.value.filter(
+      (article) => article.category !== 'markets',
+    )
+
+    news.value = [...otherNews, ...marketArticles]
+  } catch (error) {
+    marketError.value = error.message || 'Unable to load market news.'
+  } finally {
+    marketLoading.value = false
+  }
+}
+function handleImageError(event) {
+  const image = event.target
+
+  // Prevent repeated retries if the fallback also fails.
+  if (image.dataset.fallbackApplied) return
+
+  image.dataset.fallbackApplied = 'true'
+  image.src = '/images/news/default.jpg'
+}
+onMounted(() => {
+  loadCryptoNews()
+  loadMarketNews()
+})
 </script>

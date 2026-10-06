@@ -62,5 +62,63 @@
   "demo":"ចាប់ផ្ដើមជាមួយទេពកោសល្យរបស់អ្នក",
   "announce":"នឹងមកដល់ឆាប់ៗ",
   "rule":"លក្ខខណ្ឌនៃការប្រកួត"
-}
+},
+  "calendar": {
+    "events": {
+      "Consumer Credit m/m": "ឥណទានអ្នកប្រើប្រាស់ធៀបនឹងខែមុន",
+      "RICS House Price Balance": "តុល្យភាពតម្លៃលំនៅឋាន RICS",
+      "Current Account": "គណនីចរន្ត",
+      "30-y Bond Auction": "ការដេញថ្លៃមូលបត្របំណុលរយៈពេល ៣០ ឆ្នាំ",
+      "Economy Watchers Sentiment": "សន្ទស្សន៍ទំនុកចិត្តអ្នកតាមដានសេដ្ឋកិច្ច",
+      "German Trade Balance": "តុល្យភាពពាណិជ្ជកម្មអាល្លឺម៉ង់",
+      "BOE Credit Conditions Survey": "ការស្ទង់មតិស្តីពីលក្ខខណ្ឌឥណទានរបស់ធនាគារកណ្ដាលអង់គ្លេស",
+      "MPC Member Greene Speaks": "សុន្ទរកថារបស់សមាជិក MPC លោកស្រី Greene",
+      "MPC Member Pill Speaks": "សុន្ទរកថារបស់សមាជិក MPC លោក Pill",
+      "ECB Monetary Policy Meeting Accounts": "កំណត់ហេតុកិច្ចប្រជុំគោលនយោបាយរូបិយវត្ថុរបស់ធនាគារកណ្ដាលអឺរ៉ុប",
+      "Unemployment Claims": "ចំនួនអ្នកដាក់ពាក្យសុំប្រាក់ឧបត្ថម្ភពេលអត់ការងារធ្វើ",
+      "MPC Member Lombardelli Speaks": "សុន្ទរកថារបស់សមាជិក MPC លោកស្រី Lombardelli",
+      "Final Wholesale Inventories m/m": "ស្តុកទំនិញលក់ដុំចុងក្រោយធៀបនឹងខែមុន",
+      "Natural Gas Storage": "បរិមាណឧស្ម័នធម្មជាតិក្នុងស្តុក",
+      "FOMC Member Musalem Speaks": "សុន្ទរកថារបស់សមាជិក FOMC លោក Musalem",
+      "FOMC Member Collins Speaks": "សុន្ទរកថារបស់សមាជិក FOMC លោកស្រី Collins",
+      "German Buba President Nagel Speaks": "សុន្ទរកថារបស់លោក Nagel ប្រធានធនាគារកណ្ដាលអាល្លឺម៉ង់",
+      "Household Spending y/y": "ការចំណាយរបស់គ្រួសារធៀបនឹងឆ្នាំមុន",
+      "Prelim Machine Tool Orders y/y": "ការបញ្ជាទិញម៉ាស៊ីនឧបករណ៍បឋមធៀបនឹងឆ្នាំមុន",
+      "Italian Industrial Production m/m": "ផលិតកម្មឧស្សាហកម្មអ៊ីតាលីធៀបនឹងខែមុន",
+      "ECOFIN Meetings": "កិច្ចប្រជុំក្រុមប្រឹក្សាសេដ្ឋកិច្ច និងហិរញ្ញវត្ថុ",
+      "Prelim UoM Consumer Sentiment": "សន្ទស្សន៍ទំនុកចិត្តអ្នកប្រើប្រាស់បឋមរបស់សាកលវិទ្យាល័យ Michigan",
+      "Prelim UoM Inflation Expectations": "ការរំពឹងទុកអតិផរណាបឋមរបស់សាកលវិទ្យាល័យ Michigan"
+    },
+    "countries": {
+      "United States": "សហរដ្ឋអាមេរិក",
+      "United Kingdom": "ចក្រភពអង់គ្លេស",
+      "Japan": "ជប៉ុន",
+      "Germany": "អាល្លឺម៉ង់",
+      "Italy": "អ៊ីតាលី",
+      "Euro Area": "តំបន់ចាយប្រាក់អឺរ៉ូ",
+      "Australia": "អូស្ត្រាលី",
+      "Canada": "កាណាដា",
+      "Switzerland": "ស្វីស",
+      "New Zealand": "នូវែលសេឡង់",
+      "China": "ចិន",
+      "Cambodia": "កម្ពុជា"
+    },
+    "currencies": {
+      "USD": "ដុល្លារអាមេរិក",
+      "EUR": "អឺរ៉ូ",
+      "GBP": "ផោនអង់គ្លេស",
+      "JPY": "យ៉េនជប៉ុន",
+      "AUD": "ដុល្លារអូស្ត្រាលី",
+      "CAD": "ដុល្លារកាណាដា",
+      "CHF": "ហ្វ្រង់ស្វីស",
+      "NZD": "ដុល្លារនូវែលសេឡង់",
+      "CNY": "យ័នចិន",
+      "KHR": "រៀលខ្មែរ"
+    },
+    "impact": {
+      "low": "ទាប",
+      "medium": "មធ្យម",
+      "high": "ខ្ពស់"
+    }
+  }
 }

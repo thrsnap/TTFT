@@ -156,9 +156,10 @@
 
         <!-- Desktop account dropdown -->
         <div
+          v-if="!auth.isAuthenticated"
           class="relative hidden shrink-0 min-[1024px]:block"
           :class="{ 'font-khmer': language === 'km' }"
-        >
+        > 
           <button
             type="button"
             @click="joinOpen = !joinOpen"
@@ -200,6 +201,16 @@
               {{ t('nav.register') }}
             </RouterLink>
           </nav>
+        </div>
+
+        <!-- Profile menu on desktop and mobile -->
+        <div
+          v-if="auth.isAuthenticated"
+          class="relative z-[60] shrink-0"
+          :class="{ 'font-khmer': language === 'km' }"
+          @click="isMenuOpen = false"
+        >
+          <UserMenu />
         </div>
 
         <!-- Hamburger -->
@@ -285,6 +296,7 @@
 
         <!-- Mobile account buttons -->
         <div
+          v-if="!auth.isAuthenticated"
           class="mt-6 grid grid-cols-2 gap-2
             max-[768px]:mt-5
             max-[600px]:mt-4
@@ -329,7 +341,8 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { useI18n } from 'vue-i18n'
-
+import UserMenu from './userMenu.vue'
+import { useAuthStore } from '../store/user/authStore.js'
 import {
   faHouse,
   faNewspaper,
@@ -346,6 +359,7 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 
 const { t, locale: language } = useI18n({
   useScope: 'global',
@@ -431,6 +445,7 @@ function toggleTheme() {
 }
 
 watch(() => route.fullPath, closeMenus)
+watch(() => auth.isAuthenticated, closeMenus)
 
 let desktopQuery
 

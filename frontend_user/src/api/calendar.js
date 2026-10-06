@@ -16,19 +16,12 @@ export async function getEconomicEvents({
 
     return response.data.events ?? []
   } catch (error) {
-    if (
-      error.name === 'CanceledError' ||
-      error.code === 'ERR_CANCELED'
-    ) {
-      throw error
-    }
-
-    console.error(
-      'Economic calendar API error:',
-      error
-    )
+    console.error('Economic API error:', error)
+    console.error('Status:', error.response?.status)
+    console.error('Response:', error.response?.data)
 
     throw new Error(
+      error.response?.data?.message ||
       'Could not load the economic calendar'
     )
   }
