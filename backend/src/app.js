@@ -10,6 +10,7 @@ import { requireUser } from './controllers/auth.controller.js'
 
 const app = express()
 
+app.set('trust proxy', 1)
 const production = process.env.NODE_ENV === 'production'
 const sameSite = (process.env.COOKIE_SAME_SITE || 'lax').trim()
 const frontendUrl = process.env.FRONTEND_URL?.trim()
