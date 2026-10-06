@@ -9,7 +9,6 @@ import authRoutes from './routes/auth.routes.js'
 import { requireUser } from './controllers/auth.controller.js'
 
 const app = express()
-
 app.set('trust proxy', 1)
 const production = process.env.NODE_ENV === 'production'
 const sameSite = (process.env.COOKIE_SAME_SITE || 'lax').trim()
@@ -118,23 +117,17 @@ app.use(
 
 // Temporary local diagnostic for the failing /me request.
 app.use('/api/auth', (req, res, next) => {
-  if (!production && req.method === 'GET' && req.path === '/me') {
-    console.log('Session request:', {
+  if (req.method === 'GET' && req.path === '/me') {
+    console.log('Session check:', {
+      secureRequest: req.secure,
       cookieReceived: /(?:^|;\s*)cmm\.sid=/.test(
         req.headers.cookie || '',
       ),
       sessionHasUser: Boolean(req.session?.userId),
-      sessionVersion: req.session?.authVersion ?? 0,
     })
   }
 
   next()
-})
-
-app.get('/api/health', (req, res) => {
-  res.json({
-    message: 'Economic and authentication API is running',
-  })
 })
 
 app.use('/api/calendar', economicEventRoutes)
