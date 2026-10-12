@@ -4,7 +4,6 @@ import mongoose from 'mongoose'
 
 import User from './src/models/user.model.js'
 import Payment from './src/models/payment.model.js'
-import { connectMySQL } from './src/config/mysql.js'
 
 async function startServer() {
   try {
@@ -40,8 +39,7 @@ async function startServer() {
 
     console.log('MongoDB connected')
 
-    await connectMySQL()
-
+    
     // Keep existing app initialization, including Redis setup.
     const { default: app } = await import('./src/app.js')
 
