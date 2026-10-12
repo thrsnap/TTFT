@@ -49,27 +49,44 @@ export function isAdmin(user) {
   return user?.role === 'admin'
 }
 
-export async function loginAdmin(identifier, password) {
-  await request('/api/auth/login', {
+export async function loginAdmin(email, password) {
+  const base = (
+    import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+  )
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '')
+
+  const response = await fetch(`${base}/api/auth/login`, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      'X-CMM-Request': '1',
     },
     body: JSON.stringify({
-      identifier: identifier.trim(),
+      identifier: email.trim().toLowerCase(),
       password,
     }),
   })
 
-  const user = await getCurrentUser()
+  const data = await response.json().catch(() => null)
 
-  if (!user) {
-    throw new Error('Could not verify your login')
+  if (!response.ok) {
+    const error = new Error(
+      data?.message || `Login failed (${response.status})`,
+    )
+    error.status = response.status
+    throw error
   }
 
-  if (!isAdmin(user)) {
-    throw new Error('This account does not have admin access')
+  if (!data?.user) {
+    throw new Error('The backend did not return login user details.')
   }
 
-  return user
+  if (data.user.role !== 'admin') {
+    throw new Error('This account does not have admin access.')
+  }
+
+  return data.user
 }
