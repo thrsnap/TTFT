@@ -25,6 +25,7 @@ function safeUser(user) {
     username: user.username,
     email: user.email,
     emailVerified: user.emailVerified,
+    role: user.role || 'user',
   }
 }
 
@@ -693,4 +694,16 @@ export async function requireUser(req, res, next) {
 
   req.user = user
   next()
+  // Update activity at most once per minute.
+const now = new Date()
+const previous = user.lastSeenAt
+  ? new Date(user.lastSeenAt).getTime()
+  : 0
+
+if (now.getTime() - previous >= 60_000) {
+  await User.updateOne(
+    { _id: user._id },
+    { $set: { lastSeenAt: now } },
+  )
+}
 }

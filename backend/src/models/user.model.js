@@ -96,10 +96,22 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+
+    role: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
+    },
+
+    lastSeenAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
   },
 )
 
-export default mongoose.model('User', userSchema)
+export default mongoose.models.User ||
+  mongoose.model('User', userSchema)
