@@ -1,44 +1,32 @@
 <script setup>
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { courseApi, coursePrice } from '../api/courseApi.js'
 
 const route = useRoute()
 const router = useRouter()
 
+const telegramUrl = 'https://t.me/ThunTulaFT'
+
 const course = ref(null)
 const loading = ref(false)
-const continuing = ref(false)
 const error = ref('')
 
-// Prevent older requests from updating a different course.
 let requestVersion = 0
+let disposed = false
 
 function localized(path) {
   return route.params.lang === 'km' ? `/km${path}` : path
 }
 
-function paymentLocation(courseId) {
-  return {
-    path: localized('/payment'),
-    query: {
-      product: `course:${courseId}`,
-    },
-  }
-}
-
-function login(courseId) {
-  return router.replace({
-    path: localized('/login'),
-    query: {
-      redirect: router.resolve(paymentLocation(courseId)).fullPath,
-    },
-  })
+function isCurrent(version) {
+  return !disposed && version === requestVersion
 }
 
 async function load() {
   const version = ++requestVersion
   const courseId = String(route.params.courseId || '')
+  const returnPath = route.fullPath
 
   course.value = null
   error.value = ''
@@ -51,7 +39,7 @@ async function load() {
 
     const access = await courseApi('/my/access')
 
-    if (version !== requestVersion) return
+    if (!isCurrent(version)) return
 
     const hasAccess =
       access.isAdmin === true ||
@@ -73,7 +61,7 @@ async function load() {
       `/${encodeURIComponent(courseId)}`,
     )
 
-    if (version !== requestVersion) return
+    if (!isCurrent(version)) return
 
     if (!data.course) {
       throw new Error('Course not found.')
@@ -81,34 +69,22 @@ async function load() {
 
     course.value = data.course
   } catch (err) {
-    if (version !== requestVersion) return
+    if (!isCurrent(version)) return
 
     if (err.status === 401) {
-      await login(courseId)
+      await router.replace({
+        path: localized('/login'),
+        query: {
+          redirect: returnPath,
+        },
+      })
     } else {
       error.value = err.message || 'Unable to load this course.'
     }
   } finally {
-    if (version === requestVersion) {
+    if (isCurrent(version)) {
       loading.value = false
     }
-  }
-}
-
-async function continueToPayment() {
-  if (!course.value || loading.value || continuing.value) return
-
-  continuing.value = true
-  error.value = ''
-
-  try {
-    await router.push(
-      paymentLocation(String(route.params.courseId)),
-    )
-  } catch (err) {
-    error.value = err.message || 'Unable to open payment.'
-  } finally {
-    continuing.value = false
   }
 }
 
@@ -117,6 +93,11 @@ watch(
   load,
   { immediate: true },
 )
+
+onBeforeUnmount(() => {
+  disposed = true
+  requestVersion++
+})
 </script>
 
 <template>
@@ -209,49 +190,73 @@ watch(
         </p>
 
         <div
-          class="rounded-xl bg-indigo-500/10 p-4
+          class="rounded-xl border border-amber-500/20
+                 bg-amber-500/10 p-4
                  max-[320px]:p-3"
         >
           <h3 class="font-semibold">
-            Pay with Bakong KHQR
+            Payment not available yet
           </h3>
 
           <p
-            class="mt-2 text-sm leading-6 text-(--muted-color)"
+            class="mt-2 text-sm leading-6
+                   text-(--muted-color)"
           >
-            Continue to the payment page to generate your QR.
-            Course access is granted after payment verification.
+            Please contact the admin on
+            <strong class="font-semibold text-(--text-color)">
+              Telegram
+            </strong>
+            to purchase this course.
           </p>
+
+          <p
+            class="mt-2 text-sm leading-6
+                   text-(--muted-color)"
+          >
+            Send the course name and your registered email.
+            The admin will arrange payment and grant your
+            course access.
+          </p>
+
+          <a
+            :href="telegramUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-4 inline-flex min-h-11 w-full
+                   items-center justify-center rounded-xl
+                   bg-sky-600 px-4 py-3
+                   text-sm font-semibold text-white
+                   transition hover:bg-sky-500
+                   focus-visible:outline-2
+                   focus-visible:outline-offset-2
+                   focus-visible:outline-sky-500"
+          >
+            Contact admin on Telegram
+          </a>
         </div>
 
         <button
           type="button"
-          :disabled="continuing"
-          :aria-busy="continuing"
-          @click="continueToPayment"
+          @click="load"
           class="mt-6 inline-flex min-h-12 w-full
                  cursor-pointer items-center justify-center
                  rounded-xl bg-indigo-600 px-4 py-3
                  text-sm font-semibold text-white
                  transition hover:bg-indigo-500
-                 disabled:cursor-wait disabled:opacity-50
                  focus-visible:outline-2
                  focus-visible:outline-offset-4
                  focus-visible:outline-indigo-500"
         >
-          {{ continuing ? 'Opening payment…' : 'Continue to payment' }}
-        </button>
-
-        <button
-          type="button"
-          :disabled="continuing"
-          @click="load"
-          class="mt-4 min-h-11 cursor-pointer
-                 text-sm font-semibold text-indigo-500
-                 underline disabled:opacity-50"
-        >
           Check course access
         </button>
+
+        <p
+          class="mt-3 text-center text-xs leading-5
+                 text-(--muted-color)"
+        >
+          After the admin grants access, click the button above
+          to open your lessons.
+        </p>
       </section>
     </div>
   </main>
