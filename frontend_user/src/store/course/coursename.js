@@ -1,10 +1,10 @@
 
 import cnrImage from '../../assets/static/coursecard/CNR.JPG'
-import pdImage from '../../assets/static/coursecard/PD2022.JPG'
-import lowbasicImage from '../../assets/static/coursecard/Lowbasic.JPG'
+import pdImage from '../../assets/static/coursecard/PD2022.jpg'
+import lowbasicImage from '../../assets/static/coursecard/Lowbasic.jpg'
 import ictImage from '../../assets/static/coursecard/ICT.JPG'
 import crtImage from '../../assets/static/coursecard/CRT(ICT).JPG'
-import lectureImage from '../../assets/static/coursecard/Lecture.JPJ.PNG'
+import lectureImage from '../../assets/static/coursecard/Lecture.jpj.png'
 export const courses = [
   {
     id: 1,
