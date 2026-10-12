@@ -88,5 +88,23 @@ export async function loginAdmin(email, password) {
     throw new Error('This account does not have admin access.')
   }
 
-  return data.user
+  // Verify that the browser retained the new login session.
+try {
+  const session = await request('/api/auth/me')
+
+  if (session.user?.role !== 'admin') {
+    throw new Error('This account does not have admin access.')
+  }
+
+  return session.user
+} catch (error) {
+  if (error.status === 401) {
+    throw new Error(
+      'Login accepted, but the session could not be verified. ' +
+      'The browser may be blocking the login cookie.',
+    )
+  }
+
+  throw error
+}
 }
