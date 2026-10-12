@@ -12,6 +12,8 @@ import {
   verifyResetCode,
   resetPassword,
 } from '../controllers/auth.controller.js'
+import verifyTurnstile from '../middleware/verifyTurnstile.js'
+
 
 const router = Router()
 
@@ -61,7 +63,12 @@ router.post(
   resendVerification,
 )
 
-router.post('/login', limit(900000, 20), loginUser)
+router.post(
+  '/login',
+  limit(900000, 20),
+  verifyTurnstile,
+  loginUser,
+)
 
 router.post('/google', limit(900000, 20), googleLogin)
 
