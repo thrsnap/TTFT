@@ -1,6 +1,12 @@
+import { getLoginTurnstileToken } from './turnstile.js'
+
 const BASE = (
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-).trim().replace(/\/+$/, '')
+  import.meta.env.VITE_API_BASE_URL ||
+  'http://localhost:5000'
+)
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/api$/, '')
 
 async function request(path, options = {}) {
   const headers = new Headers(options.headers)
@@ -15,7 +21,12 @@ async function request(path, options = {}) {
     method,
     headers,
     credentials: 'include',
+    cache: 'no-store',
   })
+
+  if (response.status === 204 && response.ok) {
+    return { success: true }
+  }
 
   const data = await response.json().catch(() => null)
 
@@ -25,11 +36,13 @@ async function request(path, options = {}) {
     )
 
     error.status = response.status
+    error.data = data
+
     throw error
   }
 
-  if (!data) {
-    throw new Error('The backend did not return JSON')
+  if (data === null) {
+    throw new Error('The backend did not return JSON.')
   }
 
   return data
@@ -50,61 +63,58 @@ export function isAdmin(user) {
 }
 
 export async function loginAdmin(email, password) {
-  const base = (
-    import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-  )
-    .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/api$/, '')
+  const turnstileToken = getLoginTurnstileToken()
 
-  const response = await fetch(`${base}/api/auth/login`, {
+  if (!turnstileToken) {
+    throw new Error(
+      'Complete the security verification before logging in.',
+    )
+  }
+
+  const data = await request('/api/auth/login', {
     method: 'POST',
-    credentials: 'include',
+
     headers: {
       'Content-Type': 'application/json',
-      'X-CMM-Request': '1',
     },
+
     body: JSON.stringify({
       identifier: email.trim().toLowerCase(),
       password,
+      turnstileToken,
     }),
   })
 
-  const data = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    const error = new Error(
-      data?.message || `Login failed (${response.status})`,
+  if (!data?.user) {
+    throw new Error(
+      'The backend did not return login user details.',
     )
-    error.status = response.status
+  }
+
+  if (!isAdmin(data.user)) {
+    throw new Error(
+      'This account does not have admin access.',
+    )
+  }
+
+  try {
+    const session = await request('/api/auth/me')
+
+    if (!isAdmin(session.user)) {
+      throw new Error(
+        'This account does not have admin access.',
+      )
+    }
+
+    return session.user
+  } catch (error) {
+    if (error.status === 401) {
+      throw new Error(
+        'Login accepted, but the session could not be verified. ' +
+        'Open https://panel.cmm-ft.com and try again.',
+      )
+    }
+
     throw error
   }
-
-  if (!data?.user) {
-    throw new Error('The backend did not return login user details.')
-  }
-
-  if (data.user.role !== 'admin') {
-    throw new Error('This account does not have admin access.')
-  }
-
-  // Verify that the browser retained the new login session.
-try {
-  const session = await request('/api/auth/me')
-
-  if (session.user?.role !== 'admin') {
-    throw new Error('This account does not have admin access.')
-  }
-
-  return session.user
-} catch (error) {
-  if (error.status === 401) {
-    throw new Error(
-      'Login accepted, but the session could not be verified. ' +
-      'The browser may be blocking the login cookie.',
-    )
-  }
-
-  throw error
-}
 }

@@ -1,7 +1,8 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { loginAdmin } from '../../api/authApi.js'
+import TurnstileWidget from '../../components/TurnstileWidget.vue'
 
 const router = useRouter()
 
@@ -11,27 +12,50 @@ const loading = ref(false)
 const error = ref('')
 const showPassword = ref(false)
 
+const turnstileToken = ref('')
+const turnstileWidget = ref(null)
+
 const dark = ref(
   localStorage.getItem('admin-theme') === 'dark',
 )
 
-async function submitLogin() {
-  if (loading.value) return
+let disposed = false
 
-  loading.value = true
+onBeforeUnmount(() => {
+  disposed = true
+})
+
+async function submitLogin() {
+  if (loading.value || disposed) return
+
   error.value = ''
 
+  if (!turnstileToken.value) {
+    error.value = 'Complete the security verification first.'
+    return
+  }
+
+  loading.value = true
+
   try {
+    // authApi.js reads the token supplied by TurnstileWidget.
     await loginAdmin(
       email.value.trim(),
       password.value,
     )
 
-    await router.replace('/admin')
-  } catch (err) {
-    error.value = err.message || 'Unable to log in'
+    if (!disposed) {
+      await router.replace('/admin')
+    }
+  } catch (failure) {
+    if (!disposed) {
+      error.value = failure.message || 'Unable to log in.'
+    }
   } finally {
-    loading.value = false
+    if (!disposed) {
+      loading.value = false
+      turnstileWidget.value?.reset()
+    }
   }
 }
 </script>
@@ -77,6 +101,7 @@ async function submitLogin() {
 
       <form
         class="mt-7 space-y-5"
+        :aria-busy="loading"
         @submit.prevent="submitLogin"
       >
         <div>
@@ -90,8 +115,10 @@ async function submitLogin() {
           <input
             id="admin-email"
             v-model="email"
+            name="email"
             type="email"
             autocomplete="username"
+            maxlength="254"
             required
             :disabled="loading"
             class="w-full min-w-0 rounded-lg border
@@ -113,6 +140,7 @@ async function submitLogin() {
           <input
             id="admin-password"
             v-model="password"
+            name="password"
             :type="showPassword ? 'text' : 'password'"
             autocomplete="current-password"
             required
@@ -131,11 +159,17 @@ async function submitLogin() {
             <input
               v-model="showPassword"
               type="checkbox"
+              :disabled="loading"
               class="size-4 accent-emerald-600"
             />
             Show password
           </label>
         </div>
+
+        <TurnstileWidget
+          ref="turnstileWidget"
+          v-model="turnstileToken"
+        />
 
         <p
           v-if="error"
@@ -150,11 +184,11 @@ async function submitLogin() {
 
         <button
           type="submit"
-          :disabled="loading"
+          :disabled="loading || !turnstileToken"
           class="min-h-11 w-full rounded-lg bg-emerald-700
                  px-4 py-3 font-medium text-white
                  transition hover:bg-emerald-800
-                 disabled:cursor-wait disabled:opacity-60"
+                 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {{ loading ? 'Signing in…' : 'Sign in' }}
         </button>

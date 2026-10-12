@@ -7,7 +7,6 @@ import {
   onMounted,
   onBeforeUnmount,
 } from 'vue'
-
 import {
   RouterLink,
   useRoute,
@@ -16,6 +15,7 @@ import {
 
 import { useAuthStore } from '../store/user/authStore.js'
 import { renderGoogleSignIn } from '../api/googleSingin.js'
+import TurnstileWidget from '../components/TurnstileWidget.vue'
 
 const props = defineProps({
   mode: {
@@ -32,6 +32,9 @@ const isRegister = computed(() => props.mode === 'register')
 const showPassword = ref(false)
 const busy = ref(false)
 const error = ref('')
+
+const turnstileToken = ref('')
+const turnstileWidget = ref(null)
 
 const googleButton = ref(null)
 const googleLoading = ref(true)
@@ -50,50 +53,46 @@ const form = reactive({
   confirmPassword: '',
 })
 
-const passwordMismatch = computed(
-  () =>
-    isRegister.value &&
-    Boolean(form.confirmPassword) &&
-    form.password !== form.confirmPassword,
+const passwordMismatch = computed(() =>
+  isRegister.value &&
+  Boolean(form.confirmPassword) &&
+  form.password !== form.confirmPassword,
 )
 
 const inputClass =
-  'block w-full rounded-xl border border-slate-700 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60'
+  'block w-full rounded-xl border border-slate-700 ' +
+  'bg-slate-950/60 px-4 py-3 text-sm text-white outline-none ' +
+  'transition placeholder:text-slate-500 focus:border-indigo-500 ' +
+  'focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60'
 
 const brandImage = `${import.meta.env.BASE_URL}Profile.jpg`
 
 function localizedRoute(name) {
   return {
     name,
-    params:
-      route.params.lang === 'km'
-        ? { lang: 'km' }
-        : {},
+    params: route.params.lang === 'km'
+      ? { lang: 'km' }
+      : {},
   }
 }
 
 function localizedPath(path) {
-  return route.params.lang === 'km'
-    ? `/km${path}`
-    : path
+  if (route.params.lang !== 'km') return path
+  return path === '/' ? '/km' : `/km${path}`
 }
 
-// Accept only the payment and course destinations used by your app.
 function subscriptionRedirect() {
   const redirect = route.query.redirect
 
   if (typeof redirect !== 'string') return null
 
-  // Existing subscription payment page.
   if (['/payment', '/km/payment'].includes(redirect)) {
     return redirect
   }
 
-  // Course payment page.
   const coursePayment =
     /^\/(?:km\/)?payment\/course\/[a-f0-9]{24}$/i
 
-  // Course lessons page.
   const courseLessons =
     /^\/(?:km\/)?academy\/course\/[a-f0-9]{24}\/lessons$/i
 
@@ -107,7 +106,6 @@ function subscriptionRedirect() {
   return null
 }
 
-// Preserve the destination when switching between authentication pages.
 function authRoute(name) {
   const redirect = subscriptionRedirect()
 
@@ -118,17 +116,14 @@ function authRoute(name) {
 }
 
 async function redirectAfterLogin() {
-  const redirect = subscriptionRedirect()
-
   await router.replace(
-    redirect || localizedRoute('home'),
+    subscriptionRedirect() || localizedRoute('home'),
   )
 }
 
 async function openVerification(email, notice) {
   sessionStorage.setItem('verificationEmail', email)
   sessionStorage.setItem('verificationNotice', notice)
-
   await router.push(authRoute('verify-email'))
 }
 
@@ -162,8 +157,14 @@ async function handleSubmit() {
     return
   }
 
-  busy.value = true
+  if (!isRegister.value && !turnstileToken.value) {
+    error.value = 'Complete the security verification first.'
+    return
+  }
+
   const submittedMode = props.mode
+  const passwordLogin = !isRegister.value
+  busy.value = true
 
   try {
     if (isRegister.value) {
@@ -181,6 +182,7 @@ async function handleSubmit() {
           'Check your email for the verification code.',
       )
     } else {
+      // The API helper attaches the current Turnstile token.
       await auth.login(
         form.identifier.trim(),
         form.password,
@@ -208,14 +210,16 @@ async function handleSubmit() {
           'Cannot open the verification page.'
       }
     } else {
-      error.value =
-        failure instanceof TypeError
-          ? 'Cannot reach the server. Please check your connection and try again.'
-          : failure.message ||
-            'Unable to complete the request. Please try again.'
+      error.value = failure instanceof TypeError
+        ? 'Cannot reach the server. Please check your connection.'
+        : failure.message || 'Unable to complete the request.'
     }
   } finally {
     busy.value = false
+
+    if (passwordLogin && !disposed) {
+      turnstileWidget.value?.reset()
+    }
   }
 }
 
@@ -226,14 +230,12 @@ async function handleGoogleResponse(response) {
   googleError.value = ''
 
   if (!response?.credential) {
-    googleError.value =
-      'Google did not return a sign-in token.'
+    googleError.value = 'Google did not return a sign-in token.'
     return
   }
 
   if (typeof auth.googleLogin !== 'function') {
-    googleError.value =
-      'Google login still needs to be connected to your auth store and backend.'
+    googleError.value = 'Google login is not configured.'
     return
   }
 
@@ -247,31 +249,25 @@ async function handleGoogleResponse(response) {
 
     await redirectAfterLogin()
   } catch (failure) {
-    if (disposed || props.mode !== submittedMode) return
-
-    googleError.value =
-      failure.message ||
-      'Google sign-in failed. Please try again.'
+    if (!disposed && props.mode === submittedMode) {
+      googleError.value =
+        failure.message || 'Google sign-in failed.'
+    }
   } finally {
     busy.value = false
   }
 }
 
 function initializeGoogle() {
-  const clientId =
-    import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim()
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim()
 
   if (!clientId) {
     googleLoading.value = false
-    googleError.value =
-      'Missing VITE_GOOGLE_CLIENT_ID in frontend .env.'
+    googleError.value = 'Google sign-in is not configured.'
     return true
   }
 
-  if (
-    !window.google?.accounts?.id ||
-    !googleButton.value
-  ) {
+  if (!window.google?.accounts?.id || !googleButton.value) {
     return false
   }
 
@@ -283,8 +279,7 @@ function initializeGoogle() {
     )
   } catch (failure) {
     googleError.value =
-      failure.message ||
-      'Could not initialize Google sign-in.'
+      failure.message || 'Could not initialize Google sign-in.'
   }
 
   googleLoading.value = false
@@ -301,10 +296,9 @@ onMounted(() => {
       window.clearInterval(googleTimer)
     } else if (googleAttempts >= 50) {
       window.clearInterval(googleTimer)
-
       googleLoading.value = false
       googleError.value =
-        'Google sign-in could not load. Check your connection and refresh.'
+        'Google sign-in could not load. Refresh to retry.'
     }
   }, 200)
 })
@@ -315,58 +309,53 @@ onBeforeUnmount(() => {
   cleanupGoogle?.()
 })
 
-watch(
-  () => props.mode,
-  () => {
-    Object.assign(form, {
-      username: '',
-      email: '',
-      identifier: '',
-      password: '',
-      confirmPassword: '',
-    })
+watch(() => props.mode, () => {
+  Object.assign(form, {
+    username: '',
+    email: '',
+    identifier: '',
+    password: '',
+    confirmPassword: '',
+  })
 
-    error.value = ''
-    googleError.value = ''
-    showPassword.value = false
-  },
-)
+  error.value = ''
+  googleError.value = ''
+  showPassword.value = false
+  turnstileToken.value = ''
+  turnstileWidget.value?.reset()
+})
 </script>
 
 <template>
   <main
-    class="relative isolate flex min-h-screen
-           items-center justify-center overflow-hidden
-           bg-slate-950 px-5 py-16 text-white"
+    class="relative isolate flex min-h-screen items-center
+           justify-center overflow-hidden bg-slate-950
+           px-5 py-16 text-white"
   >
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute -left-24
-             top-20 -z-10 h-80 w-80 rounded-full
-             bg-indigo-600/20 blur-3xl"
+      class="pointer-events-none absolute -left-24 top-20
+             -z-10 h-80 w-80 rounded-full bg-indigo-600/20 blur-3xl"
     ></div>
 
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute -right-24
-             bottom-10 -z-10 h-80 w-80 rounded-full
-             bg-emerald-500/10 blur-3xl"
+      class="pointer-events-none absolute -right-24 bottom-10
+             -z-10 h-80 w-80 rounded-full bg-emerald-500/10 blur-3xl"
     ></div>
 
     <section
-      class="w-full max-w-md rounded-3xl
-             border border-white/10 bg-slate-900/80
-             p-6 shadow-2xl backdrop-blur-xl sm:p-10"
+      class="w-full max-w-md rounded-3xl border border-white/10
+             bg-slate-900/80 p-6 shadow-2xl backdrop-blur-xl sm:p-10"
     >
       <RouterLink
         :to="localizedRoute('home')"
         class="mb-8 flex items-center justify-center gap-3"
       >
         <span
-          class="flex h-11 w-11 shrink-0 items-center
-                 justify-center overflow-hidden rounded-xl
-                 bg-gradient-to-br from-indigo-500
-                 to-emerald-400"
+          class="flex h-11 w-11 shrink-0 items-center justify-center
+                 overflow-hidden rounded-xl bg-gradient-to-br
+                 from-indigo-500 to-emerald-400"
         >
           <img
             :src="brandImage"
@@ -382,11 +371,7 @@ watch(
 
       <header class="mb-8 text-center">
         <h1 class="text-3xl font-bold">
-          {{
-            isRegister
-              ? 'Create an account'
-              : 'Welcome back'
-          }}
+          {{ isRegister ? 'Create an account' : 'Welcome back' }}
         </h1>
 
         <p class="mt-3 text-sm text-slate-400">
@@ -409,19 +394,12 @@ watch(
         </p>
       </header>
 
-      <form
-        @submit.prevent="handleSubmit"
-        :aria-busy="busy"
-      >
-        <fieldset
-          :disabled="busy"
-          class="min-w-0 space-y-5"
-        >
+      <form @submit.prevent="handleSubmit" :aria-busy="busy">
+        <fieldset :disabled="busy" class="min-w-0 space-y-5">
           <div v-if="isRegister">
             <label
               for="username"
-              class="mb-2 block text-sm font-medium
-                     text-slate-200"
+              class="mb-2 block text-sm font-medium text-slate-200"
             >
               Username
             </label>
@@ -441,10 +419,7 @@ watch(
               :class="inputClass"
             />
 
-            <p
-              id="username-hint"
-              class="mt-2 text-xs text-slate-400"
-            >
+            <p id="username-hint" class="mt-2 text-xs text-slate-400">
               3–30 letters, numbers, or underscores.
             </p>
           </div>
@@ -452,8 +427,7 @@ watch(
           <div v-if="isRegister">
             <label
               for="email"
-              class="mb-2 block text-sm font-medium
-                     text-slate-200"
+              class="mb-2 block text-sm font-medium text-slate-200"
             >
               Email address
             </label>
@@ -474,8 +448,7 @@ watch(
           <div v-else>
             <label
               for="identifier"
-              class="mb-2 block text-sm font-medium
-                     text-slate-200"
+              class="mb-2 block text-sm font-medium text-slate-200"
             >
               Email or username
             </label>
@@ -496,8 +469,7 @@ watch(
           <div>
             <label
               for="password"
-              class="mb-2 block text-sm font-medium
-                     text-slate-200"
+              class="mb-2 block text-sm font-medium text-slate-200"
             >
               Password
             </label>
@@ -508,17 +480,9 @@ watch(
                 v-model="form.password"
                 name="password"
                 :type="showPassword ? 'text' : 'password'"
-                :autocomplete="
-                  isRegister
-                    ? 'new-password'
-                    : 'current-password'
-                "
+                :autocomplete="isRegister ? 'new-password' : 'current-password'"
                 :minlength="isRegister ? 12 : undefined"
-                :aria-describedby="
-                  isRegister
-                    ? 'password-hint'
-                    : undefined
-                "
+                :aria-describedby="isRegister ? 'password-hint' : undefined"
                 placeholder="Enter your password"
                 required
                 :class="[inputClass, 'pr-20']"
@@ -527,19 +491,11 @@ watch(
               <button
                 type="button"
                 @click="showPassword = !showPassword"
-                :aria-label="
-                  showPassword
-                    ? 'Hide password'
-                    : 'Show password'
-                "
+                :aria-label="showPassword ? 'Hide password' : 'Show password'"
                 :aria-pressed="showPassword"
-                class="absolute inset-y-0 right-0
-                       rounded-r-xl px-4 text-xs
-                       font-semibold text-indigo-300
-                       transition-colors hover:text-white
-                       focus-visible:outline
-                       focus-visible:outline-2
-                       focus-visible:outline-indigo-400"
+                class="absolute inset-y-0 right-0 rounded-r-xl
+                       px-4 text-xs font-semibold text-indigo-300
+                       hover:text-white"
               >
                 {{ showPassword ? 'Hide' : 'Show' }}
               </button>
@@ -554,14 +510,10 @@ watch(
             </p>
           </div>
 
-          <div
-            v-if="!isRegister"
-            class="flex justify-end"
-          >
+          <div v-if="!isRegister" class="flex justify-end">
             <RouterLink
               :to="localizedPath('/forgot-password')"
-              class="text-sm font-medium text-indigo-400
-                     transition-colors hover:text-indigo-300"
+              class="text-sm font-medium text-indigo-400 hover:text-indigo-300"
             >
               Forgot password?
             </RouterLink>
@@ -570,8 +522,7 @@ watch(
           <div v-if="isRegister">
             <label
               for="confirm-password"
-              class="mb-2 block text-sm font-medium
-                     text-slate-200"
+              class="mb-2 block text-sm font-medium text-slate-200"
             >
               Confirm password
             </label>
@@ -584,14 +535,8 @@ watch(
               autocomplete="new-password"
               placeholder="Enter your password again"
               required
-              :aria-invalid="
-                passwordMismatch ? 'true' : undefined
-              "
-              :aria-describedby="
-                passwordMismatch
-                  ? 'confirm-hint'
-                  : undefined
-              "
+              :aria-invalid="passwordMismatch ? 'true' : undefined"
+              :aria-describedby="passwordMismatch ? 'confirm-hint' : undefined"
               :class="inputClass"
             />
 
@@ -604,30 +549,29 @@ watch(
             </p>
           </div>
 
+          <TurnstileWidget
+            v-if="!isRegister"
+            ref="turnstileWidget"
+            v-model="turnstileToken"
+          />
+
           <p
             v-if="error"
-            id="form-error"
             role="alert"
             class="rounded-xl border border-red-400/20
-                   bg-red-500/10 px-4 py-3
-                   text-sm text-red-300"
+                   bg-red-500/10 px-4 py-3 text-sm text-red-300"
           >
             {{ error }}
           </p>
 
           <button
             type="submit"
-            :disabled="busy"
+            :disabled="busy || (!isRegister && !turnstileToken)"
             class="w-full rounded-xl bg-gradient-to-r
-                   from-indigo-600 to-emerald-500
-                   px-5 py-3.5 font-semibold text-white
-                   shadow-lg transition hover:brightness-110
-                   focus-visible:outline
-                   focus-visible:outline-2
-                   focus-visible:outline-offset-4
-                   focus-visible:outline-indigo-400
-                   active:scale-[0.99]
-                   disabled:cursor-wait disabled:opacity-60"
+                   from-indigo-600 to-emerald-500 px-5 py-3.5
+                   font-semibold text-white shadow-lg transition
+                   hover:brightness-110 disabled:cursor-not-allowed
+                   disabled:opacity-60"
           >
             {{
               busy
@@ -649,21 +593,16 @@ watch(
 
         <RouterLink
           :to="authRoute(isRegister ? 'login' : 'register')"
-          class="ml-1 font-semibold text-indigo-400
-                 hover:text-indigo-300"
+          class="ml-1 font-semibold text-indigo-400 hover:text-indigo-300"
         >
           {{ isRegister ? 'Login' : 'Register' }}
         </RouterLink>
       </p>
 
-      <div
-        class="mt-7 border-t border-white/10
-               pt-5 text-center"
-      >
+      <div class="mt-7 border-t border-white/10 pt-5 text-center">
         <RouterLink
           :to="localizedRoute('home')"
-          class="text-sm text-slate-400
-                 transition-colors hover:text-white"
+          class="text-sm text-slate-400 hover:text-white"
         >
           ← Back to home
         </RouterLink>
@@ -671,16 +610,12 @@ watch(
 
       <div class="my-6 flex items-center gap-4">
         <div class="h-px flex-1 bg-white/10"></div>
-        <span class="text-xs text-slate-400">
-          CONTINUE WITH
-        </span>
+        <span class="text-xs text-slate-400">CONTINUE WITH</span>
         <div class="h-px flex-1 bg-white/10"></div>
       </div>
 
       <div
-        :class="{
-          'pointer-events-none opacity-60': busy,
-        }"
+        :class="{ 'pointer-events-none opacity-60': busy }"
         :aria-busy="busy || googleLoading"
       >
         <div
