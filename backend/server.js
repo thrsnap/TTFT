@@ -1,6 +1,5 @@
 import 'dotenv/config'
 
-import { setServers } from 'node:dns/promises'
 import mongoose from 'mongoose'
 
 import User from './src/models/user.model.js'
@@ -18,29 +17,9 @@ async function startServer() {
       'GOOGLE_CLIENT_ID',
     ]) {
       if (!process.env[name]?.trim()) {
-        throw new Error(
-          `Missing environment variable: ${name}`,
-        )
+        throw new Error(`Missing environment variable: ${name}`)
       }
     }
-
-    // Apply before MongoDB SRV queries.
-    setServers(['8.8.8.8', '1.1.1.1'])
-
-    await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 15000,
-    })
-
-    // Ensure unique indexes are initialized.
-    await User.init()
-    await Payment.init()
-
-    console.log('MongoDB connected')
-
-    await connectMySQL()
-
-    // Load the app after database setup.
-    const { default: app } = await import('./src/app.js')
 
     const port = Number(process.env.PORT || 5000)
 
@@ -52,8 +31,22 @@ async function startServer() {
       throw new Error('PORT must be between 1 and 65535')
     }
 
-    const server = app.listen(port, () => {
-      console.log(`API running at http://localhost:${port}`)
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 15000,
+    })
+
+    await User.init()
+    await Payment.init()
+
+    console.log('MongoDB connected')
+
+    await connectMySQL()
+
+    // Keep existing app initialization, including Redis setup.
+    const { default: app } = await import('./src/app.js')
+
+    const server = app.listen(port, '0.0.0.0', () => {
+      console.log(`API listening on port ${port}`)
     })
 
     server.on('error', error => {
