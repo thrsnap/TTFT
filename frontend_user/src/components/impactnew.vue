@@ -33,7 +33,7 @@
 
     <!-- Date navigation -->
     <div class="flex flex-wrap items-center justify-between gap-4
-             bg-[#365581] px-4 py-3 text-white
+             bg-[#335c48] px-4 py-3 text-white
              transition-colors duration-300
              in-[.ligh-mode]:bg-blue-100
              in-[.ligh-mode]:text-blue-950

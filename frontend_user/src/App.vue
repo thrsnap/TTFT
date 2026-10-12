@@ -1,8 +1,8 @@
 <template>
     <div class=" flex flex-col min-h-screen font-Roboto scroll-smooth overflow-x-hidden">
+      <PageLoading/>
 
-
-        <navbar />
+          <navbar v-if="!route.meta.hidePublicLayout" />
         <RouterView />
 
 
@@ -236,18 +236,40 @@
 
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import { faFacebook, faYoutube, faTelegram, faDiscord, faTiktok } from '@fortawesome/free-brands-svg-icons'
-import navbar from './components/navbar.vue';
-import { RouterView } from 'vue-router';
-import { watch } from 'vue'
-import { useRoute } from 'vue-router'
+import {
+  faFacebook,
+  faYoutube,
+  faTelegram,
+  faDiscord,
+  faTiktok,
+} from '@fortawesome/free-brands-svg-icons'
+
+import { watch, onMounted } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+
+import navbar from './components/navbar.vue'
+import PageLoading from './components/PageLoading.vue'
+
+import {
+  startPageLoading,
+  stopPageLoading,
+} from './composable/usePageLoading.js'
+
+import { useAutoLogout } from './composable/userAutoLogout.js'
+
+// Change this import if your auth store has a different filename.
+import { useAuthStore } from './store/user/authStore.js'
+
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 
 const { locale } = useI18n({
   useScope: 'global',
 })
 
+// Language
 watch(
   () => route.params.lang,
   (lang) => {
@@ -256,10 +278,56 @@ watch(
   },
   { immediate: true },
 )
+
+// Automatic logout after 15 minutes without activity
+const { start: startIdleTimer } = useAutoLogout({
+  isLoggedIn: () => Boolean(auth.user),
+
+  timeoutMs: 10 * 60 * 1000,
+
+  logout: async () => {
+    const loginPath =
+      route.params.lang === 'km' ? '/km/login' : '/login'
+
+    // Must end the backend session and clear the local user.
+    await auth.logout()
+
+    await router.replace({
+      path: loginPath,
+      query: {
+        reason: 'inactive',
+      },
+    })
+  },
+})
+
+// Start a fresh timer after login or session restoration.
+watch(
+  () => Boolean(auth.user),
+  (loggedIn) => {
+    if (loggedIn) {
+      startIdleTimer()
+    }
+  },
+)
+
 function scrollToTop() {
   window.scrollTo({
     top: 0,
     behavior: 'smooth',
   })
 }
+
+// Initial page loading
+onMounted(async () => {
+  startPageLoading()
+
+  document.getElementById('initial-loading')?.remove()
+
+  try {
+    await router.isReady()
+  } finally {
+    stopPageLoading()
+  }
+})
 </script>

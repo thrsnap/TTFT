@@ -25,22 +25,21 @@
                  max-[480px]:text-[26px]
                  max-[414px]:text-2xl
                  max-[320px]:text-xl"
+                 :class="language === 'km' ? 'font-khmer' : 'font-sans'"
         >
-          Contact <span class="text-indigo-500">Us</span>
+          {{ t('Support.title') }}
         </h1>
-
         <p
           class="mx-auto mt-4 max-w-xl text-base leading-7
                  text-(--muted-color)
                  max-[600px]:text-sm max-[600px]:leading-6
                  max-[480px]:mt-3
                  max-[320px]:text-xs"
+                 :class="language === 'km' ? 'font-khmer' : 'font-sans'"
         >
-          Have a question? Reach us on Facebook, Telegram,
-          or send us an email.
+         {{ t('Support.subtitle') }}
         </p>
       </header>
-
       <div
         class="grid grid-cols-1 items-start gap-8
                lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]
@@ -57,10 +56,10 @@
             class="mb-4 text-xl font-semibold
                    max-[480px]:text-lg
                    max-[320px]:text-base"
+                   :class="language === 'km' ? 'font-khmer' : 'font-sans'"
           >
-            Connect with us
+            {{ t('Support.social') }}
           </h2>
-
           <div
             class="grid gap-4
                    max-[600px]:gap-3
@@ -99,7 +98,6 @@
               >
                 <FontAwesomeIcon :icon="channel.icon" />
               </span>
-
               <div class="min-w-0 flex-1">
                 <h3
                   class="text-lg font-semibold
@@ -108,7 +106,6 @@
                 >
                   {{ channel.name }}
                 </h3>
-
                 <p
                   class="mt-1 text-sm leading-6 text-(--muted-color)
                          [overflow-wrap:anywhere]
@@ -117,7 +114,6 @@
                   {{ channel.description }}
                 </p>
               </div>
-
               <span
                 aria-hidden="true"
                 class="shrink-0 text-lg text-indigo-400"
@@ -127,7 +123,6 @@
             </a>
           </div>
         </section>
-
         <!-- Message form -->
         <section
            aria-labelledby="message-heading"
@@ -146,20 +141,19 @@
             class="text-2xl font-bold
                    max-[480px]:text-xl
                    max-[320px]:text-lg"
+                   :class="language === 'km' ? 'font-khmer' : 'font-sans'"
           >
-            Send a message
+            {{ t('Support.sendhead') }}
           </h2>
-
-          <p class="mt-2 text-sm text-slate-400">
-            All fields are required.
+          <p class="mt-2 text-sm text-slate-400" :class="language === 'km' ? 'font-khmer' : 'font-sans'">
+            {{ t('Support.required') }}
           </p>
-
           <form
             class="mt-8 space-y-6
                    max-[600px]:space-y-5
                    max-[480px]:mt-6
                    max-[414px]:space-y-4"
-            @submit.prevent="prepareEmail"
+            @submit.prevent="sendMessage"
           >
             <!-- Name and email -->
             <div
@@ -172,108 +166,105 @@
                 <label
                   for="contact-name"
                   class="mb-2 block text-sm font-semibold"
+                  :class="language === 'km' ? 'font-khmer' : 'font-sans'"
                 >
-                  User name
+                  {{ t('Support.username') }}
                 </label>
-
                 <input
+                  :disabled="busy"
                   id="contact-name"
                   v-model.trim="form.name"
                   name="name"
                   type="text"
                   autocomplete="name"
-                  placeholder="input your username"
+                  placeholder="ex.Mr Dev"
                   required
                   maxlength="100"
                   :class="inputClasses"
                 />
               </div>
-
               <div class="min-w-0">
                 <label
                   for="contact-email"
                   class="mb-2 block text-sm font-semibold"
+                  :class="language === 'km' ? 'font-khmer' : 'font-sans'"
                 >
-                  Email address
+                  {{ t('Support.email') }}
                 </label>
-
                 <input
+                  :disabled="busy"
                   id="contact-email"
                   v-model.trim="form.email"
                   name="email"
                   type="email"
                   autocomplete="email"
-                  placeholder="you@example.com"
+                 placeholder="ex.mrdev123@gmail.com"
                   required
                   maxlength="254"
                   :class="inputClasses"
                 />
               </div>
             </div>
-
             <!-- Topic -->
             <div>
               <label
                 for="contact-topic"
                 class="mb-2 block text-sm font-semibold"
+                :class="language === 'km' ? 'font-khmer' : 'font-sans'"
               >
-                What do you need help with?
+                {{ t('Support.problem') }}
               </label>
-
               <select
+                  :disabled="busy"
                 id="contact-topic"
                 v-model="form.topic"
                 name="topic"
                 required
                 :class="inputClasses"
               >
-                <option disabled value="">Select a topic</option>
-                <option value="General question">General question</option>
-                <option value="Account support">Account support</option>
-                <option value="Academy and courses">Academy and courses</option>
-                <option value="Trading challenge">Trading challenge</option>
-                <option value="Broker collaboration">Broker collaboration</option>
-                <option value="Technical issue">Technical issue</option>
-                <option value="Other">Other</option>
+                <option disabled value="">{{ t('Support.select') }}</option>
+                <option value="Account support">{{ t('Support.account') }}</option>
+                <option value="Academy and courses">{{ t('Support.payment') }}</option>
+                <option value="Other">{{ t('Support.other') }}</option>
               </select>
             </div>
-
             <!-- Subject -->
             <div>
               <label
                 for="contact-subject"
                 class="mb-2 block text-sm font-semibold"
+                :class="language === 'km' ? 'font-khmer' : 'font-sans'"
               >
-                Subject
+                {{ t('Support.subject') }}
               </label>
-
               <input
+                  :disabled="busy"
                 id="contact-subject"
                 v-model.trim="form.subject"
                 name="subject"
                 type="text"
-                placeholder="Briefly describe your issue"
-                required
+                placeholder="Other(optinal)"
+                
                 maxlength="150"
                 :class="inputClasses"
               />
             </div>
-
             <!-- Message -->
             <div>
               <label
                 for="contact-message"
                 class="mb-2 block text-sm font-semibold"
+                :class="language === 'km' ? 'font-khmer' : 'font-sans'"
               >
-                Your message
+                {{ t('Support.message') }}
               </label>
-
               <textarea
+                  :disabled="busy"
                 id="contact-message"
                 v-model="form.message"
                 name="message"
                 rows="6"
-                placeholder="Please explain how we can help you..."
+                placeholder="ex. Hello,សួស្ដី"
                 required
                 minlength="20"
                 maxlength="2000"
@@ -281,7 +272,6 @@
                 :class="inputClasses"
                 class="min-h-36 resize-y max-[480px]:min-h-32"
               ></textarea>
-
               <div
                 id="message-hint"
                 class="mt-2 flex flex-wrap justify-between gap-2
@@ -291,27 +281,27 @@
                 <span>{{ form.message.length }}/2000</span>
               </div>
             </div>
-
             <!-- Send button -->
             <button
               type="submit"
+              :disabled="busy"
               class="inline-flex min-h-12 cursor-pointer items-center
                      justify-center rounded-xl
                      bg-linear-to-r from-indigo-600 to-emerald-600
                      px-8 py-3.5 text-sm font-semibold text-white
-                     transition-opacity hover:opacity-90
+                     transition-opacity hover:opacity-90 disabled:opacity-50
                      focus-visible:outline-2
                      focus-visible:outline-offset-4
                      focus-visible:outline-indigo-400
                      max-[480px]:w-full max-[480px]:px-5"
+                     :class="language === 'km' ? 'font-khmer' : 'font-sans'"
             >
-              Send message
+              {{ busy ? t('Support.sending...') : t('Support.sendMessage')  }}
             </button>
-
             <p class="text-xs leading-5 text-slate-400">
-              Opens your email app. Review the message and press Send there.
+              Sign in before sending. Read replies in Dashboard → My Support.
+              <RouterLink :to="localizedPath('/dashboard/support')" class="ml-1 font-semibold text-indigo-400 underline">Open My Support</RouterLink>
             </p>
-
             <p
               v-if="status"
               role="status"
@@ -319,114 +309,57 @@
             >
               {{ status }}
             </p>
+            <p v-if="error" role="alert" class="text-sm text-red-500">{{ error }}</p>
           </form>
         </section>
       </div>
     </div>
+  
   </main>
 </template>
 
 <script setup>
 import { reactive, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
-import {
-  faFacebook,
-  faTelegram,
-} from '@fortawesome/free-brands-svg-icons'
+import { faFacebook, faTelegram } from '@fortawesome/free-brands-svg-icons'
 import { faEnvelope } from '@fortawesome/free-solid-svg-icons'
+import { supportApi, supportJson } from '../api/supportApi.js'
+import { useI18n } from 'vue-i18n'
 
-// Replace these with your real contact details.
-const contactEmail = 'your-email@example.com'
-const facebookUrl = 'https://www.facebook.com/thuntulaofficial01'
-const telegramUrl = 'https://t.me/ThunTulaFT'
-
-const channels = [
-  {
-    name: 'Facebook',
-    description: 'Chat with us in Facebook',
-    href: facebookUrl,
-    icon: faFacebook,
-    iconClass: 'bg-blue-500/10 text-blue-500',
-    external: true,
-  },
-  {
-    name: 'Telegram',
-    description: 'Chat with us directly on Telegram.',
-    href: telegramUrl,
-    icon: faTelegram,
-    iconClass: 'bg-sky-500/10 text-sky-500',
-    external: true,
-  },
-  {
-    name: 'Email',
-    description: contactEmail,
-    href: `mailto:${contactEmail}`,
-    icon: faEnvelope,
-    iconClass: 'bg-indigo-500/10 text-indigo-400',
-    external: false,
-  },
-]
-
-const inputClasses = `
-  block w-full min-w-0 rounded-xl
-  border border-(--border-color)
-  bg-(--page-bg) px-4 py-3
-  text-base text-(--text-color)
-  placeholder:text-(--muted-color)
-  outline-none transition-colors duration-300
-  focus:border-indigo-500
-  focus:ring-2 focus:ring-indigo-500/20
-  max-[480px]:px-3
-  max-[320px]:px-2.5
-`
-
-const form = reactive({
-  name: '',
-  email: '',
-  topic: '',
-  subject: '',
-  message: '',
+const { t, locale: language } = useI18n({
+  useScope: 'global',
 })
-
-const status = ref('')
-
-function prepareEmail() {
-  const message = form.message.trim()
-
-  if (
-    !form.name ||
-    !form.email ||
-    !form.topic ||
-    !form.subject ||
-    !message
-  ) {
-    status.value = 'Please complete all fields.'
-    return
+const contactEmail = import.meta.env.VITE_CONTACT_EMAIL || 'your-email@example.com'
+const channels = [
+  { name: 'Facebook', description: 'Chat with us on Facebook.', href: 'https://www.facebook.com/thuntulaofficial01', icon: faFacebook, iconClass: 'bg-blue-500/10 text-blue-500', external: true },
+  { name: 'Telegram', description: 'Chat with us directly on Telegram.', href: 'https://t.me/ThunTulaFT', icon: faTelegram, iconClass: 'bg-sky-500/10 text-sky-500', external: true },
+  { name: 'Email', description: contactEmail, href: `mailto:${contactEmail}`, icon: faEnvelope, iconClass: 'bg-indigo-500/10 text-indigo-400', external: false },
+]
+const inputClasses = `block w-full min-w-0 rounded-xl border border-(--border-color) bg-(--page-bg) px-4 py-3 text-base text-(--text-color) placeholder:text-(--muted-color) outline-none transition-colors duration-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 max-[480px]:px-3 max-[320px]:px-2.5`
+const form = reactive({ name: '', email: '', topic: '', subject: '', message: '' })
+const status = ref(''), error = ref(''), busy = ref(false)
+const route = useRoute()
+const router = useRouter()
+function localizedPath(path) { return route.params.lang === 'km' ? `/km${path}` : path }
+async function sendMessage() {
+  if (busy.value) return
+  error.value = ''; status.value = ''
+  if (form.message.trim().length < 20 || form.message.trim().length > 2000) {
+    error.value = 'Please enter a message between 20 and 2000 characters.'; return
   }
-
-  if (message.length < 20 || message.length > 2000) {
-    status.value = 'Please enter a message between 20 and 2000 characters.'
-    return
-  }
-
-  const subject = `[${form.topic}] ${form.subject}`
-    .replace(/[\r\n]+/g, ' ')
-
-  const body = [
-    `Full name: ${form.name}`,
-    `Email address: ${form.email}`,
-    `Topic: ${form.topic}`,
-    '',
-    message,
-  ].join('\n')
-
-  window.location.href =
-    `mailto:${contactEmail}` +
-    `?subject=${encodeURIComponent(subject)}` +
-    `&body=${encodeURIComponent(body)}`
-
-  status.value =
-    'If your email app opened, review the message and press Send. ' +
-    'Otherwise, copy your message and email us directly.'
+  busy.value = true
+  try {
+    const data = await supportApi('/api/support/messages', supportJson('POST', {
+      name: form.name.trim(), email: form.email.trim(), topic: form.topic,
+      subject: form.subject.trim(), message: form.message.trim(),
+    }))
+    status.value = data.message
+    form.topic = ''; form.subject = ''; form.message = ''
+  } catch (err) {
+    if (err.status === 401) {
+      await router.push({ path: localizedPath('/login'), query: { redirect: localizedPath('/support') } })
+    } else error.value = err.message
+  } finally { busy.value = false }
 }
 </script>

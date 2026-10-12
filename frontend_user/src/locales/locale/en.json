@@ -41,7 +41,7 @@
   "lossRisk": "The risk of loss in trading can be substantial. You should therefore carefully consider whether such trading is suitable for you in light of your financial condition. If you purchase or sell Equities, Futures, Currencies or Options you may sustain a total loss of the initial margin funds and any additional funds that you deposit with your broker to establish or maintain your position. If the market moves against your position, you may be called upon by your broker to deposit a substantial amount of additional margin funds, on short notice."
 },
 "community": {
-  "title": "Our Communityies",
+  "title": "Our Communities",
   "subscribers": "{count} Subscribers",
   "followers": "{count} Followers",
   "members": "{count} Members",
@@ -62,5 +62,31 @@
   "demo":"Start your tarlent",
   "announce":"Comming soon",
   "rule":"Challenge Rules"
+},
+"About":{
+  "title":"ABout Me",
+  "independent":"Trader independent",
+  "descrip1":"I'm Thun Tula, with 6 years of experience in the Forex trading industry. ",
+  "descrip2":"Currently, I trade independently and also as a creator of Creator Of Money Mentorship,",
+  "descrip3":"what I am share, base on trading knowledge,Technicail and help others build confidence and skills in the Trading markets.",
+  "descrip4":" I am a student of The Inner circle Trader!"
+},
+"Support":{
+  "title":"Contact Us",
+  "subtitle":" Have a question? Reach us on Facebook, Telegram, or send a message to our support team.",
+  "social":"Contact with us",
+  "sendhead":"Send message to us",
+  "required":"Required information (*)",
+  "username":"User name*",
+  "email":"Email address*",
+  "problem":"What do you need help with?*",
+  "select":"Select problem",
+  "account":"Account problem",
+  "payment":"Payment issue",
+  "other":"Other",
+  "subject":"Subject",
+  "message":"Write your problem here*",
+  "sending": "Sending…",
+  "sendMessage": "Send message"
 }
 }

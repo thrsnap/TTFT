@@ -16,5 +16,9 @@ export default defineConfig({
       rewrite: () => '/ff_calendar_thisweek.json',
     },
   },
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
 },
 })

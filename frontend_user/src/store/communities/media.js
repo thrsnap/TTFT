@@ -6,7 +6,7 @@ export const communities = [
     name: 'YouTube',
     icon: faYoutube,
     iconColor: '#ff0000',
-    count: '35k',
+    count: '31k',
     label: 'community.subscribers',
     button: 'community.watchNow',
     url: 'https://www.youtube.com/@ThunTula-FT',

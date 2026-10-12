@@ -9,7 +9,6 @@
            max-[320px]:px-2 max-[320px]:py-4"
   >
     <div class="mx-auto min-w-0 max-w-7xl">
-      <!-- Page heading -->
       <header
         class="mb-8 max-[768px]:mb-7 max-[600px]:mb-6
                max-[480px]:mb-5 max-[414px]:mb-4 max-[320px]:mb-3"
@@ -32,9 +31,9 @@
         </p>
       </header>
 
-      <!-- Breaking news -->
       <section
-        aria-label="Breaking news"
+        v-if="breakingNews"
+        aria-label="Latest news headline"
         class="mb-10 overflow-hidden rounded-2xl
                border border-red-500/30 bg-red-500/10
                max-[768px]:mb-8 max-[600px]:mb-7
@@ -52,10 +51,11 @@
           >
             <span class="relative flex h-3 w-3 shrink-0">
               <span
-                class="absolute inline-flex h-full w-full
-                       animate-ping rounded-full bg-white opacity-60
+                class="absolute inline-flex h-full w-full animate-ping
+                       rounded-full bg-white opacity-60
                        motion-reduce:animate-none"
               ></span>
+
               <span
                 class="relative h-3 w-3 rounded-full bg-white"
               ></span>
@@ -65,18 +65,16 @@
               class="font-bold uppercase tracking-wide
                      max-[600px]:text-sm max-[320px]:text-xs"
             >
-              Breaking News
+              Breaking
             </h2>
           </div>
 
           <button
-            v-if="breakingNews"
             type="button"
-            class="group flex min-w-0 flex-1 items-center
+            class="flex min-w-0 flex-1 cursor-pointer items-center
                    justify-between gap-5 px-6 py-5 text-left
                    transition-colors hover:bg-(--hover-bg)
-                   focus-visible:outline-2
-                   focus-visible:outline-indigo-500
+                   focus-visible:outline-2 focus-visible:outline-indigo-500
                    max-[768px]:gap-4 max-[768px]:px-5
                    max-[600px]:px-4 max-[600px]:py-4
                    max-[480px]:gap-3 max-[480px]:px-3
@@ -84,29 +82,33 @@
                    max-[320px]:gap-2 max-[320px]:px-2.5"
             @click="openArticle(breakingNews)"
           >
-            <div class="min-w-0 wrap-anywhere">
+            <div class="min-w-0">
               <h3
-                class="font-semibold sm:text-lg
+                class="wrap-anywhere font-semibold sm:text-lg
                        max-[600px]:text-base max-[480px]:text-sm
                        max-[320px]:text-[13px]"
               >
                 {{ breakingNews.title }}
               </h3>
+
+              <time
+                :datetime="breakingNews.addedAt || undefined"
+                :title="addedTimeTitle(breakingNews)"
+                class="mt-2 block text-xs text-(--muted-color)"
+              >
+                {{ formatAddedTime(breakingNews.addedAt) }}
+              </time>
             </div>
 
-            <span aria-hidden="true" class="shrink-0 text-xl">
-              →
-            </span>
+            <span aria-hidden="true" class="shrink-0 text-xl">→</span>
           </button>
         </div>
       </section>
 
-      <!-- Latest news -->
       <section aria-labelledby="latest-news" class="min-w-0">
         <div
           class="mb-6 flex flex-wrap items-end justify-between gap-3
-                 max-[600px]:mb-5 max-[480px]:mb-4
-                 max-[414px]:gap-2"
+                 max-[600px]:mb-5 max-[480px]:mb-4 max-[414px]:gap-2"
         >
           <h2
             id="latest-news"
@@ -126,23 +128,21 @@
           </span>
         </div>
 
-        <!-- Category filters -->
-        <div
-          role="group"
-          aria-label="Filter news by category"
+        <nav
+          aria-label="News categories"
           class="mb-6 flex flex-wrap gap-2 max-[600px]:mb-5
-                 max-[480px]:mb-4 max-[480px]:gap-1.5
-                 max-[320px]:gap-1"
+                 max-[480px]:mb-4 max-[480px]:gap-1.5 max-[320px]:gap-1"
         >
-          <button
+          <RouterLink
             v-for="category in categories"
             :key="category.value"
-            type="button"
-            :aria-pressed="selectedCategory === category.value"
+            :to="categoryLocation(category.value)"
+            :aria-current="
+              selectedCategory === category.value ? 'page' : undefined
+            "
             class="cursor-pointer rounded-full border px-5 py-2.5
                    text-sm font-semibold transition-colors
-                   focus-visible:outline-2
-                   focus-visible:outline-offset-2
+                   focus-visible:outline-2 focus-visible:outline-offset-2
                    focus-visible:outline-indigo-500
                    max-[768px]:px-4 max-[600px]:px-3.5
                    max-[480px]:px-3 max-[480px]:text-xs
@@ -152,50 +152,53 @@
                 ? 'border-indigo-600 bg-indigo-600 text-white'
                 : 'border-(--border-color) bg-(--surface-bg) text-(--text-color) hover:border-indigo-400 hover:bg-(--hover-bg)'
             "
-            @click="selectCategory(category.value)"
           >
             {{ category.label }}
-          </button>
-        </div>
+          </RouterLink>
+        </nav>
 
-        <!-- API status -->
         <div class="mb-3 space-y-2">
-          <p
-            v-if="cryptoLoading || marketLoading"
-            role="status"
-            class="text-sm text-(--muted-color)"
-          >
-            {{
-              cryptoLoading && marketLoading
-                ? 'Loading crypto and market news…'
-                : marketLoading
-                  ? 'Loading market news…'
-                  : 'Loading crypto news…'
-            }}
-          </p>
+          <template v-for="feed in feedStatuses" :key="feed.key">
+            <p
+              v-if="feed.loading"
+              role="status"
+              class="text-sm text-(--muted-color)"
+            >
+              Loading {{ feed.label }} news…
+            </p>
 
-          <p
-            v-if="cryptoError"
-            role="alert"
-            class="text-sm text-red-500"
-          >
-            {{ cryptoError }}
-          </p>
+            <div
+              v-if="feed.error"
+              class="flex flex-wrap items-center gap-3"
+            >
+              <p role="alert" class="text-sm text-red-500">
+                {{ feed.error }}
+              </p>
 
-          <p
-            v-if="marketError"
-            role="alert"
-            class="text-sm text-red-500"
-          >
-            {{ marketError }}
-          </p>
+              <button
+                type="button"
+                :disabled="feed.loading"
+                class="cursor-pointer text-sm text-indigo-500 underline
+                       disabled:opacity-50"
+                @click="feed.retry()"
+              >
+                Retry {{ feed.label }} news
+              </button>
+            </div>
+
+            <p
+              v-if="feed.stale"
+              class="text-sm text-(--muted-color)"
+            >
+              Showing saved {{ feed.label }} news while the feed is unavailable.
+            </p>
+          </template>
         </div>
 
         <p id="scroll-instructions" class="sr-only">
           Scroll using your mouse wheel, touch, or keyboard.
         </p>
 
-        <!-- Scrollable news area -->
         <div
           ref="newsScroll"
           tabindex="0"
@@ -205,8 +208,7 @@
           class="max-h-[75vh] min-w-0 overflow-y-auto rounded-xl
                  [scrollbar-gutter:stable]
                  [scrollbar-color:#6366f1_var(--surface-bg)]
-                 focus-visible:outline-2
-                 focus-visible:outline-indigo-500
+                 focus-visible:outline-2 focus-visible:outline-indigo-500
                  [&::-webkit-scrollbar]:w-3
                  [&::-webkit-scrollbar-track]:rounded-full
                  [&::-webkit-scrollbar-track]:bg-(--surface-bg)
@@ -217,7 +219,6 @@
                  [&::-webkit-scrollbar-thumb]:bg-indigo-500
                  max-[768px]:max-h-[75dvh]"
         >
-          <!-- No @wheel.prevent: native mouse scrolling works -->
           <div
             class="grid grid-cols-3 gap-6 p-2 pr-4
                    max-[768px]:grid-cols-3 max-[768px]:gap-3
@@ -229,12 +230,11 @@
           >
             <p
               v-if="filteredNews.length === 0"
-              class="col-span-full py-12 text-center
-                     text-(--muted-color)
+              class="col-span-full py-12 text-center text-(--muted-color)
                      max-[480px]:py-8 max-[480px]:text-sm"
             >
               {{
-                cryptoLoading || marketLoading
+                selectedFeedLoading
                   ? 'Loading articles…'
                   : 'No articles in this category yet.'
               }}
@@ -245,16 +245,15 @@
               :key="article.id"
               class="group flex h-full min-w-0 flex-col
                      overflow-hidden rounded-2xl
-                     border border-(--border-color)
-                     bg-(--surface-bg)
+                     border border-(--border-color) bg-(--surface-bg)
                      transition-colors duration-300
                      max-[768px]:rounded-xl max-[414px]:rounded-lg"
             >
-              <!-- Card image -->
               <button
+                v-if="hasUsableImage(article)"
                 type="button"
                 :aria-label="`Read article: ${article.title}`"
-                class="block aspect-[16/10] w-full shrink-0
+                class="block aspect-[16/10] w-full shrink-0 cursor-pointer
                        overflow-hidden bg-(--input-bg)
                        focus-visible:outline-2
                        focus-visible:-outline-offset-2
@@ -262,15 +261,25 @@
                 @click="openArticle(article)"
               >
                 <img
-  :src="article.image || '/images/news/default.jpg'"
-  alt=""
-  loading="lazy"
-  class="h-full w-full object-cover"
-  @error="handleImageError"
-/>
+                  :key="article.image"
+                  :src="article.image"
+                  alt=""
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                  @error="handleImageError(article)"
+                />
               </button>
 
-              <!-- Card content -->
+              <div
+                v-else
+                class="flex aspect-[16/10] w-full shrink-0 items-center
+                       justify-center bg-(--input-bg) px-3 text-center
+                       text-sm text-(--muted-color)
+                       max-[480px]:text-xs"
+              >
+                No image available
+              </div>
+
               <div
                 class="flex min-w-0 flex-1 flex-col p-5
                        [overflow-wrap:anywhere]
@@ -284,8 +293,11 @@
                          max-[768px]:mb-2 max-[768px]:gap-1
                          max-[480px]:text-[11px]"
                 >
-                  <time :datetime="article.date || undefined">
-                    {{ formatDate(article.date) }}
+                  <time
+                    :datetime="article.addedAt || undefined"
+                    :title="addedTimeTitle(article)"
+                  >
+                    {{ formatAddedTime(article.addedAt) }}
                   </time>
 
                   <span aria-hidden="true">•</span>
@@ -302,10 +314,10 @@
                 </h3>
 
                 <p
+                  v-if="article.description"
                   class="mt-3 text-sm leading-7 text-(--muted-color)
                          max-[768px]:mt-2 max-[768px]:text-xs
-                         max-[768px]:leading-5
-                         max-[480px]:line-clamp-3"
+                         max-[768px]:leading-5 max-[480px]:line-clamp-3"
                 >
                   {{ article.description }}
                 </p>
@@ -317,11 +329,10 @@
                   <button
                     type="button"
                     :aria-label="`Read more: ${article.title}`"
-                    class="inline-flex min-h-11 items-center gap-2 rounded
-                           text-sm font-semibold text-indigo-400
-                           transition-colors hover:text-indigo-300
-                           in-[.ligh-mode]:text-indigo-700
-                           in-[.ligh-mode]:hover:text-indigo-900
+                    class="inline-flex min-h-11 cursor-pointer items-center
+                           gap-2 rounded text-sm font-semibold
+                           text-indigo-500 transition-colors
+                           hover:text-indigo-400
                            focus-visible:outline-2
                            focus-visible:outline-indigo-500
                            max-[768px]:text-xs max-[414px]:gap-1"
@@ -338,7 +349,6 @@
       </section>
     </div>
 
-    <!-- Article popup -->
     <dialog
       ref="articleDialog"
       aria-labelledby="article-title"
@@ -361,30 +371,26 @@
       <div v-if="selectedArticle" class="min-w-0">
         <div
           class="sticky top-0 z-10 flex items-center justify-between gap-4
-                 border-b border-(--border-color)
-                 bg-(--surface-bg) px-5 py-4
-                 transition-colors duration-300 sm:px-8
+                 border-b border-(--border-color) bg-(--surface-bg)
+                 px-5 py-4 transition-colors duration-300 sm:px-8
                  max-[768px]:px-5
                  max-[600px]:px-4 max-[600px]:py-3
                  max-[480px]:gap-3 max-[480px]:px-3
                  max-[320px]:gap-2 max-[320px]:px-2.5"
         >
           <span
-            class="font-semibold text-indigo-400
-                   in-[.ligh-mode]:text-indigo-700
-                   max-[480px]:text-sm"
+            class="font-semibold text-indigo-500 max-[480px]:text-sm"
           >
-            {{ selectedArticle.link ? 'Article Summary' : 'Full Article' }}
+            Article Summary
           </span>
 
           <button
             type="button"
             autofocus
-            class="shrink-0 rounded-lg bg-(--input-bg) px-4 py-2
-                   text-sm font-medium text-(--text-color)
+            class="shrink-0 cursor-pointer rounded-lg bg-(--input-bg)
+                   px-4 py-2 text-sm font-medium text-(--text-color)
                    transition-colors hover:bg-(--hover-bg)
-                   focus-visible:outline-2
-                   focus-visible:outline-indigo-500
+                   focus-visible:outline-2 focus-visible:outline-indigo-500
                    max-[480px]:px-3"
             @click="closeArticle"
           >
@@ -396,20 +402,23 @@
           class="p-5 sm:p-8 max-[768px]:p-6 max-[600px]:p-5
                  max-[480px]:p-4 max-[414px]:p-3.5 max-[320px]:p-3"
         >
+          <!-- Full dates and times appear inside Read More. -->
           <div
-            class="mb-4 flex flex-wrap gap-2
-                   text-sm text-(--muted-color)
-                   [overflow-wrap:anywhere]
-                   max-[480px]:mb-3 max-[480px]:text-xs"
-          >
-            <time :datetime="selectedArticle.date || undefined">
-              {{ formatDate(selectedArticle.date) }}
-            </time>
+  class="mb-4 space-y-2 text-sm text-(--muted-color)
+         [overflow-wrap:anywhere]
+         max-[480px]:mb-3 max-[480px]:text-xs"
+>
+  <p class="font-semibold">
+    {{ selectedArticle.author }}
+  </p>
 
-            <span aria-hidden="true">•</span>
-            <span>{{ selectedArticle.author }}</span>
-          </div>
-
+  <p>
+    added at
+    <time :datetime="selectedArticle.addedAt || undefined">
+      {{ formatFullDate(selectedArticle.addedAt) }}
+    </time>
+  </p>
+</div>
           <h2
             id="article-title"
             class="text-2xl font-bold leading-tight sm:text-3xl
@@ -422,12 +431,26 @@
           </h2>
 
           <img
+            v-if="hasUsableImage(selectedArticle)"
+            :key="`${selectedArticle.id}-${selectedArticle.image}`"
             :src="selectedArticle.image"
             alt=""
             class="mt-6 aspect-video w-full rounded-xl
                    bg-(--input-bg) object-cover
                    max-[600px]:mt-5 max-[480px]:mt-4 max-[320px]:mt-3"
+            @error="handleImageError(selectedArticle)"
           />
+
+          <div
+            v-else
+            class="mt-6 flex aspect-video w-full items-center
+                   justify-center rounded-xl bg-(--input-bg)
+                   px-4 text-center text-sm text-(--muted-color)
+                   max-[600px]:mt-5 max-[480px]:mt-4
+                   max-[480px]:text-xs max-[320px]:mt-3"
+          >
+            No image available
+          </div>
 
           <p
             class="mt-6 whitespace-pre-line break-words
@@ -446,14 +469,12 @@
             :href="selectedArticle.link"
             target="_blank"
             rel="noopener noreferrer"
-            class="mt-5 inline-flex min-h-11 items-center gap-2
-                   rounded text-sm font-semibold text-indigo-400
-                   underline hover:text-indigo-300
-                   in-[.ligh-mode]:text-indigo-700
-                   focus-visible:outline-2
-                   focus-visible:outline-indigo-500"
+            class="mt-5 inline-flex min-h-11 items-center gap-2 rounded
+                   text-sm font-semibold text-indigo-500 underline
+                   hover:text-indigo-400
+                   focus-visible:outline-2 focus-visible:outline-indigo-500"
           >
-            Read full article at source
+            Read full article at {{ selectedArticle.author }}
             <span aria-hidden="true">↗</span>
           </a>
         </div>
@@ -461,173 +482,313 @@
     </dialog>
 
     <impactnews />
+    <NewsSignal @subscribe="forwardSubscription" />
   </main>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue'
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+
 import impactnews from '../components/impactnew.vue'
-import { getCryptoNews } from '../api/cryptoNews.js'
-import { getMarketNews } from '../api/marketNews.js'
-// Marketaux is fetched here directly.
-// No marketNews.js import is required.
-const categories = [
-  { value: 'all', label: 'All' },
-  { value: 'crypto', label: 'Crypto' },
-  { value: 'economy', label: 'Economy' },
-  { value: 'markets', label: 'Markets' },
-  { value: 'business', label: 'Business' },
-  { value: 'forex', label: 'Forex' },
+import NewsSignal from '../components/NewsSignal.vue'
+
+const route = useRoute()
+const emit = defineEmits(['subscribe'])
+
+function forwardSubscription(...args) {
+  emit('subscribe', ...args)
+}
+
+const BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+)
+  .trim()
+  .replace(/\/+$/, '')
+
+const REFRESH_INTERVAL = 5 * 60 * 1000
+const RELATIVE_TIME_INTERVAL = 10 * 1000
+
+const ALL_CATEGORIES = [
+  'economy',
+  'markets',
+  'forex',
+  'crypto',
 ]
 
-const selectedCategory = ref('all')
+let newsRefreshTimer = null
+let relativeTimeTimer = null
+let disposed = false
+
+const activeRequests = new Set()
+const relativeNow = ref(Date.now())
+
+const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', {
+  numeric: 'always',
+})
+
+const relativeUnits = [
+  { name: 'year', seconds: 365 * 24 * 60 * 60 },
+  { name: 'month', seconds: 30 * 24 * 60 * 60 },
+  { name: 'week', seconds: 7 * 24 * 60 * 60 },
+  { name: 'day', seconds: 24 * 60 * 60 },
+  { name: 'hour', seconds: 60 * 60 },
+  { name: 'minute', seconds: 60 },
+]
+
+const categories = [
+  { value: 'all', label: 'All' },
+  { value: 'economy', label: 'Economy' },
+  { value: 'markets', label: 'Markets' },
+  { value: 'insider', label: 'Insider Trading' },
+  { value: 'forex', label: 'Forex' },
+  { value: 'crypto', label: 'Crypto' },
+]
+
+const feedDefinitions = [
+  {
+    key: 'economy',
+    label: 'economy',
+    endpoint: '/api/investing-news',
+  },
+  {
+    key: 'markets',
+    label: 'stock market',
+    endpoint: '/api/investing-news/markets',
+  },
+  {
+    key: 'insider',
+    label: 'insider trading',
+    endpoint: '/api/investing-news/insider',
+  },
+  {
+    key: 'forex',
+    label: 'forex',
+    endpoint: '/api/investing-news/forex',
+  },
+  {
+    key: 'crypto',
+    label: 'crypto',
+    endpoint: '/api/investing-news/crypto',
+  },
+]
+
 const newsScroll = ref(null)
 const selectedArticle = ref(null)
 const articleDialog = ref(null)
+const news = ref([])
+const brokenImages = reactive(new Set())
 
-const cryptoLoading = ref(false)
-const cryptoError = ref('')
-const marketLoading = ref(false)
-const marketError = ref('')
+const feedState = reactive(
+  Object.fromEntries(
+    feedDefinitions.map((feed) => [
+      feed.key,
+      {
+        loading: false,
+        error: '',
+        stale: false,
+      },
+    ]),
+  ),
+)
 
-// Existing sample articles.
-const news = ref([
-  {
-    id: 1,
-    category: 'markets',
-    title: 'Global markets: what traders are watching',
-    date: '2026-09-27',
-    author: 'CMM-FT Team',
-    image: '/images/news/markets.jpg',
-    description:
-      'A market briefing covering stock indices, currencies, and upcoming economic events.',
-    content:
-      'This is a sample article.\n\nAdd your full market report here, including verified information and references to your sources.',
-  },
-  {
-    id: 2,
-    category: 'economy',
-    title: 'Interest rates and their role in the economy',
-    date: '2026-09-26',
-    author: 'CMM-FT Team',
-    image: '/images/news/economy.jpg',
-    description:
-      'Explore how changes in interest rates can affect borrowing, spending, and financial markets.',
-    content:
-      'This is a sample article.\n\nReplace this text with your economic news report or educational explanation.',
-  },
-  {
-    id: 3,
-    category: 'business',
-    title: 'Company earnings: key figures to follow',
-    date: '2026-09-25',
-    author: 'CMM-FT Team',
-    image: '/images/news/business.jpg',
-    description:
-      'An introduction to revenue, profits, and company outlooks during earnings season.',
-    content:
-      'This is a sample article.\n\nAdd your company news, earnings figures, and source references here.',
-  },
-  {
-    id: 4,
-    category: 'crypto',
-    title: 'Understanding volatility in crypto markets',
-    date: '2026-09-24',
-    author: 'CMM-FT Team',
-    image: '/images/news/crypto.jpg',
-    description:
-      'Learn about the factors that can influence price movements across digital assets.',
-    content:
-      'This is a sample article.\n\nAdd your cryptocurrency market coverage here.',
-  },
-  {
-    id: 5,
-    category: 'forex',
-    title: 'Gold and currencies: a market overview',
-    date: '2026-09-23',
-    author: 'CMM-FT Team',
-    image: '/images/news/gold.jpg',
-    description:
-      'Explore the relationship between gold, currency movements, and market expectations.',
-    content:
-      'This is a sample article.\n\nWrite your gold and foreign exchange report here.',
-  },
-  {
-    id: 6,
-    category: 'economy',
-    title: 'Reading the economic calendar',
-    date: '2026-09-22',
-    author: 'CMM-FT Team',
-    image: '/images/news/calendar.jpg',
-    description:
-      'A guide to tracking inflation releases, employment data, and central bank announcements.',
-    content:
-      'This is a sample article.\n\nAdd your economic calendar preview and verified event details here.',
-  },
-])
+const selectedCategory = computed(() => {
+  const category = route.params.category
+
+  return categories.some((item) => item.value === category)
+    ? category
+    : 'all'
+})
+
+function categoryLocation(category) {
+  const prefix = route.params.lang === 'km' ? '/km' : ''
+
+  return {
+    path:
+      category === 'all'
+        ? `${prefix}/news`
+        : `${prefix}/news/${category}`,
+    query: route.query,
+  }
+}
+
+function belongsToSelectedCategory(category) {
+  return selectedCategory.value === 'all'
+    ? ALL_CATEGORIES.includes(category)
+    : category === selectedCategory.value
+}
+
+const feedStatuses = computed(() =>
+  feedDefinitions
+    .filter((feed) => belongsToSelectedCategory(feed.key))
+    .map((feed) => ({
+      key: feed.key,
+      label: feed.label,
+      ...feedState[feed.key],
+      retry: () => loadInvestingFeed(feed.key, feed.endpoint),
+    })),
+)
+
+const selectedFeedLoading = computed(() =>
+  feedStatuses.value.some((feed) => feed.loading),
+)
+
+function safeUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return ''
+
+  try {
+    const url = new URL(value.trim())
+
+    return ['https:', 'http:'].includes(url.protocol)
+      ? url.href
+      : ''
+  } catch {
+    return ''
+  }
+}
+
+function normalizeDate(value) {
+  if (!value) return null
+
+  const date = new Date(value)
+
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toISOString()
+}
 
 function articleTimestamp(value) {
   if (!value) return 0
 
   const timestamp = new Date(value).getTime()
+
   return Number.isFinite(timestamp) ? timestamp : 0
 }
 
-const latestNews = computed(() =>
-  [...news.value].sort(
-    (a, b) => articleTimestamp(b.date) - articleTimestamp(a.date),
-  ),
-)
-
-const filteredNews = computed(() =>
-  selectedCategory.value === 'all'
-    ? latestNews.value
-    : latestNews.value.filter(
-        (article) => article.category === selectedCategory.value,
-      ),
-)
-
-const breakingNews = computed(() => latestNews.value[0])
-
-async function selectCategory(category) {
-  selectedCategory.value = category
-
-  await nextTick()
-
-  if (newsScroll.value) {
-    newsScroll.value.scrollTop = 0
-  }
+function updateRelativeTime() {
+  relativeNow.value = Date.now()
 }
 
-function formatDate(value) {
-  if (!value) return 'Date unavailable'
+function formatAddedTime(value) {
+  if (!value) return 'Added time unavailable'
+
+  const timestamp = new Date(value).getTime()
+
+  if (!Number.isFinite(timestamp)) {
+    return 'Added time unavailable'
+  }
+
+  const difference = timestamp - relativeNow.value
+
+  if (difference >= 60000) {
+    return 'Added time unavailable'
+  }
+
+  const seconds = Math.floor(
+    Math.max(0, -difference) / 1000,
+  )
+
+  if (seconds < 60) {
+    return 'Added just now'
+  }
+
+  const unit = relativeUnits.find(
+    (item) => seconds >= item.seconds,
+  )
+
+  const amount = Math.floor(seconds / unit.seconds)
+
+  return `Added ${relativeTimeFormatter.format(-amount, unit.name)}`
+}
+
+// Full date and time in the visitor's device timezone.
+function formatFullDate(value) {
+  if (!value) return 'Time unavailable'
 
   const date = new Date(value)
 
   if (Number.isNaN(date.getTime())) {
-    return 'Date unavailable'
+    return 'Time unavailable'
   }
 
-  const options = {
+  return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
-  }
-
-  // Sample articles contain only a date; do not invent a time.
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    options.hour = '2-digit'
-    options.minute = '2-digit'
-    options.hour12 = true
-  }
-
-  return new Intl.DateTimeFormat('en-GB', options).format(date)
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short',
+  }).format(date)
 }
 
+function addedTimeTitle(article) {
+  return `First added to this website: ${formatFullDate(article.addedAt)}`
+}
+
+function hasUsableImage(article) {
+  return Boolean(
+    article?.image && !brokenImages.has(article.image),
+  )
+}
+
+function handleImageError(article) {
+  if (article?.image) {
+    brokenImages.add(article.image)
+  }
+}
+
+const latestNews = computed(() =>
+  [...news.value].sort(
+    (a, b) =>
+      articleTimestamp(b.publishedAt) -
+        articleTimestamp(a.publishedAt) ||
+      articleTimestamp(b.addedAt) -
+        articleTimestamp(a.addedAt),
+  ),
+)
+
+const filteredNews = computed(() =>
+  latestNews.value.filter((article) =>
+    belongsToSelectedCategory(article.category),
+  ),
+)
+
+const breakingNews = computed(() =>
+  latestNews.value.find((article) =>
+    ALL_CATEGORIES.includes(article.category),
+  ),
+)
+
+watch(
+  () => route.params.category,
+  async () => {
+    closeArticle()
+    await nextTick()
+
+    if (newsScroll.value) {
+      newsScroll.value.scrollTop = 0
+    }
+  },
+)
+
 async function openArticle(article) {
+  if (!article || disposed) return
+
+  updateRelativeTime()
   selectedArticle.value = article
 
   await nextTick()
+
+  if (disposed) return
 
   const dialog = articleDialog.value
 
@@ -654,79 +815,171 @@ function closeOnBackdrop(event) {
     event.clientY < rect.top ||
     event.clientY > rect.bottom
 
-  if (outside) {
-    closeArticle()
+  if (outside) closeArticle()
+}
+
+function replaceProviderArticles(provider, articles) {
+  const otherNews = news.value.filter(
+    (article) => article.provider !== provider,
+  )
+
+  const uniqueArticles = [
+    ...new Map(
+      articles.map((article) => [article.id, article]),
+    ).values(),
+  ]
+
+  news.value = [...otherNews, ...uniqueArticles]
+
+  if (selectedArticle.value?.provider === provider) {
+    const selectedId = selectedArticle.value.id
+
+    const updatedArticle = uniqueArticles.find(
+      (article) => article.id === selectedId,
+    )
+
+    if (updatedArticle) {
+      selectedArticle.value = updatedArticle
+    }
   }
 }
 
-async function loadCryptoNews() {
-  if (cryptoLoading.value) return
+async function loadInvestingFeed(category, endpoint) {
+  const state = feedState[category]
+  const provider = `investing-${category}`
 
-  cryptoLoading.value = true
-  cryptoError.value = ''
+  if (disposed || state.loading) return
+
+  state.loading = true
+  state.error = ''
+
+  const controller = new AbortController()
+  activeRequests.add(controller)
+
+  const requestTimeout = window.setTimeout(() => {
+    controller.abort()
+  }, 20000)
 
   try {
-    const data = await getCryptoNews()
+    const response = await fetch(`${BASE_URL}${endpoint}`, {
+      signal: controller.signal,
+      cache: 'no-store',
+    })
 
-    if (!data || !Array.isArray(data.articles)) {
-      throw new Error('API response does not contain articles')
+    const data = await response.json().catch(() => null)
+
+    if (!response.ok || !data?.success) {
+      throw new Error(
+        data?.message ||
+          `Unable to load ${category} news (HTTP ${response.status}).`,
+      )
     }
 
-    const cryptoArticles = data.articles.map((item, index) => ({
-      id: `crypto-${index + 1}`,
-      category: 'crypto',
-      title: item.title || 'Crypto News',
-      date: item.pubDate || null,
-      author: item.source || 'Crypto News',
-      image: item.imageUrl || '/images/news/crypto.jpg',
-      description: item.description || 'Latest cryptocurrency news.',
-      content: item.description || 'Latest cryptocurrency news.',
-      link: item.link || '',
-    }))
+    if (!Array.isArray(data.news)) {
+      throw new Error(`Invalid ${category} news response.`)
+    }
 
-    const otherNews = news.value.filter(
-      (article) => article.category !== 'crypto',
-    )
+    const articles = data.news
+      .filter(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          !(
+            category === 'crypto' &&
+            /ETH\s+Gas\s*:/i.test(item.title || '')
+          ),
+      )
+      .map((item, index) => ({
+        id: `${provider}-${item.id || item.link || index}`,
+        provider,
+        category,
+        title: item.title || 'Latest News',
 
-    news.value = [...otherNews, ...cryptoArticles]
+        addedAt: normalizeDate(item.addedAt),
+        publishedAt: normalizeDate(item.publishedAt),
+
+        author: item.source || 'Investing.com',
+        image: safeUrl(item.image),
+        description: item.description || '',
+        content:
+          item.description ||
+          'Read the full article at Investing.com.',
+        link: safeUrl(item.link),
+      }))
+
+    if (disposed) return
+
+    replaceProviderArticles(provider, articles)
+    state.stale = Boolean(data.stale)
+    updateRelativeTime()
   } catch (error) {
-    console.error('Crypto news error:', error)
-    cryptoError.value = 'Unable to load crypto news.'
+    if (disposed) return
+
+    console.error(`${category} news error:`, error)
+
+    state.error =
+      error.name === 'AbortError'
+        ? `${category.charAt(0).toUpperCase() + category.slice(1)} news request timed out. Please retry.`
+        : error.message || `Unable to load ${category} news.`
   } finally {
-    cryptoLoading.value = false
+    window.clearTimeout(requestTimeout)
+    activeRequests.delete(controller)
+    state.loading = false
   }
 }
-async function loadMarketNews() {
-  if (marketLoading.value) return
 
-  marketLoading.value = true
-  marketError.value = ''
+function refreshAllFeeds() {
+  return Promise.allSettled(
+    feedDefinitions.map((feed) =>
+      loadInvestingFeed(feed.key, feed.endpoint),
+    ),
+  )
+}
 
-  try {
-    const marketArticles = await getMarketNews()
-
-    const otherNews = news.value.filter(
-      (article) => article.category !== 'markets',
-    )
-
-    news.value = [...otherNews, ...marketArticles]
-  } catch (error) {
-    marketError.value = error.message || 'Unable to load market news.'
-  } finally {
-    marketLoading.value = false
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    updateRelativeTime()
+    refreshAllFeeds()
   }
 }
-function handleImageError(event) {
-  const image = event.target
 
-  // Prevent repeated retries if the fallback also fails.
-  if (image.dataset.fallbackApplied) return
-
-  image.dataset.fallbackApplied = 'true'
-  image.src = '/images/news/default.jpg'
-}
 onMounted(() => {
-  loadCryptoNews()
-  loadMarketNews()
+  updateRelativeTime()
+  refreshAllFeeds()
+
+  relativeTimeTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      updateRelativeTime()
+    }
+  }, RELATIVE_TIME_INTERVAL)
+
+  newsRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      refreshAllFeeds()
+    }
+  }, REFRESH_INTERVAL)
+
+  document.addEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+})
+
+onUnmounted(() => {
+  disposed = true
+
+  window.clearInterval(relativeTimeTimer)
+  window.clearInterval(newsRefreshTimer)
+
+  document.removeEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+
+  for (const controller of activeRequests) {
+    controller.abort()
+  }
+
+  activeRequests.clear()
 })
 </script>

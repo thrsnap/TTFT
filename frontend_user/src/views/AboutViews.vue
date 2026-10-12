@@ -14,8 +14,9 @@
              max-[480px]:mb-4 max-[480px]:text-[1.75rem]
              max-[414px]:mb-3 max-[414px]:text-[1.5rem]
              max-[320px]:mb-2 max-[320px]:text-[1.3rem]"
+             :class="language === 'km' ? 'font-khmer' : 'font-sans'"
     >
-      About Me
+      {{ t('About.title') }}
     </h2>
 
     <!-- Profile photo -->
@@ -51,8 +52,9 @@
                max-[480px]:text-[1.4rem]
                max-[414px]:text-[1.25rem]
                max-[320px]:text-[1.1rem]"
+               :class="language === 'km' ? 'font-khmer' : 'font-sans'"
       >
-        Independent Trader
+        {{ t('About.independent') }} 
       </h3>
 
       <p
@@ -63,14 +65,13 @@
                max-[414px]:text-[13px]
                max-[320px]:mt-2 max-[320px]:mb-4
                max-[320px]:text-xs max-[320px]:leading-5"
+               :class="language === 'km' ? 'font-khmer' : 'font-sans'"
       >
-        I'm Thun Tula, with 6 years of experience in the Forex trading industry.
+        {{ t('About.descrip1') }}
         <br class="max-[768px]:hidden" />
-        Currently, I trade independently and am the creator of Creator Of
-        Money Mentorship,
+        {{ t('About.descrip2') }}
         <br class="max-[768px]:hidden" />
-        where I share trading knowledge and help others build confidence
-        and skills in the financial markets.
+         {{ t('About.descrip3') }}
       </p>
 
       <strong
@@ -84,9 +85,11 @@
                max-[600px]:text-[1.3rem]
                max-[480px]:text-[1.1rem]
                max-[414px]:text-base
-               max-[320px]:text-sm"
+               max-[320px]:text-sm " 
+              :class="language === 'km' ? 'font-khmer' : 'font-sans'"
+
       >
-        I am a student of The Inner circle Trader!
+       {{ t('About.descrip4') }}
         <FontAwesomeIcon :icon="faCircleCheck" class="text-blue-500" />
       </strong>
 
@@ -116,4 +119,9 @@
 <script setup>
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { faCircleCheck } from '@fortawesome/free-solid-svg-icons'
+import { useI18n } from 'vue-i18n'
+
+const { t, locale: language } = useI18n({
+  useScope: 'global',
+})
 </script>

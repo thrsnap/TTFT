@@ -29,7 +29,7 @@ const dashboardLink = computed(() => ({
         <div><dt class="text-sm opacity-65">Username</dt><dd class="mt-2 break-all font-semibold">{{ auth.user?.username || '—' }}</dd></div>
         <div><dt class="text-sm opacity-65">Email address</dt><dd class="mt-2 break-all font-semibold">{{ auth.user?.email || '—' }}</dd></div>
       </dl>
-      <RouterLink :to="dashboardLink" class="mt-8 inline-block rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-500">Go to my dashboard</RouterLink>
+      <RouterLink :to="dashboardLink" class="mt-8 inline-block rounded-xl bg-gray-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500">Go to my dashboard</RouterLink>
     </section>
   </main>
 </template>

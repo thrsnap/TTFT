@@ -45,7 +45,7 @@
     </p>
 
     <RouterLink
-      to="/login"
+      to=""
       class="mt-8 inline-flex items-center justify-center
              rounded-xl bg-emerald-100 px-7 py-3 font-semibold
              text-slate-950 transition duration-300

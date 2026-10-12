@@ -11,8 +11,21 @@ import AuthViews from '../views/AuthViews.vue'
 import CollaborateViews from '../views/CollaborateViews.vue'
 import ForgotPasswordViews from '../views/ForgotPasswordViews.vue'
 import ProfileViews from '../views/user/ProfileViews.vue'
-
 import { useAuthStore } from '../store/user/authStore.js'
+import PaymentViews from '../views/user/PaymentViews.vue'
+
+import DashboardLayout from '../layouts/DashbordLayout.vue'
+import DashboardHome from '../views/user/DashboardHome.vue'
+import MyCourses from '../views/user/Mycourse.vue'
+import MyNewsSignals from '../views/user/MyNewsSignal.vue'
+import MyChallenges from '../views/user/MyChallenges.vue'
+
+
+
+import CoursePayment from '../views/CoursePayment.vue'
+import CourseLessons from '../views/CourseLessons.vue'
+import MySupport from '../views/user/MySupport.vue'
+
 
 const pages = [
   {
@@ -21,7 +34,7 @@ const pages = [
     component: HomeViews,
   },
   {
-    path: '/news',
+    path: '/:lang(km)?/news/:category(crypto|economy|markets|insider|forex)?',
     name: 'news',
     component: NewsViews,
   },
@@ -91,7 +104,7 @@ const pages = [
   {
     path: '/dashboard',
     name: 'dashboard',
-    component: () => import('../views/dashboard/DashboardHome.vue'),
+    component: DashboardHome,
     meta: { requiresAuth: true },
   },
   {
@@ -99,6 +112,57 @@ const pages = [
   name: 'reset-password',
   component: ForgotPasswordViews,
   props: { mode: 'reset-password' },
+},
+{
+  path: '/:lang(km)?/payment',
+  name: 'payment',
+  component: PaymentViews,
+  meta: { requiresAuth: true },
+},
+{
+  path: '/:lang(km)?/dashboard',
+  component: DashboardLayout,
+  meta: { requiresAuth: true,
+    hidePublicLayout:true,
+   },
+  children: [
+    {
+      path: '',
+      name: 'dashboard',
+      component: DashboardHome,
+    },
+    {
+      path: 'courses',
+      name: 'my-courses',
+      component: MyCourses,
+    },
+    {
+      path: 'news-signals',
+      name: 'my-news-signals',
+      component: MyNewsSignals,
+    },
+    {
+      path: 'challenges',
+      name: 'my-challenges',
+      component: MyChallenges,
+    },
+    {
+  path: '/:lang(km)?/payment/course/:courseId',
+  name: 'course-payment',
+  component: CoursePayment,
+},
+{
+  path: '/:lang(km)?/academy/course/:courseId/lessons',
+  name: 'course-lessons',
+  component: CourseLessons,
+},
+{
+  path: 'support',
+  name: 'my-support',
+  component: MySupport,
+  meta: { requiresAuth: true },
+}
+  ],
 },
 ]
 

@@ -86,8 +86,6 @@ onUnmounted(() => {
   My profile
 </RouterLink>
           <RouterLink :to="dashboardLink('')" class="block rounded-lg px-3 py-2.5 text-sm hover:bg-white/10" @click="close">My dashboard</RouterLink>
-          <RouterLink :to="dashboardLink('#my-courses')" class="block rounded-lg px-3 py-2.5 text-sm hover:bg-white/10" @click="close">My courses</RouterLink>
-          <RouterLink :to="dashboardLink('#my-challenges')" class="block rounded-lg px-3 py-2.5 text-sm hover:bg-white/10" @click="close">My challenges</RouterLink>
         </nav>
         <div class="border-t border-white/10 p-2">
           <button type="button" :disabled="busy" class="w-full cursor-pointer rounded-lg px-3 py-2.5 text-left text-sm text-red-300 hover:bg-red-500/10 disabled:opacity-50" @click="logout">{{ busy ? 'Logging out…' : 'Logout' }}</button>

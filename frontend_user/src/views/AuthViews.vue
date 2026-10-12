@@ -8,12 +8,20 @@ import {
   onBeforeUnmount,
 } from 'vue'
 
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import {
+  RouterLink,
+  useRoute,
+  useRouter,
+} from 'vue-router'
+
 import { useAuthStore } from '../store/user/authStore.js'
 import { renderGoogleSignIn } from '../api/googleSingin.js'
 
 const props = defineProps({
-  mode: { type: String, default: 'login' },
+  mode: {
+    type: String,
+    default: 'login',
+  },
 })
 
 const route = useRoute()
@@ -57,19 +65,71 @@ const brandImage = `${import.meta.env.BASE_URL}Profile.jpg`
 function localizedRoute(name) {
   return {
     name,
-    params: route.params.lang ? { lang: route.params.lang } : {},
+    params:
+      route.params.lang === 'km'
+        ? { lang: 'km' }
+        : {},
   }
 }
 
 function localizedPath(path) {
-  return route.params.lang ? `/${route.params.lang}${path}` : path
+  return route.params.lang === 'km'
+    ? `/km${path}`
+    : path
+}
+
+// Accept only the payment and course destinations used by your app.
+function subscriptionRedirect() {
+  const redirect = route.query.redirect
+
+  if (typeof redirect !== 'string') return null
+
+  // Existing subscription payment page.
+  if (['/payment', '/km/payment'].includes(redirect)) {
+    return redirect
+  }
+
+  // Course payment page.
+  const coursePayment =
+    /^\/(?:km\/)?payment\/course\/[a-f0-9]{24}$/i
+
+  // Course lessons page.
+  const courseLessons =
+    /^\/(?:km\/)?academy\/course\/[a-f0-9]{24}\/lessons$/i
+
+  if (
+    coursePayment.test(redirect) ||
+    courseLessons.test(redirect)
+  ) {
+    return redirect
+  }
+
+  return null
+}
+
+// Preserve the destination when switching between authentication pages.
+function authRoute(name) {
+  const redirect = subscriptionRedirect()
+
+  return {
+    ...localizedRoute(name),
+    query: redirect ? { redirect } : {},
+  }
+}
+
+async function redirectAfterLogin() {
+  const redirect = subscriptionRedirect()
+
+  await router.replace(
+    redirect || localizedRoute('home'),
+  )
 }
 
 async function openVerification(email, notice) {
   sessionStorage.setItem('verificationEmail', email)
   sessionStorage.setItem('verificationNotice', notice)
 
-  await router.push(localizedRoute('verify-email'))
+  await router.push(authRoute('verify-email'))
 }
 
 async function handleSubmit() {
@@ -97,7 +157,8 @@ async function handleSubmit() {
   }
 
   if (new TextEncoder().encode(form.password).length > 72) {
-    error.value = 'Password is too long. Use at most 72 UTF-8 bytes.'
+    error.value =
+      'Password is too long. Use at most 72 UTF-8 bytes.'
     return
   }
 
@@ -116,24 +177,35 @@ async function handleSubmit() {
 
       await openVerification(
         result.email,
-        result.message || 'Check your email for the verification code.',
+        result.message ||
+          'Check your email for the verification code.',
       )
     } else {
-      await auth.login(form.identifier.trim(), form.password)
+      await auth.login(
+        form.identifier.trim(),
+        form.password,
+      )
 
       if (disposed || props.mode !== submittedMode) return
 
-      await router.replace(localizedRoute('home'))
+      await redirectAfterLogin()
     }
   } catch (failure) {
     if (disposed || props.mode !== submittedMode) return
 
-    if (failure.data?.verificationRequired && failure.data.email) {
+    if (
+      failure.data?.verificationRequired &&
+      failure.data.email
+    ) {
       try {
-        await openVerification(failure.data.email, failure.message)
+        await openVerification(
+          failure.data.email,
+          failure.message,
+        )
       } catch (navigationError) {
         error.value =
-          navigationError.message || 'Cannot open the verification page.'
+          navigationError.message ||
+          'Cannot open the verification page.'
       }
     } else {
       error.value =
@@ -154,7 +226,8 @@ async function handleGoogleResponse(response) {
   googleError.value = ''
 
   if (!response?.credential) {
-    googleError.value = 'Google did not return a sign-in token.'
+    googleError.value =
+      'Google did not return a sign-in token.'
     return
   }
 
@@ -172,27 +245,33 @@ async function handleGoogleResponse(response) {
 
     if (disposed || props.mode !== submittedMode) return
 
-    await router.replace(localizedRoute('home'))
+    await redirectAfterLogin()
   } catch (failure) {
     if (disposed || props.mode !== submittedMode) return
 
     googleError.value =
-      failure.message || 'Google sign-in failed. Please try again.'
+      failure.message ||
+      'Google sign-in failed. Please try again.'
   } finally {
     busy.value = false
   }
 }
 
 function initializeGoogle() {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim()
+  const clientId =
+    import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim()
 
   if (!clientId) {
     googleLoading.value = false
-    googleError.value = 'Missing VITE_GOOGLE_CLIENT_ID in frontend .env.'
+    googleError.value =
+      'Missing VITE_GOOGLE_CLIENT_ID in frontend .env.'
     return true
   }
 
-  if (!window.google?.accounts?.id || !googleButton.value) {
+  if (
+    !window.google?.accounts?.id ||
+    !googleButton.value
+  ) {
     return false
   }
 
@@ -204,7 +283,8 @@ function initializeGoogle() {
     )
   } catch (failure) {
     googleError.value =
-      failure.message || 'Could not initialize Google sign-in.'
+      failure.message ||
+      'Could not initialize Google sign-in.'
   }
 
   googleLoading.value = false
@@ -247,6 +327,7 @@ watch(
     })
 
     error.value = ''
+    googleError.value = ''
     showPassword.value = false
   },
 )
@@ -254,27 +335,38 @@ watch(
 
 <template>
   <main
-    class="relative isolate flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-5 py-16 text-white"
+    class="relative isolate flex min-h-screen
+           items-center justify-center overflow-hidden
+           bg-slate-950 px-5 py-16 text-white"
   >
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute -left-24 top-20 -z-10 h-80 w-80 rounded-full bg-indigo-600/20 blur-3xl"
+      class="pointer-events-none absolute -left-24
+             top-20 -z-10 h-80 w-80 rounded-full
+             bg-indigo-600/20 blur-3xl"
     ></div>
 
     <div
       aria-hidden="true"
-      class="pointer-events-none absolute -right-24 bottom-10 -z-10 h-80 w-80 rounded-full bg-emerald-500/10 blur-3xl"
+      class="pointer-events-none absolute -right-24
+             bottom-10 -z-10 h-80 w-80 rounded-full
+             bg-emerald-500/10 blur-3xl"
     ></div>
 
     <section
-      class="w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/80 p-6 shadow-2xl backdrop-blur-xl sm:p-10"
+      class="w-full max-w-md rounded-3xl
+             border border-white/10 bg-slate-900/80
+             p-6 shadow-2xl backdrop-blur-xl sm:p-10"
     >
       <RouterLink
         :to="localizedRoute('home')"
         class="mb-8 flex items-center justify-center gap-3"
       >
         <span
-          class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-400"
+          class="flex h-11 w-11 shrink-0 items-center
+                 justify-center overflow-hidden rounded-xl
+                 bg-gradient-to-br from-indigo-500
+                 to-emerald-400"
         >
           <img
             :src="brandImage"
@@ -290,7 +382,11 @@ watch(
 
       <header class="mb-8 text-center">
         <h1 class="text-3xl font-bold">
-          {{ isRegister ? 'Create an account' : 'Welcome back' }}
+          {{
+            isRegister
+              ? 'Create an account'
+              : 'Welcome back'
+          }}
         </h1>
 
         <p class="mt-3 text-sm text-slate-400">
@@ -300,14 +396,32 @@ watch(
               : 'Sign in to access your account.'
           }}
         </p>
+
+        <p
+          v-if="subscriptionRedirect()"
+          class="mt-3 text-sm text-amber-300"
+        >
+          {{
+            isRegister
+              ? 'Create your account to continue.'
+              : 'Sign in to continue.'
+          }}
+        </p>
       </header>
 
-      <form @submit.prevent="handleSubmit" :aria-busy="busy">
-        <fieldset :disabled="busy" class="min-w-0 space-y-5">
+      <form
+        @submit.prevent="handleSubmit"
+        :aria-busy="busy"
+      >
+        <fieldset
+          :disabled="busy"
+          class="min-w-0 space-y-5"
+        >
           <div v-if="isRegister">
             <label
               for="username"
-              class="mb-2 block text-sm font-medium text-slate-200"
+              class="mb-2 block text-sm font-medium
+                     text-slate-200"
             >
               Username
             </label>
@@ -338,7 +452,8 @@ watch(
           <div v-if="isRegister">
             <label
               for="email"
-              class="mb-2 block text-sm font-medium text-slate-200"
+              class="mb-2 block text-sm font-medium
+                     text-slate-200"
             >
               Email address
             </label>
@@ -359,7 +474,8 @@ watch(
           <div v-else>
             <label
               for="identifier"
-              class="mb-2 block text-sm font-medium text-slate-200"
+              class="mb-2 block text-sm font-medium
+                     text-slate-200"
             >
               Email or username
             </label>
@@ -380,7 +496,8 @@ watch(
           <div>
             <label
               for="password"
-              class="mb-2 block text-sm font-medium text-slate-200"
+              class="mb-2 block text-sm font-medium
+                     text-slate-200"
             >
               Password
             </label>
@@ -392,11 +509,15 @@ watch(
                 name="password"
                 :type="showPassword ? 'text' : 'password'"
                 :autocomplete="
-                  isRegister ? 'new-password' : 'current-password'
+                  isRegister
+                    ? 'new-password'
+                    : 'current-password'
                 "
                 :minlength="isRegister ? 12 : undefined"
                 :aria-describedby="
-                  isRegister ? 'password-hint' : undefined
+                  isRegister
+                    ? 'password-hint'
+                    : undefined
                 "
                 placeholder="Enter your password"
                 required
@@ -407,10 +528,18 @@ watch(
                 type="button"
                 @click="showPassword = !showPassword"
                 :aria-label="
-                  showPassword ? 'Hide password' : 'Show password'
+                  showPassword
+                    ? 'Hide password'
+                    : 'Show password'
                 "
                 :aria-pressed="showPassword"
-                class="absolute inset-y-0 right-0 rounded-r-xl px-4 text-xs font-semibold text-indigo-300 transition-colors hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+                class="absolute inset-y-0 right-0
+                       rounded-r-xl px-4 text-xs
+                       font-semibold text-indigo-300
+                       transition-colors hover:text-white
+                       focus-visible:outline
+                       focus-visible:outline-2
+                       focus-visible:outline-indigo-400"
               >
                 {{ showPassword ? 'Hide' : 'Show' }}
               </button>
@@ -425,10 +554,14 @@ watch(
             </p>
           </div>
 
-          <div v-if="!isRegister" class="flex justify-end">
+          <div
+            v-if="!isRegister"
+            class="flex justify-end"
+          >
             <RouterLink
               :to="localizedPath('/forgot-password')"
-              class="text-sm font-medium text-indigo-400 transition-colors hover:text-indigo-300"
+              class="text-sm font-medium text-indigo-400
+                     transition-colors hover:text-indigo-300"
             >
               Forgot password?
             </RouterLink>
@@ -437,7 +570,8 @@ watch(
           <div v-if="isRegister">
             <label
               for="confirm-password"
-              class="mb-2 block text-sm font-medium text-slate-200"
+              class="mb-2 block text-sm font-medium
+                     text-slate-200"
             >
               Confirm password
             </label>
@@ -450,9 +584,13 @@ watch(
               autocomplete="new-password"
               placeholder="Enter your password again"
               required
-              :aria-invalid="passwordMismatch ? 'true' : undefined"
+              :aria-invalid="
+                passwordMismatch ? 'true' : undefined
+              "
               :aria-describedby="
-                passwordMismatch ? 'confirm-hint' : undefined
+                passwordMismatch
+                  ? 'confirm-hint'
+                  : undefined
               "
               :class="inputClass"
             />
@@ -470,7 +608,9 @@ watch(
             v-if="error"
             id="form-error"
             role="alert"
-            class="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+            class="rounded-xl border border-red-400/20
+                   bg-red-500/10 px-4 py-3
+                   text-sm text-red-300"
           >
             {{ error }}
           </p>
@@ -478,7 +618,16 @@ watch(
           <button
             type="submit"
             :disabled="busy"
-            class="w-full rounded-xl bg-gradient-to-r from-indigo-600 to-emerald-500 px-5 py-3.5 font-semibold text-white shadow-lg transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-indigo-400 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60"
+            class="w-full rounded-xl bg-gradient-to-r
+                   from-indigo-600 to-emerald-500
+                   px-5 py-3.5 font-semibold text-white
+                   shadow-lg transition hover:brightness-110
+                   focus-visible:outline
+                   focus-visible:outline-2
+                   focus-visible:outline-offset-4
+                   focus-visible:outline-indigo-400
+                   active:scale-[0.99]
+                   disabled:cursor-wait disabled:opacity-60"
           >
             {{
               busy
@@ -499,26 +648,22 @@ watch(
         }}
 
         <RouterLink
-          :to="localizedRoute(isRegister ? 'login' : 'register')"
-          class="ml-1 font-semibold text-indigo-400 hover:text-indigo-300"
+          :to="authRoute(isRegister ? 'login' : 'register')"
+          class="ml-1 font-semibold text-indigo-400
+                 hover:text-indigo-300"
         >
           {{ isRegister ? 'Login' : 'Register' }}
         </RouterLink>
       </p>
 
-      <p class="mt-4 text-center">
-        <RouterLink
-          :to="localizedRoute('verify-email')"
-          class="text-sm text-indigo-400 hover:text-indigo-300"
-        >
-          Verify email / resend code
-        </RouterLink>
-      </p>
-
-      <div class="mt-7 border-t border-white/10 pt-5 text-center">
+      <div
+        class="mt-7 border-t border-white/10
+               pt-5 text-center"
+      >
         <RouterLink
           :to="localizedRoute('home')"
-          class="text-sm text-slate-400 transition-colors hover:text-white"
+          class="text-sm text-slate-400
+                 transition-colors hover:text-white"
         >
           ← Back to home
         </RouterLink>
@@ -526,12 +671,16 @@ watch(
 
       <div class="my-6 flex items-center gap-4">
         <div class="h-px flex-1 bg-white/10"></div>
-        <span class="text-xs text-slate-400">OR</span>
+        <span class="text-xs text-slate-400">
+          CONTINUE WITH
+        </span>
         <div class="h-px flex-1 bg-white/10"></div>
       </div>
 
       <div
-        :class="{ 'pointer-events-none opacity-60': busy }"
+        :class="{
+          'pointer-events-none opacity-60': busy,
+        }"
         :aria-busy="busy || googleLoading"
       >
         <div

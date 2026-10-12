@@ -9,6 +9,12 @@ import App from './App.vue'
 import './assets/main.css'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { useTheme } from './composable/useTheme.js'
+import {
+  startPageLoading,
+  stopPageLoading,
+} from './composable/usePageLoading.js'
+import { nextTick } from 'vue'
+
 
 const i18n = createI18n({
    legacy: false,
@@ -18,6 +24,30 @@ const i18n = createI18n({
     en,
     km,
   },
+})
+
+router.beforeEach(async (to, from) => {
+  if (to.fullPath === from.fullPath) return
+
+  startPageLoading()
+
+  // Update the loading component.
+  await nextTick()
+
+  // Let the browser display it before changing the page.
+  await new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(resolve)
+    })
+  })
+})
+
+router.afterEach(() => {
+  stopPageLoading()
+})
+
+router.onError(() => {
+  stopPageLoading()
 })
 const pinia = createPinia() 
 
