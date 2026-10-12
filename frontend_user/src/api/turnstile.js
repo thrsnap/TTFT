@@ -10,46 +10,57 @@ export function setLoginTurnstileToken(token) {
 }
 
 export function loadTurnstile() {
-  if (window.turnstile) {
-    return new Promise(resolve => {
-      window.turnstile.ready(resolve)
-    })
-  }
-
   if (loadingPromise) return loadingPromise
+
+  if (window.turnstile?.render) {
+    return Promise.resolve()
+  }
 
   loadingPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script')
+    const callbackName = '__cmmTurnstileLoaded'
+
+    let settled = false
 
     const timer = window.setTimeout(() => {
-      reject(new Error(
-        'Security verification could not load. Refresh to retry.',
-      ))
-    }, 15000)
+      fail('Security verification timed out. Refresh to retry.')
+    }, 30000)
 
-    script.src =
-      'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-    script.async = true
-    script.defer = true
+    function fail(message) {
+      if (settled) return
+      settled = true
 
-    script.onload = () => {
-      if (!window.turnstile) {
-        window.clearTimeout(timer)
-        reject(new Error('Security verification could not load.'))
+      window.clearTimeout(timer)
+      script.remove()
+      loadingPromise = undefined
+
+      // Safely ignore a delayed callback from this script.
+      window[callbackName] = () => {}
+
+      reject(new Error(message))
+    }
+
+    window[callbackName] = () => {
+      if (settled) return
+
+      if (!window.turnstile?.render) {
+        fail('Security verification could not initialize.')
         return
       }
 
-      window.turnstile.ready(() => {
-        window.clearTimeout(timer)
-        resolve()
-      })
+      settled = true
+      window.clearTimeout(timer)
+      resolve()
     }
 
+    script.src =
+      'https://challenges.cloudflare.com/turnstile/v0/api.js' +
+      `?render=explicit&onload=${callbackName}`
+
+    script.async = true
+
     script.onerror = () => {
-      window.clearTimeout(timer)
-      reject(new Error(
-        'Security verification could not load. Refresh to retry.',
-      ))
+      fail('Security verification could not load. Refresh to retry.')
     }
 
     document.head.appendChild(script)
