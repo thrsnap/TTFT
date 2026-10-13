@@ -97,53 +97,23 @@ onUnmounted(() => {
     class="relative text-white"
   >
     <button
-      ref="trigger"
-      type="button"
-      :aria-expanded="open"
-      :aria-label="open ? 'Close account menu' : 'Open account menu'"
-      aria-controls="user-account-dropdown"
-      class="flex cursor-pointer items-center gap-2 rounded-full
-             border border-white/15 bg-white/10 p-1.5
-             transition hover:bg-white/20
-             focus-visible:outline-2
-             focus-visible:outline-offset-2
-             focus-visible:outline-emerald-400
-             min-[1024px]:pr-3"
-      @click="open = !open"
-    >
-      <span
-        aria-hidden="true"
-        class="flex size-9 shrink-0 items-center justify-center
-               rounded-full border border-emerald-700
-               bg-emerald-950 text-sm font-semibold
-               text-emerald-400 max-[320px]:size-7"
-      >
-        {{ initial }}
-      </span>
-
-      <span
-        class="hidden max-w-28 truncate text-sm font-semibold
-               min-[1024px]:block"
-      >
-        {{ username }}
-      </span>
-
-      <svg
-        class="hidden h-4 w-4 transition-transform min-[1024px]:block"
-        :class="{ 'rotate-180': open }"
-        viewBox="0 0 20 20"
-        fill="none"
-        aria-hidden="true"
-      >
-        <path
-          d="m5 7 5 5 5-5"
-          stroke="currentColor"
-          stroke-width="1.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-    </button>
+  ref="trigger"
+  type="button"
+  :aria-expanded="open"
+  :aria-label="open ? 'Close account menu' : 'Open account menu'"
+  aria-controls="user-account-dropdown"
+  class="flex size-[54px] shrink-0 cursor-pointer
+         items-center justify-center rounded-full
+         border border-emerald-700 bg-emerald-950
+         text-xl font-semibold text-emerald-400
+         transition-colors hover:border-emerald-500
+         focus-visible:outline-2
+         focus-visible:outline-offset-2
+         focus-visible:outline-emerald-400"
+  @click="open = !open"
+>
+  {{ initial }}
+</button>
 
     <Transition
       enter-active-class="transition duration-150"
