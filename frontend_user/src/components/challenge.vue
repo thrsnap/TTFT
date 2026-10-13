@@ -122,7 +122,7 @@
 
             <!-- Register -->
             <RouterLink
-              to="/register"
+              to=""
               class="mt-6 inline-flex items-center justify-center
                      gap-2 rounded-xl bg-gray-600 px-6 py-3
                      text-sm font-semibold text-white
