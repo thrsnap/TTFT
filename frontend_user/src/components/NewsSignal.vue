@@ -1,58 +1,54 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-
 const router = useRouter()
 const route = useRoute()
-
 const BASE = (
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 ).replace(/\/+$/, '')
-
 const signals = ref([])
 const loading = ref(true)
 const error = ref('')
 const checkingSubscription = ref(false)
 const subscriptionError = ref('')
-
 const abortController = new AbortController()
 const imageUrls = new Set()
-
 let loadingRequest = false
+let refreshTimer
 
+// For locked users, the API must expose isReleased (a boolean),
+// calculated from the stored image and nonempty details, without sending details.
+function isSignalReleased(signal) {
+  if (typeof signal.isReleased === 'boolean') return signal.isReleased
+  const hasDetails = signal.hasDetails === true || (
+    typeof signal.details === 'string' && signal.details.trim().length > 0
+  )
+  const hasImage = signal.hasImage === true || Boolean(signal.imageSrc)
+  return hasDetails && hasImage
+}
 function localizedPath(path) {
   return route.params.lang === 'km' ? `/km${path}` : path
 }
-
 function validDate(value) {
   if (!value) return null
-
   const date = new Date(value)
-
   return Number.isFinite(date.getTime()) ? date : null
 }
-
 function dateTimeValue(value) {
   return validDate(value)?.toISOString()
 }
-
 function formatDate(value) {
   const date = validDate(value)
-
   if (!date) return 'Date not announced'
-
   return new Intl.DateTimeFormat('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   }).format(date)
 }
-
 function formatTime(value) {
   const date = validDate(value)
-
   if (!date) return 'Time not announced'
-
   return new Intl.DateTimeFormat('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
@@ -60,7 +56,6 @@ function formatTime(value) {
     timeZoneName: 'shortOffset',
   }).format(date)
 }
-
 async function goToSubscription() {
   if (
     checkingSubscription.value ||
@@ -68,27 +63,22 @@ async function goToSubscription() {
   ) {
     return
   }
-
   checkingSubscription.value = true
   subscriptionError.value = ''
-
   const paymentLocation = {
     path: localizedPath('/payment'),
     query: {
       product: 'news-signals-monthly',
     },
   }
-
   const paymentDestination =
     router.resolve(paymentLocation).fullPath
-
   try {
     const response = await fetch(`${BASE}/api/auth/me`, {
       credentials: 'include',
       cache: 'no-store',
       signal: abortController.signal,
     })
-
     if (response.status === 401) {
       await router.push({
         path: localizedPath('/login'),
@@ -96,16 +86,13 @@ async function goToSubscription() {
           redirect: paymentDestination,
         },
       })
-
       return
     }
-
     if (!response.ok) {
       throw new Error(
         'Unable to check your account. Please try again.',
       )
     }
-
     await router.push(paymentLocation)
   } catch (err) {
     if (err.name !== 'AbortError') {
@@ -116,12 +103,10 @@ async function goToSubscription() {
     checkingSubscription.value = false
   }
 }
-
 function clearImages() {
   imageUrls.forEach((url) => URL.revokeObjectURL(url))
   imageUrls.clear()
 }
-
 function hasConfirmedDirection(signal) {
   return (
     signal.hasAccess &&
@@ -129,20 +114,16 @@ function hasConfirmedDirection(signal) {
     ['buy', 'sell'].includes(signal.direction)
   )
 }
-
 function handleImageError(signal) {
   if (signal.imageSrc) {
     URL.revokeObjectURL(signal.imageSrc)
     imageUrls.delete(signal.imageSrc)
   }
-
   signal.imageError = true
   signal.imageSrc = ''
 }
-
 async function loadImage(signal) {
   const endpoint = signal.hasAccess ? 'image' : 'preview'
-
   try {
     const response = await fetch(
       `${BASE}/api/signals/${encodeURIComponent(signal._id)}/${endpoint}`,
@@ -152,21 +133,15 @@ async function loadImage(signal) {
         signal: abortController.signal,
       },
     )
-
     if (!response.ok) {
       throw new Error('Image unavailable')
     }
-
     const blob = await response.blob()
-
     if (!blob.type.startsWith('image/')) {
       throw new Error('Invalid image response')
     }
-
     if (abortController.signal.aborted) return
-
     const url = URL.createObjectURL(blob)
-
     imageUrls.add(url)
     signal.imageSrc = url
   } catch (err) {
@@ -175,35 +150,28 @@ async function loadImage(signal) {
     }
   }
 }
-
-async function loadSignals() {
+async function loadSignals(background = false) {
   if (abortController.signal.aborted || loadingRequest) return
-
   loadingRequest = true
-  loading.value = true
-  error.value = ''
-
+  if (!background) {
+    loading.value = true
+    error.value = ''
+  }
   try {
     const response = await fetch(`${BASE}/api/signals`, {
       credentials: 'include',
       cache: 'no-store',
       signal: abortController.signal,
     })
-
     if (!response.ok) {
       throw new Error('Unable to load signals. Please try again.')
     }
-
     const data = await response.json()
-
     if (!Array.isArray(data.signals)) {
       throw new Error('Invalid signal response.')
     }
-
     if (abortController.signal.aborted) return
-
     clearImages()
-
     signals.value = data.signals
       .filter((signal) => signal && typeof signal === 'object')
       .map((signal) => ({
@@ -218,31 +186,31 @@ async function loadSignals() {
         imageSrc: '',
         imageError: false,
       }))
-
     loading.value = false
-
     await Promise.all(signals.value.map(loadImage))
   } catch (err) {
     if (err.name !== 'AbortError') {
-      error.value = err.message || 'Unable to load signals.'
+      if (!background) error.value = err.message || 'Unable to load signals.'
     }
   } finally {
     loadingRequest = false
-
     if (!abortController.signal.aborted) {
       loading.value = false
     }
   }
 }
-
-onMounted(loadSignals)
-
+onMounted(() => {
+  loadSignals()
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') loadSignals(true)
+  }, 60_000)
+})
 onUnmounted(() => {
+  window.clearInterval(refreshTimer)
   abortController.abort()
   clearImages()
 })
 </script>
-
 <template>
   <section
     class="bg-slate-50 px-4 py-12 text-slate-900
@@ -258,16 +226,14 @@ onUnmounted(() => {
                  px-3 py-1 text-xs font-semibold text-amber-800
                  dark:bg-amber-400/10 dark:text-amber-300"
         >
-          PREMIUM TECHNICAL ANALYSIS
+          NEWS TECHNICAL ANALYSIS
         </span>
-
         <h2
           class="mt-4 text-4xl font-bold
                  max-[768px]:text-3xl max-[480px]:text-2xl"
         >
           News Signals
         </h2>
-
         <p
           class="mt-3 max-w-2xl text-sm leading-6
                  text-slate-600 dark:text-slate-400"
@@ -276,7 +242,6 @@ onUnmounted(() => {
           economic news, including CPI, NFP, and FOMC.
         </p>
       </div>
-
       <p
         v-if="subscriptionError"
         role="alert"
@@ -285,7 +250,6 @@ onUnmounted(() => {
       >
         {{ subscriptionError }}
       </p>
-
       <div
         v-if="loading"
         role="status"
@@ -295,7 +259,6 @@ onUnmounted(() => {
       >
         Loading signals…
       </div>
-
       <div
         v-else-if="error"
         role="alert"
@@ -303,16 +266,14 @@ onUnmounted(() => {
                dark:bg-red-950/30 dark:text-red-300"
       >
         <p>{{ error }}</p>
-
         <button
           type="button"
           class="mt-3 cursor-pointer font-semibold underline"
-          @click="loadSignals"
+          @click="loadSignals()"
         >
           Try again
         </button>
       </div>
-
       <div
         v-else-if="signals.length === 0"
         class="rounded-2xl border border-dashed
@@ -321,7 +282,6 @@ onUnmounted(() => {
       >
         No signals published yet.
       </div>
-
       <div
         v-else
         class="grid grid-cols-3 gap-6
@@ -352,30 +312,35 @@ onUnmounted(() => {
               >
                 {{ signal.pair }}
               </span>
-
               <span
-                class="text-xs font-semibold"
-                :class="
-                  signal.hasAccess
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-slate-500 dark:text-slate-400'
-                "
+                role="status"
+                class="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold"
+                :class="isSignalReleased(signal)
+                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300'
+                  : 'bg-red-50 text-red-700 dark:bg-red-400/10 dark:text-red-300'"
               >
-                {{ signal.hasAccess ? 'Unlocked' : 'Premium' }}
+                <span class="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+                  <span
+                    v-if="!isSignalReleased(signal)"
+                    class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60 motion-reduce:animate-none"
+                  ></span>
+                  <span
+                    class="relative inline-flex h-2.5 w-2.5 rounded-full"
+                    :class="isSignalReleased(signal) ? 'bg-emerald-500' : 'bg-red-500'"
+                  ></span>
+                </span>
+                <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'coming soon' }}</span>
               </span>
             </div>
-
             <h3 class="mt-4 break-words text-lg font-bold">
               {{ signal.title }}
             </h3>
-
             <p
               class="mt-2 text-xs font-medium
                      text-slate-500 dark:text-slate-400"
             >
               Technical Analysis
             </p>
-
             <!-- Outside the blur and subscription overlay. -->
             <div
               class="mt-4 rounded-xl border border-slate-200
@@ -388,7 +353,6 @@ onUnmounted(() => {
               >
                 News date and time
               </p>
-
               <time
                 v-if="signal.scheduledAt"
                 :datetime="signal.scheduledAt"
@@ -398,14 +362,12 @@ onUnmounted(() => {
                 {{ formatDate(signal.scheduledAt) }},
                 {{ formatTime(signal.scheduledAt) }}
               </time>
-
               <p
                 v-else
                 class="text-sm text-slate-500 dark:text-slate-400"
               >
                 Date and time not announced.
               </p>
-
               <span
                 v-if="signal.newsType"
                 class="mt-3 inline-flex max-w-full break-words
@@ -417,7 +379,6 @@ onUnmounted(() => {
               </span>
             </div>
           </header>
-
           <!-- Protected chart and analysis. -->
           <div class="relative overflow-hidden">
             <div
@@ -448,7 +409,6 @@ onUnmounted(() => {
                   "
                   @error="handleImageError(signal)"
                 />
-
                 <div
                   v-else
                   class="flex h-full w-full items-center justify-center
@@ -469,7 +429,6 @@ onUnmounted(() => {
                     }}
                   </p>
                 </div>
-
                 <span
                   v-if="hasConfirmedDirection(signal)"
                   class="absolute right-3 top-3 z-10 rounded-lg
@@ -483,7 +442,6 @@ onUnmounted(() => {
                   Confirmed {{ signal.direction.toUpperCase() }}
                 </span>
               </div>
-
               <div
                 class="min-h-64 p-5
                        max-[480px]:p-4 max-[320px]:p-3"
@@ -492,7 +450,6 @@ onUnmounted(() => {
                 <h4 class="text-sm font-bold">
                   Technical analysis
                 </h4>
-
                 <p
                   class="mt-2 whitespace-pre-line break-words
                          text-sm leading-6 text-slate-600
@@ -504,12 +461,10 @@ onUnmounted(() => {
                       : signal.previewText
                   }}
                 </p>
-
                 <template v-if="signal.hasAccess && signal.news">
                   <h4 class="mt-5 text-sm font-bold">
                     Related news
                   </h4>
-
                   <p
                     class="mt-2 whitespace-pre-line break-words
                            text-sm leading-6 text-slate-600
@@ -520,7 +475,6 @@ onUnmounted(() => {
                 </template>
               </div>
             </div>
-
             <div
               v-if="!signal.hasAccess"
               class="absolute inset-0 flex items-center
@@ -553,11 +507,9 @@ onUnmounted(() => {
                   <path d="M8 10V7a4 4 0 0 1 8 0v3" />
                   <path d="M12 14v3" />
                 </svg>
-
                 <h4 class="mt-3 text-lg font-bold">
                   Unlock this signal
                 </h4>
-
                 <p
                   class="mt-2 text-sm leading-6
                          text-slate-600 dark:text-slate-400"
@@ -565,7 +517,6 @@ onUnmounted(() => {
                   Subscribe to unlock the chart, confirmed
                   direction, and full technical analysis.
                 </p>
-
                 <button
                   type="button"
                   :disabled="checkingSubscription"

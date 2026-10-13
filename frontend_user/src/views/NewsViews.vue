@@ -482,7 +482,6 @@
     </dialog>
 
     <impactnews />
-    <NewsSignal @subscribe="forwardSubscription" />
   </main>
 </template>
 
@@ -499,7 +498,7 @@ import {
 import { RouterLink, useRoute } from 'vue-router'
 
 import impactnews from '../components/impactnew.vue'
-import NewsSignal from '../components/NewsSignal.vue'
+
 
 const route = useRoute()
 const emit = defineEmits(['subscribe'])

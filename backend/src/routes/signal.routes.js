@@ -8,6 +8,7 @@ import SignalAccess from '../models/signalAccess.model.js'
 import User from '../models/user.model.js'
 import requireAdmin from '../middleware/requireAdmin.js'
 import { requireUser } from '../controllers/auth.controller.js'
+
 import {
   getSessionUserId,
   hasSignalAccess,
@@ -146,7 +147,6 @@ router.post(
         fields.confirmed || false,
       )
 
-      // Decode the actual file, not just its declared MIME type.
       let image
       let preview
 
@@ -176,7 +176,7 @@ router.post(
           .webp({ quality: 90 })
           .toBuffer()
 
-        // Low-resolution, heavily blurred public preview.
+        // Heavily blurred public preview.
         preview = await sharp(image)
           .resize({ width: 64 })
           .blur(10)
@@ -206,7 +206,7 @@ router.post(
   },
 )
 
-// Admin: grant access after verifying payment.
+// Admin: grant subscription or individual signal access.
 router.post('/access', requireAdmin, async (req, res, next) => {
   try {
     const { userId, signalId = null, expiresAt } = req.body
@@ -251,12 +251,15 @@ router.post('/access', requireAdmin, async (req, res, next) => {
   }
 })
 
-// Public listing with authorized private content.
+// Public listing.
+// isReleased is visible to everyone.
+// Full details remain restricted to users with access.
 router.get('/', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
 
     const records = await Signal.find()
+      .select('+image +details -preview')
       .sort({ scheduledAt: -1 })
       .limit(50)
       .lean()
@@ -284,6 +287,16 @@ router.get('/', async (req, res, next) => {
       const hasAccess =
         subscribed || purchasedIds.has(String(record._id))
 
+      // Support Node Buffer and BSON Binary from lean queries.
+      const imageBytes = Buffer.isBuffer(record.image)
+        ? record.image.length
+        : record.image?.buffer?.byteLength || 0
+
+      const isReleased =
+        imageBytes > 0 &&
+        typeof record.details === 'string' &&
+        record.details.trim().length > 0
+
       const result = {
         _id: record._id,
         pair: record.pair,
@@ -292,6 +305,7 @@ router.get('/', async (req, res, next) => {
         newsType: record.newsType,
         previewText: record.previewText,
         hasAccess,
+        isReleased,
       }
 
       if (hasAccess) {
@@ -309,6 +323,8 @@ router.get('/', async (req, res, next) => {
     next(error)
   }
 })
+
+// Admin listing.
 router.get(
   '/admin',
   requireUser,
@@ -327,7 +343,8 @@ router.get(
     }
   },
 )
-// Validate IDs for all individual-signal routes.
+
+// Validate individual signal IDs.
 router.use('/:id', (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.id)) {
     return res.status(400).json({
@@ -338,7 +355,7 @@ router.use('/:id', (req, res, next) => {
   next()
 })
 
-// Public: return only the blurred preview.
+// Public: blurred preview only.
 router.get('/:id/preview', async (req, res, next) => {
   try {
     const signal = await Signal.findById(req.params.id)
@@ -357,7 +374,7 @@ router.get('/:id/preview', async (req, res, next) => {
   }
 })
 
-// Private: return the full chart after checking access.
+// Private: full chart requires access.
 router.get('/:id/image', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
@@ -395,7 +412,7 @@ router.get('/:id/image', async (req, res, next) => {
   }
 })
 
-// Admin: update signal details or confirmation.
+// Admin: update text details or confirmation.
 router.patch('/:id', requireAdmin, async (req, res, next) => {
   try {
     const fields = parseFields(req.body)
@@ -424,7 +441,7 @@ router.patch('/:id', requireAdmin, async (req, res, next) => {
   }
 })
 
-// Admin: delete a signal and its stored images.
+// Admin: delete a signal and its access records.
 router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
     const signal = await Signal.findByIdAndDelete(req.params.id)
@@ -445,7 +462,7 @@ router.delete('/:id', requireAdmin, async (req, res, next) => {
   }
 })
 
-// Handle errors from these routes and Multer.
+// Route and upload errors.
 router.use((error, req, res, next) => {
   if (res.headersSent) return next(error)
 

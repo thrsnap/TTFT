@@ -34,7 +34,7 @@
         <span
           class="shrink-0 whitespace-nowrap
             bg-[linear-gradient(135deg,#667eea,#764ba2)]
-            bg-clip-text text-base font-bold tracking-tight
+            bg-clip-text text-[base] font-bold tracking-tight
             text-transparent
             max-[600px]:text-sm
             max-[414px]:text-xs
@@ -56,10 +56,10 @@
               :to="localizedPath(link.to)"
               @click="closeMenus"
               class="flex items-center gap-2 whitespace-nowrap
-                rounded-lg px-2 py-2 text-sm
+                rounded-lg px-2 py-2 text-[1rem]
                 font-medium text-white no-underline
                 transition-colors hover:bg-white/10
-                min-[1280px]:px-3 min-[1280px]:text-base"
+                min-[1280px]:px-3 min-[1280px]:text-sm"
               exact-active-class="bg-white/10"
             >
               <FontAwesomeIcon
@@ -100,7 +100,7 @@
           @click="toggleTheme"
           :aria-label="isLightMode ? 'Use dark theme' : 'Use light theme'"
           :aria-pressed="isLightMode"
-          class="flex h-10 w-10 shrink-0 cursor-pointer items-center
+          class="flex h-9 w-9 shrink-0 cursor-pointer items-center
             justify-center rounded-lg bg-white/10 text-white
             transition-colors hover:bg-white/20
             max-[480px]:h-9 max-[480px]:w-9
@@ -355,6 +355,7 @@ import {
   faUserPlus,
   faRightToBracket,
   faHandshake,
+  faMagnifyingGlassChart,
 } from '@fortawesome/free-solid-svg-icons'
 
 const route = useRoute()
@@ -373,10 +374,11 @@ const navLinks = [
   { to: '/', label: 'nav.home', icon: faHouse },
   { to: '/news', label: 'nav.news', icon: faNewspaper },
   { to: '/academy', label: 'nav.academy', icon: faBook },
+  { to: '/signal', label: 'nav.signal', icon: faSquarePollVertical },
   {
     to: '/analysis',
     label: 'nav.analysis',
-    icon: faSquarePollVertical,
+    icon: faMagnifyingGlassChart,
   },
   {
     to: '/collaborate',
@@ -385,6 +387,7 @@ const navLinks = [
   },
   { to: '/getsupport', label: 'nav.support', icon: faHeadset },
   { to: '/about', label: 'nav.about', icon: faCircleUser },
+  
 ]
 
 // English: /news
