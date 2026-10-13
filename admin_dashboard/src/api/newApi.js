@@ -18,6 +18,10 @@ async function request(path, options = {}) {
     cache: 'no-store',
   })
 
+  if (response.ok && response.status === 204) {
+    return { success: true }
+  }
+
   const data = await response.json().catch(() => null)
 
   if (!response.ok) {
@@ -41,6 +45,25 @@ function jsonOptions(method, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }
+}
+
+function capitalize(value) {
+  const text = String(value || '')
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function scheduledAt(value) {
+  if (!value) {
+    throw new Error('Select the news date and time.')
+  }
+
+  const date = new Date(value)
+
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error('Select a valid news date and time.')
+  }
+
+  return date.toISOString()
 }
 
 export async function getNewsRecords() {
@@ -68,17 +91,12 @@ export async function getNewsRecords() {
   ]
 }
 
-function capitalize(value) {
-  const text = String(value || '')
-  return text.charAt(0).toUpperCase() + text.slice(1)
-}
-
 export async function saveCalendarEvent(draft) {
   const body = {
     title: draft.title,
     country: draft.country,
     currency: draft.currency,
-    scheduledAt: new Date(draft.scheduledAt).toISOString(),
+    scheduledAt: scheduledAt(draft.scheduledAt),
     impact: String(draft.impact).toLowerCase(),
     forecast: draft.forecast || null,
     previous: draft.previous || null,
@@ -88,39 +106,72 @@ export async function saveCalendarEvent(draft) {
   }
 
   return request(
-    draft.id ? `/api/calendar/${draft.id}` : '/api/calendar',
+    draft.id
+      ? `/api/calendar/${encodeURIComponent(draft.id)}`
+      : '/api/calendar',
     jsonOptions(draft.id ? 'PATCH' : 'POST', body),
   )
 }
 
-export async function saveNewsSignal(draft, imageFile) {
+export async function saveNewsSignal(draft, imageFile = null) {
   const fields = {
-    title: draft.title,
-    pair: draft.pair,
-    scheduledAt: new Date(draft.scheduledAt).toISOString(),
-    direction: draft.direction || 'pending',
-    confirmed: draft.confirmed === true || draft.confirmed === 'true',
-    details: draft.details || '',
-    news: draft.news || '',
-    previewText: draft.previewText || '',
+    title: String(draft.title || '').trim(),
+    pair: String(draft.pair || '').trim().toUpperCase(),
+    scheduledAt: scheduledAt(draft.scheduledAt),
+    newsType: String(draft.newsType || '').trim(),
+    direction: String(draft.direction || 'pending')
+      .trim()
+      .toLowerCase(),
+    confirmed:
+      draft.confirmed === true || draft.confirmed === 'true',
+    details: String(draft.details || '').trim(),
+    news: String(draft.news || '').trim(),
+    previewText: String(
+      draft.previewText ??
+        'Subscribe to unlock the chart and technical analysis.',
+    ).trim(),
   }
 
-  // Leave newsType at its model default when no value is supplied.
-  if (draft.newsType?.trim()) {
-    fields.newsType = draft.newsType.trim()
+  if (!fields.title || !fields.pair || !fields.newsType) {
+    throw new Error('Complete the title, pair and news type.')
   }
 
-  if (draft.id) {
-    return request(
-      `/api/signals/${draft.id}`,
-      jsonOptions('PATCH', fields),
+  if (!['pending', 'buy', 'sell'].includes(fields.direction)) {
+    throw new Error('Select a valid signal direction.')
+  }
+
+  if (fields.confirmed && fields.direction === 'pending') {
+    throw new Error(
+      'A confirmed signal must have direction buy or sell.',
     )
   }
 
+  const id = draft.id || draft._id
+
+  const path = id
+    ? `/api/signals/${encodeURIComponent(id)}`
+    : '/api/signals'
+
+  const method = id ? 'PATCH' : 'POST'
+
+  // Create or edit without an image.
   if (!imageFile) {
-    throw new Error('Select a signal image')
+    return request(path, jsonOptions(method, fields))
   }
 
+  if (
+    !['image/jpeg', 'image/png', 'image/webp'].includes(
+      imageFile.type,
+    )
+  ) {
+    throw new Error('Use a JPG, PNG or WebP image.')
+  }
+
+  if (imageFile.size > 2 * 1024 * 1024) {
+    throw new Error('The signal image must be 2 MB or smaller.')
+  }
+
+  // Image uploads work for both creation and editing.
   const body = new FormData()
 
   for (const [key, value] of Object.entries(fields)) {
@@ -129,16 +180,19 @@ export async function saveNewsSignal(draft, imageFile) {
 
   body.append('image', imageFile)
 
-  return request('/api/signals', {
-    method: 'POST',
+  // Do not set Content-Type manually for FormData.
+  return request(path, {
+    method,
     body,
   })
 }
 
 export function deleteNewsRecord(record) {
+  const id = encodeURIComponent(record.id)
+
   const path = record.kind === 'events'
-    ? `/api/calendar/${record.id}`
-    : `/api/signals/${record.id}`
+    ? `/api/calendar/${id}`
+    : `/api/signals/${id}`
 
   return request(path, { method: 'DELETE' })
 }
