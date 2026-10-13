@@ -17,14 +17,66 @@ const paymentError = ref('')
 const message = ref('')
 const editingId = ref('')
 const courseId = ref('')
-const lessonTitle = ref('')
-const video = ref(null)
 const coverFile = ref(null)
-const videoInput = ref(null)
 const coverInput = ref(null)
 const detailsForm = ref(null)
 const titleInput = ref(null)
 const verified = ref({})
+const queues = ref({})
+const uploadProgress = ref({})
+let queueSequence = 0
+function lessonQueue(id) {
+  return queues.value[id] || []
+}
+function validateVideo(file) {
+  if (!file || file.size === 0 || file.size > 500 * 1024 * 1024 || !/\.(mp4|webm)$/i.test(file.name)) {
+    throw new Error('Use a nonempty MP4 or WebM file, maximum 500 MB per video.')
+  }
+}
+function chooseVideos(event, course) {
+  if (busy.value || loading.value) return
+  clearFeedback()
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  try {
+    files.forEach(validateVideo)
+    const queue = queues.value[course.id] ||= []
+    for (const file of files) {
+      if (queue.some(item => item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified)) continue
+      queue.push({ key: ++queueSequence, file, title: file.name.replace(/\.(mp4|webm)$/i, '').slice(0, 200) })
+    }
+  } catch (err) {
+    error.value = requestError(err)
+  }
+}
+function removeQueuedVideo(id, key) {
+  if (busy.value || loading.value) return
+  queues.value[id] = lessonQueue(id).filter(item => item.key !== key)
+}
+function lessonPath(course, lesson) {
+  const id = getId(lesson)
+  if (!id) throw new Error('This lesson has no ID. The admin API must return an id or _id for each lesson.')
+  return `/admin/${encodeURIComponent(course.id)}/lessons/${encodeURIComponent(id)}`
+}
+async function deleteLesson(course, lesson) {
+  if (busy.value || loading.value) return
+  if (!window.confirm(`Delete video "${lesson.title || 'Untitled lesson'}" from "${course.title}"?`)) return
+  clearFeedback()
+  busy.value = true
+  try {
+    await courseApi(lessonPath(course, lesson), { method: 'DELETE' })
+    course.lessons = course.lessons.filter(item => getId(item) !== getId(lesson))
+    if (course.videoCount != null) course.videoCount = Math.max(0, Number(course.videoCount) - 1)
+    message.value = 'Video deleted from this course.'
+    await reloadCoursesAfterAction()
+  } catch (err) {
+    error.value = err?.status === 404 || err?.status === 405
+      ? 'Could not delete this lesson. Check that it still exists and that the backend supports DELETE /api/courses/admin/:courseId/lessons/:lessonId.'
+      : requestError(err)
+  } finally {
+    busy.value = false
+  }
+}
 function emptyDraft() {
   return {
     title: '',
@@ -265,6 +317,7 @@ async function deleteCourse(course) {
     if (courseId.value === course.id) {
       courseId.value = courses.value[0]?.id || ''
     }
+    delete queues.value[course.id]
     message.value = 'Course deleted.'
     await reloadCoursesAfterAction()
   } catch (err) {
@@ -297,58 +350,50 @@ async function publish(course) {
     busy.value = false
   }
 }
-function chooseVideo(event) {
-  clearFeedback()
-  const file = event.target.files?.[0]
-  if (
-    file &&
-    (
-      file.size === 0 ||
-      file.size > 500 * 1024 * 1024 ||
-      !/\.(mp4|webm)$/i.test(file.name)
-    )
-  ) {
-    video.value = null
-    event.target.value = ''
-    error.value = 'Use a nonempty MP4 or WebM file, maximum 500 MB.'
-    return
-  }
-  video.value = file || null
-}
-async function uploadLesson() {
+async function uploadLessons(course) {
   if (busy.value || loading.value) return
   clearFeedback()
-  busy.value = true
+  const queue = [...lessonQueue(course.id)]
+  if (!queue.length) return
+  // Validate the entire queue before starting any uploads.
   try {
-    if (!courseId.value) {
-      throw new Error('Select a course.')
+    for (const item of queue) {
+      validateVideo(item.file)
+      if (!item.title.trim() || item.title.trim().length > 200) throw new Error('Enter a title of 1–200 characters for every video.')
     }
-    if (!lessonTitle.value.trim()) {
-      throw new Error('Enter a lesson title.')
-    }
-    if (!video.value) {
-      throw new Error('Choose a lesson video.')
-    }
-    const body = new FormData()
-    body.append('title', lessonTitle.value.trim())
-    body.append('video', video.value)
-    await courseApi(
-      `/admin/${encodeURIComponent(courseId.value)}/lessons`,
-      { method: 'POST', body },
-    )
-    lessonTitle.value = ''
-    video.value = null
-    if (videoInput.value) {
-      videoInput.value.value = ''
-    }
-    message.value = 'Lesson uploaded to R2.'
-    await reloadCoursesAfterAction()
   } catch (err) {
     error.value = requestError(err)
+    return
+  }
+  busy.value = true
+  let completed = 0
+  try {
+    // Existing single-video endpoint: append each file to the same course.
+    for (const item of queue) {
+      uploadProgress.value[course.id] = `Uploading ${completed + 1} of ${queue.length}: ${item.title.trim()}`
+      const body = new FormData()
+      body.append('title', item.title.trim())
+      body.append('video', item.file)
+      await courseApi(`/admin/${encodeURIComponent(course.id)}/lessons`, { method: 'POST', body })
+      completed++
+      // Successful files leave the queue; failed/unattempted files remain.
+      queues.value[course.id] = lessonQueue(course.id).filter(entry => entry.key !== item.key)
+    }
+  } catch (err) {
+    error.value = `${completed} of ${queue.length} videos uploaded. ${requestError(err)} Remaining files are still in the queue. Refresh the course before retrying if the connection was interrupted.`
   } finally {
+    delete uploadProgress.value[course.id]
+    if (completed) message.value = `${completed} video${completed === 1 ? '' : 's'} added to "${course.title}".`
+    try {
+      await refreshCourses()
+    } catch (err) {
+      const refreshError = `Refreshing courses failed: ${requestError(err)}`
+      error.value = error.value ? `${error.value} ${refreshError}` : refreshError
+    }
     busy.value = false
   }
 }
+
 function chooseCover(event) {
   clearFeedback()
   const file = event.target.files?.[0]
@@ -571,7 +616,7 @@ onMounted(load)
               id="course-thumbnail"
               v-model="draft.thumbnail"
               type="text"
-              placeholder="https\://… or /uploads/…"
+              placeholder="https://… or /uploads/…"
               class="mb-4"
             />
             <label for="course-description">Description</label>
@@ -606,64 +651,6 @@ onMounted(load)
                 Cancel edit
               </button>
             </div>
-          </fieldset>
-        </form>
-        <!-- Upload lesson -->
-        <form
-          class="min-w-0 rounded-2xl border border-(--border-color)
-                 bg-(--surface-bg) p-6 max-[480px]:p-4"
-          @submit.prevent="uploadLesson"
-        >
-          <h2 class="mb-5 text-xl font-bold">
-            Upload lesson video
-          </h2>
-          <fieldset :disabled="busy || loading" class="min-w-0">
-            <label for="lesson-course">Course</label>
-            <select
-              id="lesson-course"
-              v-model="courseId"
-              required
-              class="mb-4 min-h-11 w-full rounded-lg
-                     border border-(--border-color)
-                     bg-(--input-bg) p-3"
-            >
-              <option value="" disabled>Select a course</option>
-              <option
-                v-for="course in courses"
-                :key="course.id"
-                :value="course.id"
-              >
-                {{ course.title }}
-              </option>
-            </select>
-            <label for="lesson-title">Lesson title</label>
-            <input
-              id="lesson-title"
-              v-model="lessonTitle"
-              required
-              maxlength="200"
-              class="mb-4"
-            />
-            <label for="course-video">Video file</label>
-            <input
-              id="course-video"
-              ref="videoInput"
-              type="file"
-              accept="video/mp4,video/webm,.mp4,.webm"
-              required
-              @change="chooseVideo"
-            />
-            <p class="my-3 text-sm text-(--muted-color)">
-              MP4 or WebM, maximum 500 MB.
-              Upload one lesson at a time.
-            </p>
-            <button
-              type="submit"
-              :disabled="!courseId || !video"
-              class="bg-indigo-600 text-white"
-            >
-              {{ busy ? 'Please wait…' : 'Upload lesson' }}
-            </button>
           </fieldset>
         </form>
         <!-- Upload cover -->
@@ -788,19 +775,51 @@ onMounted(load)
               </button>
             </div>
           </div>
-          <ol
-            v-if="course.lessons.length"
-            class="mt-3 list-inside list-decimal
-                   text-sm text-(--muted-color)"
-          >
-            <li
-              v-for="(lesson, index) in course.lessons"
-              :key="lesson.id || lesson._id || index"
-              class="break-words"
-            >
-              {{ lesson.title }}
-            </li>
-          </ol>
+          <div class="mt-5 border-t border-(--border-color) pt-4">
+            <h4 class="font-semibold">Course videos</h4>
+            <p v-if="!course.lessons.length" class="mt-2 text-sm text-(--muted-color)">
+              {{ videoCount(course) ? 'The admin API must return the lessons array to manage individual videos.' : 'No videos yet. Add lesson videos below.' }}
+            </p>
+            <ol v-else class="mt-3 space-y-2">
+              <li v-for="(lesson, index) in course.lessons" :key="getId(lesson) || index"
+                  class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-(--border-color) p-3">
+                <span class="min-w-0 flex-1 break-words text-sm">{{ index + 1 }}. {{ lesson.title || 'Untitled lesson' }}</span>
+                <button type="button" :disabled="busy || loading || !getId(lesson)"
+                        class="shrink-0 bg-red-500/10 text-red-500" @click="deleteLesson(course, lesson)">
+                  Delete video
+                </button>
+              </li>
+            </ol>
+            <form class="mt-5" @submit.prevent="uploadLessons(course)">
+              <fieldset :disabled="busy || loading" class="min-w-0">
+                <label :for="`add-videos-${course.id}`">Add more videos to this course</label>
+                <input :id="`add-videos-${course.id}`" type="file" multiple
+                       accept="video/mp4,video/webm,.mp4,.webm"
+                       class="min-w-0 max-w-full text-sm" @change="chooseVideos($event, course)" />
+                <p class="mt-2 text-sm text-(--muted-color)">Select multiple MP4 or WebM files. Maximum 500 MB per file.</p>
+                <ul v-if="lessonQueue(course.id).length" class="mt-3 space-y-3">
+                  <li v-for="item in lessonQueue(course.id)" :key="item.key"
+                      class="rounded-lg border border-(--border-color) p-3">
+                    <p class="mb-2 break-all text-xs text-(--muted-color)">{{ item.file.name }} · {{ (item.file.size / 1024 / 1024).toFixed(1) }} MB</p>
+                    <div class="flex items-end gap-2 max-[480px]:flex-col max-[480px]:items-stretch">
+                      <div class="min-w-0 flex-1">
+                        <label :for="`queued-title-${item.key}`">Lesson title</label>
+                        <input :id="`queued-title-${item.key}`" v-model="item.title" required maxlength="200" />
+                      </div>
+                      <button type="button" class="border border-(--border-color)"
+                              @click="removeQueuedVideo(course.id, item.key)">Remove from queue</button>
+                    </div>
+                  </li>
+                </ul>
+                <button type="submit" :disabled="!lessonQueue(course.id).length"
+                        class="mt-3 bg-indigo-600 text-white max-[480px]:w-full">
+                  Upload {{ lessonQueue(course.id).length || '' }} video{{ lessonQueue(course.id).length === 1 ? '' : 's' }}
+                </button>
+              </fieldset>
+              <p v-if="uploadProgress[course.id]" role="status" aria-live="polite"
+                 class="mt-3 break-words text-sm text-indigo-500">{{ uploadProgress[course.id] }}</p>
+            </form>
+          </div>
         </article>
       </section>
       <!-- Approve payments -->

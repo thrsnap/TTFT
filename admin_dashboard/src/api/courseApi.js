@@ -5,15 +5,13 @@ export const BASE = (
 export async function courseApi(path = '', options = {}) {
   const headers = new Headers(options.headers)
   const method = (options.method || 'GET').toUpperCase()
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
-    headers.set('X-CMM-Request', '1')
-  }
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.set('X-CMM-Request', '1')
   if (options.body instanceof FormData) headers.delete('Content-Type')
   const suffix = path ? `/${String(path).replace(/^\/+/, '')}` : ''
   const response = await fetch(`${BASE}/api/courses${suffix}`, {
     ...options, method, headers, credentials: 'include', cache: 'no-store',
   })
-  if (response.status === 204) return { success: true }
+  if (response.ok && response.status === 204) return { success: true }
   const data = await response.json().catch(() => null)
   if (!response.ok || data?.success === false) {
     const error = new Error(data?.message || `Request failed (${response.status})`)
@@ -36,7 +34,9 @@ export function coursePrice(course) {
     return new Intl.NumberFormat('en-US', {
       style: 'currency', currency: course.currency || 'USD',
     }).format(price)
-  } catch { return `${price.toFixed(2)} USD` }
+  } catch {
+    return `${price.toFixed(2)} USD`
+  }
 }
 
 export function courseFileUrl(value) {
@@ -44,5 +44,7 @@ export function courseFileUrl(value) {
   try {
     const url = new URL(value, `${BASE}/`)
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password ? url.href : ''
-  } catch { return '' }
+  } catch {
+    return ''
+  }
 }
