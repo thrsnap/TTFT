@@ -17,7 +17,6 @@ const signalSchema = new mongoose.Schema(
       maxlength: 200,
     },
 
-    // News date/time selected by the admin.
     scheduledAt: {
       type: Date,
       required: true,
@@ -41,9 +40,10 @@ const signalSchema = new mongoose.Schema(
       default: false,
     },
 
+    // Optional when creating an Upcoming signal.
     details: {
       type: String,
-      required: true,
+      default: '',
       maxlength: 10000,
     },
 
@@ -60,15 +60,14 @@ const signalSchema = new mongoose.Schema(
       maxlength: 500,
     },
 
+    // Optional: upload the chart later.
     image: {
       type: Buffer,
-      required: true,
       select: false,
     },
 
     preview: {
       type: Buffer,
-      required: true,
       select: false,
     },
   },

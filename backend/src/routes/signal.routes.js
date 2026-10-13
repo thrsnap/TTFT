@@ -70,7 +70,7 @@ function parseDate(value) {
   return date
 }
 
-function parseFields(body) {
+function parseFields(body = {}) {
   const allowed = [
     'pair',
     'title',
@@ -124,22 +124,94 @@ function validateConfirmation(direction, confirmed) {
   }
 }
 
+// Handles Mongoose Buffers and BSON Binary from lean queries.
+function imageByteLength(value) {
+  if (!value) return 0
+
+  if (Buffer.isBuffer(value)) {
+    return value.length
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength
+  }
+
+  if (
+    value._bsontype === 'Binary' &&
+    typeof value.length === 'function'
+  ) {
+    return value.length()
+  }
+
+  return 0
+}
+
+function isSignalReleased(signal) {
+  return (
+    imageByteLength(signal.image) > 0 &&
+    typeof signal.details === 'string' &&
+    signal.details.trim().length > 0
+  )
+}
+
+async function processSignalImage(file) {
+  try {
+    const options = {
+      limitInputPixels: 20000000,
+    }
+
+    const metadata = await sharp(
+      file.buffer,
+      options,
+    ).metadata()
+
+    if (
+      !['jpeg', 'png', 'webp'].includes(metadata.format) ||
+      (metadata.pages || 1) > 1
+    ) {
+      throw new Error('Unsupported image')
+    }
+
+    const image = await sharp(file.buffer, options)
+      .rotate()
+      .resize({
+        width: 1600,
+        height: 1200,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 90 })
+      .toBuffer()
+
+    if (image.length > 5 * 1024 * 1024) {
+      throw new Error('Processed image is too large')
+    }
+
+    const preview = await sharp(image)
+      .resize({ width: 64 })
+      .blur(10)
+      .webp({ quality: 40 })
+      .toBuffer()
+
+    return { image, preview }
+  } catch {
+    throw badRequest('Invalid or unsupported image file.')
+  }
+}
+
 router.use((req, res, next) => {
   res.set('Cache-Control', 'private, no-store')
   next()
 })
 
-// Admin: create a signal with an image.
+// Create a signal. Image and details are optional.
 router.post(
   '/',
+  requireUser,
   requireAdmin,
   upload.single('image'),
   async (req, res, next) => {
     try {
-      if (!req.file) {
-        throw badRequest('Upload an image using the image field.')
-      }
-
       const fields = parseFields(req.body)
 
       validateConfirmation(
@@ -147,58 +219,19 @@ router.post(
         fields.confirmed || false,
       )
 
-      let image
-      let preview
-
-      try {
-        const options = { limitInputPixels: 20000000 }
-
-        const metadata = await sharp(
-          req.file.buffer,
-          options,
-        ).metadata()
-
-        if (
-          !['jpeg', 'png', 'webp'].includes(metadata.format) ||
-          (metadata.pages || 1) > 1
-        ) {
-          throw new Error('Unsupported image')
-        }
-
-        image = await sharp(req.file.buffer, options)
-          .rotate()
-          .resize({
-            width: 1600,
-            height: 1200,
-            fit: 'inside',
-            withoutEnlargement: true,
-          })
-          .webp({ quality: 90 })
-          .toBuffer()
-
-        // Heavily blurred public preview.
-        preview = await sharp(image)
-          .resize({ width: 64 })
-          .blur(10)
-          .webp({ quality: 40 })
-          .toBuffer()
-      } catch {
-        throw badRequest('Invalid or unsupported image file.')
-      }
-
-      if (image.length > 5 * 1024 * 1024) {
-        throw badRequest('Processed image is too large.')
-      }
+      const images = req.file
+        ? await processSignalImage(req.file)
+        : {}
 
       const signal = await Signal.create({
         ...fields,
-        image,
-        preview,
+        ...images,
       })
 
       res.status(201).json({
         message: 'Signal created successfully.',
         signalId: signal._id,
+        isReleased: isSignalReleased(signal),
       })
     } catch (error) {
       next(error)
@@ -206,54 +239,63 @@ router.post(
   },
 )
 
-// Admin: grant subscription or individual signal access.
-router.post('/access', requireAdmin, async (req, res, next) => {
-  try {
-    const { userId, signalId = null, expiresAt } = req.body
+// Grant subscription or individual signal access.
+router.post(
+  '/access',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const {
+        userId,
+        signalId = null,
+        expiresAt,
+      } = req.body || {}
 
-    if (!mongoose.isObjectIdOrHexString(userId)) {
-      throw badRequest('Invalid user ID.')
+      if (!mongoose.isObjectIdOrHexString(userId)) {
+        throw badRequest('Invalid user ID.')
+      }
+
+      if (
+        signalId !== null &&
+        !mongoose.isObjectIdOrHexString(signalId)
+      ) {
+        throw badRequest('Invalid signal ID.')
+      }
+
+      const expiry = parseDate(expiresAt)
+
+      if (expiry <= new Date()) {
+        throw badRequest('Expiry must be in the future.')
+      }
+
+      if (!(await User.exists({ _id: userId }))) {
+        throw badRequest('User does not exist.')
+      }
+
+      if (
+        signalId !== null &&
+        !(await Signal.exists({ _id: signalId }))
+      ) {
+        throw badRequest('Signal does not exist.')
+      }
+
+      await SignalAccess.updateOne(
+        { userId, signalId },
+        { $set: { expiresAt: expiry } },
+        { upsert: true, runValidators: true },
+      )
+
+      res.json({
+        message: 'Signal access approved.',
+      })
+    } catch (error) {
+      next(error)
     }
+  },
+)
 
-    if (
-      signalId !== null &&
-      !mongoose.isObjectIdOrHexString(signalId)
-    ) {
-      throw badRequest('Invalid signal ID.')
-    }
-
-    const expiry = parseDate(expiresAt)
-
-    if (expiry <= new Date()) {
-      throw badRequest('Expiry must be in the future.')
-    }
-
-    if (!(await User.exists({ _id: userId }))) {
-      throw badRequest('User does not exist.')
-    }
-
-    if (
-      signalId !== null &&
-      !(await Signal.exists({ _id: signalId }))
-    ) {
-      throw badRequest('Signal does not exist.')
-    }
-
-    await SignalAccess.updateOne(
-      { userId, signalId },
-      { $set: { expiresAt: expiry } },
-      { upsert: true, runValidators: true },
-    )
-
-    res.json({ message: 'Signal access approved.' })
-  } catch (error) {
-    next(error)
-  }
-})
-
-// Public listing.
-// isReleased is visible to everyone.
-// Full details remain restricted to users with access.
+// Public listing with protected details.
 router.get('/', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
@@ -264,12 +306,10 @@ router.get('/', async (req, res, next) => {
       .limit(50)
       .lean()
 
-    const now = new Date()
-
     const grants = userId
       ? await SignalAccess.find({
           userId,
-          expiresAt: { $gt: now },
+          expiresAt: { $gt: new Date() },
         }).lean()
       : []
 
@@ -287,16 +327,6 @@ router.get('/', async (req, res, next) => {
       const hasAccess =
         subscribed || purchasedIds.has(String(record._id))
 
-      // Support Node Buffer and BSON Binary from lean queries.
-      const imageBytes = Buffer.isBuffer(record.image)
-        ? record.image.length
-        : record.image?.buffer?.byteLength || 0
-
-      const isReleased =
-        imageBytes > 0 &&
-        typeof record.details === 'string' &&
-        record.details.trim().length > 0
-
       const result = {
         _id: record._id,
         pair: record.pair,
@@ -305,14 +335,15 @@ router.get('/', async (req, res, next) => {
         newsType: record.newsType,
         previewText: record.previewText,
         hasAccess,
-        isReleased,
+        hasImage: imageByteLength(record.image) > 0,
+        isReleased: isSignalReleased(record),
       }
 
       if (hasAccess) {
         result.direction = record.direction
         result.confirmed = record.confirmed
-        result.details = record.details
-        result.news = record.news
+        result.details = record.details || ''
+        result.news = record.news || ''
       }
 
       return result
@@ -324,18 +355,32 @@ router.get('/', async (req, res, next) => {
   }
 })
 
-// Admin listing.
+// Admin listing; image bytes are not included in the response.
 router.get(
   '/admin',
   requireUser,
   requireAdmin,
   async (req, res, next) => {
     try {
-      const signals = await Signal.find()
-        .select('-image -preview')
+      const records = await Signal.find()
+        .select('+image +details')
         .sort({ scheduledAt: -1 })
         .limit(200)
         .lean()
+
+      const signals = records.map(record => {
+        const {
+          image,
+          preview,
+          ...fields
+        } = record
+
+        return {
+          ...fields,
+          hasImage: imageByteLength(image) > 0,
+          isReleased: isSignalReleased(record),
+        }
+      })
 
       res.json({ signals })
     } catch (error) {
@@ -355,7 +400,7 @@ router.use('/:id', (req, res, next) => {
   next()
 })
 
-// Public: blurred preview only.
+// Public blurred preview.
 router.get('/:id/preview', async (req, res, next) => {
   try {
     const signal = await Signal.findById(req.params.id)
@@ -367,6 +412,12 @@ router.get('/:id/preview', async (req, res, next) => {
       })
     }
 
+    if (imageByteLength(signal.preview) === 0) {
+      return res.status(404).json({
+        message: 'Preview has not been uploaded yet.',
+      })
+    }
+
     res.set('X-Content-Type-Options', 'nosniff')
     res.type('image/webp').send(signal.preview)
   } catch (error) {
@@ -374,7 +425,7 @@ router.get('/:id/preview', async (req, res, next) => {
   }
 })
 
-// Private: full chart requires access.
+// Full image requires subscription or individual access.
 router.get('/:id/image', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
@@ -405,6 +456,12 @@ router.get('/:id/image', async (req, res, next) => {
       })
     }
 
+    if (imageByteLength(signal.image) === 0) {
+      return res.status(404).json({
+        message: 'Chart has not been uploaded yet.',
+      })
+    }
+
     res.set('X-Content-Type-Options', 'nosniff')
     res.type('image/webp').send(signal.image)
   } catch (error) {
@@ -412,55 +469,83 @@ router.get('/:id/image', async (req, res, next) => {
   }
 })
 
-// Admin: update text details or confirmation.
-router.patch('/:id', requireAdmin, async (req, res, next) => {
-  try {
-    const fields = parseFields(req.body)
+// Edit details and optionally upload or replace an image.
+// Accepts JSON for text-only edits and multipart for image uploads.
+router.patch(
+  '/:id',
+  requireUser,
+  requireAdmin,
+  upload.single('image'),
+  async (req, res, next) => {
+    try {
+      const fields = parseFields(req.body)
 
-    if (!Object.keys(fields).length) {
-      throw badRequest('No update fields provided.')
-    }
+      if (!Object.keys(fields).length && !req.file) {
+        throw badRequest('No update fields provided.')
+      }
 
-    const signal = await Signal.findById(req.params.id)
+      const signal = await Signal.findById(req.params.id)
+        .select('+image')
 
-    if (!signal) {
-      return res.status(404).json({
-        message: 'Signal not found.',
+      if (!signal) {
+        return res.status(404).json({
+          message: 'Signal not found.',
+        })
+      }
+
+      Object.assign(signal, fields)
+
+      validateConfirmation(
+        signal.direction,
+        signal.confirmed,
+      )
+
+      if (req.file) {
+        const images = await processSignalImage(req.file)
+        Object.assign(signal, images)
+      }
+
+      await signal.save()
+
+      res.json({
+        message: 'Signal updated successfully.',
+        isReleased: isSignalReleased(signal),
       })
+    } catch (error) {
+      next(error)
     }
+  },
+)
 
-    Object.assign(signal, fields)
+// Delete a signal and its access records.
+router.delete(
+  '/:id',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const signal = await Signal.findByIdAndDelete(
+        req.params.id,
+      )
 
-    validateConfirmation(signal.direction, signal.confirmed)
+      if (!signal) {
+        return res.status(404).json({
+          message: 'Signal not found.',
+        })
+      }
 
-    await signal.save()
-
-    res.json({ message: 'Signal updated successfully.' })
-  } catch (error) {
-    next(error)
-  }
-})
-
-// Admin: delete a signal and its access records.
-router.delete('/:id', requireAdmin, async (req, res, next) => {
-  try {
-    const signal = await Signal.findByIdAndDelete(req.params.id)
-
-    if (!signal) {
-      return res.status(404).json({
-        message: 'Signal not found.',
+      await SignalAccess.deleteMany({
+        signalId: req.params.id,
       })
+
+      res.json({
+        message: 'Signal deleted successfully.',
+      })
+    } catch (error) {
+      next(error)
     }
-
-    await SignalAccess.deleteMany({
-      signalId: req.params.id,
-    })
-
-    res.json({ message: 'Signal deleted successfully.' })
-  } catch (error) {
-    next(error)
-  }
-})
+  },
+)
 
 // Route and upload errors.
 router.use((error, req, res, next) => {
@@ -468,7 +553,8 @@ router.use((error, req, res, next) => {
 
   const status =
     error instanceof multer.MulterError ||
-    error.name === 'ValidationError'
+    error.name === 'ValidationError' ||
+    error.name === 'CastError'
       ? 400
       : error.status || 500
 

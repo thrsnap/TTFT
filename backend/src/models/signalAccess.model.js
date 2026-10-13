@@ -8,6 +8,7 @@ const signalAccessSchema = new mongoose.Schema(
       required: true,
     },
 
+    // null grants access to all signals.
     signalId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Signal',
