@@ -102,14 +102,16 @@ onUnmounted(() => {
   :aria-expanded="open"
   :aria-label="open ? 'Close account menu' : 'Open account menu'"
   aria-controls="user-account-dropdown"
-  class="flex size-[54px] shrink-0 cursor-pointer
+  class="flex size-10 shrink-0 cursor-pointer
          items-center justify-center rounded-full
          border border-emerald-700 bg-emerald-950
-         text-xl font-semibold text-emerald-400
+         text-base font-semibold text-emerald-400
          transition-colors hover:border-emerald-500
          focus-visible:outline-2
          focus-visible:outline-offset-2
-         focus-visible:outline-emerald-400"
+         focus-visible:outline-emerald-400
+         max-[768px]:size-8 max-[768px]:text-sm
+         max-[320px]:size-7 max-[320px]:text-xs"
   @click="open = !open"
 >
   {{ initial }}
