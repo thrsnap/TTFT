@@ -38,6 +38,30 @@ export function createAnalysisDocument(document, file = null) {
   body.append('file', file)
   return request('documents', { method: 'POST', body })
 }
+export function updateAnalysisPost(id, post, images = []) {
+  const path = `posts/${encodeURIComponent(id)}`
+  if (!images.length) return request(path, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(post),
+  })
+  const body = new FormData()
+  for (const [key, value] of Object.entries(post)) {
+    if (value !== undefined && value !== null) body.append(key, key === 'pictures' ? JSON.stringify(value) : String(value))
+  }
+  for (const image of images) body.append('images', image)
+  return request(path, { method: 'PATCH', body })
+}
+export function updateAnalysisDocument(id, document, file = null) {
+  const path = `documents/${encodeURIComponent(id)}`
+  if (!file) return request(path, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(document),
+  })
+  const body = new FormData()
+  for (const [key, value] of Object.entries(document)) {
+    if (key !== 'url' && value !== undefined && value !== null) body.append(key, String(value))
+  }
+  body.append('file', file)
+  return request(path, { method: 'PATCH', body })
+}
 export function deleteAnalysisPost(id) {
   return request(`posts/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }

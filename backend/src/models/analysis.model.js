@@ -23,6 +23,8 @@ const analysisSchema = new mongoose.Schema({
   status: { type: String, enum: ['draft', 'published'], default: 'draft' },
   // Failed cleanup stays recorded so an administrator can retry deletion.
   pendingDelete: { type: Boolean, default: false },
+  obsoleteImageIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
+  stagedImageIds: { type: [mongoose.Schema.Types.ObjectId], default: [] },
 }, { timestamps: true })
 
 const documentSchema = new mongoose.Schema({
@@ -43,6 +45,9 @@ const documentSchema = new mongoose.Schema({
   size: { type: Number, min: 1 },
   status: { type: String, enum: ['draft', 'published'], default: 'draft' },
   pendingDelete: { type: Boolean, default: false },
+  // Retain old/replacement object keys until their R2 cleanup succeeds.
+  obsoleteFileKeys: { type: [String], default: [] },
+  stagedFileKeys: { type: [String], default: [] },
 }, { timestamps: true })
 
 const imageSchema = new mongoose.Schema({

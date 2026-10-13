@@ -3,7 +3,10 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { adminApi as api, fileUrl, externalUrl } from "../../api/adminApi.js";
 import CourseAdmin from "./CourseAdmin.vue";
-import { getAnalysisRecords, createAnalysisPost, createAnalysisDocument } from '../../api/analysisApi.js'
+import {
+  getAnalysisRecords, createAnalysisPost, createAnalysisDocument,
+  updateAnalysisPost, updateAnalysisDocument, deleteAnalysisRecord,
+} from '../../api/analysisApi.js'
 
 import {
   getNewsRecords,
@@ -14,6 +17,7 @@ import {
 
 const signalImage = ref(null)
 const analysisImages = ref([])
+const replaceAnalysisImages = ref(false)
 const documentFile = ref(null)
 
 const router = useRouter();
@@ -403,8 +407,9 @@ function open(kind, record) {
   }
   documentFile.value = null;
   analysisImages.value = [];
-  if (kind === "analysis" && record) {
-    notify("Editing analysis needs a backend update endpoint.");
+  replaceAnalysisImages.value = false;
+  if (['analysis', 'documents'].includes(kind) && record?.pendingDelete) {
+    notify('Cleanup is pending. Retry Delete before editing this record.');
     return;
   }
   signalImage.value = null
@@ -431,17 +436,22 @@ function open(kind, record) {
         timezone: "Asia/Phnom_Penh",
         defaultAccess: "Subscribers only",
       };
-  if (kind === "documents") {
-    draft.value.type = "PDF";
-    draft.value.url = "";
-    draft.value.description = "";
+  if (kind === 'documents') {
+    draft.value.id = record?.id || record?._id || undefined;
+    draft.value.type = record?.type || 'PDF';
+    draft.value.hasFile = Boolean(record?.hasFile);
+    draft.value.url = record?.hasFile ? '' : record?.url || '';
+    draft.value.description = record?.description || '';
+    draft.value.status = record?.status === 'Published' ? 'Published' : 'Draft';
   }
-  if (kind === "analysis") {
-    const now = new Date();
-    draft.value.date = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-      .toISOString().slice(0, 16);
-    draft.value.timeframe = "H4";
-    draft.value.pictureUrls = "";
+  if (kind === 'analysis') {
+    draft.value.id = record?.id || record?._id || undefined;
+    draft.value.date = toLocalDateTimeInput(record?.date || new Date());
+    draft.value.timeframe = record?.timeframe || 'H4';
+    draft.value.pair = record?.pair || record?.symbol || 'XAUUSD';
+    draft.value.category = record?.category === 'PDArray' ? 'PD Array' : record?.category || 'ICT';
+    draft.value.status = record?.status === 'Published' ? 'Published' : 'Draft';
+    draft.value.pictures = [...(record?.pictures || [])];
   }
   if (kind === 'signals') {
     draft.value.id = record?.id || record?._id || undefined
@@ -455,7 +465,7 @@ function open(kind, record) {
 async function upload(e, key) {
   if (modal.value === "documents") {
     const file = e.target.files?.[0];
-    if (!file) { documentFile.value = null; return; }
+    if (!file) { documentFile.value = null; draft.value.file = null; return; }
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['pdf', 'doc', 'docx', 'zip'].includes(ext) || file.size > 10 * 1024 * 1024) {
       e.target.value = "";
@@ -472,10 +482,11 @@ async function upload(e, key) {
   }
   if (modal.value === "analysis") {
     const files = Array.from(e.target.files || []);
-    if (files.length > 10 || files.some(file => file.size > 2 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type))) {
+    const existingCount = draft.value.id && !replaceAnalysisImages.value ? (draft.value.pictures?.length || 0) : 0;
+    if (existingCount + files.length > 10 || files.some(file => file.size > 2 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type))) {
       e.target.value = "";
       analysisImages.value = [];
-      notify("Choose at most 10 JPG, PNG or WebP images, each 2 MB or smaller.");
+      notify('Maximum 10 charts in total, each 2 MB or smaller. Select Replace existing charts to upload more.');
       return;
     }
     analysisImages.value = files;
@@ -524,19 +535,22 @@ async function save() {
       const title = String(draft.value.title || "").trim();
       const url = String(draft.value.url || "").trim();
       if (!title) throw new Error("Enter a document title.");
-      if (!documentFile.value) {
+      if (!documentFile.value && (url || !draft.value.id || !draft.value.hasFile)) {
         let parsed;
         try { parsed = new URL(url); } catch { throw new Error("Select a document file or enter a full HTTP/HTTPS URL."); }
         if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("The document URL must use HTTP or HTTPS.");
       }
-      await createAnalysisDocument({ title,
-        description: String(draft.value.description || "").trim(),
+      const payload = { title,
+        description: String(draft.value.description || '').trim(),
         type: draft.value.type, url,
-        status: draft.value.status === "Published" ? "published" : "draft" }, documentFile.value);
+        status: draft.value.status === 'Published' ? 'published' : 'draft' };
+      const result = draft.value.id
+        ? await updateAnalysisDocument(draft.value.id, payload, documentFile.value)
+        : await createAnalysisDocument(payload, documentFile.value);
       documentFile.value = null;
       modal.value = null;
       await loadRecords();
-      notify(error.value ? "Document saved, but reloading failed. Click Try again." : "Reference document saved successfully");
+      notify(error.value ? 'Document saved, but reloading failed. Click Try again.' : result.message || 'Reference document saved successfully');
     } catch (e) {
       notify(e.message || "Could not save reference document.");
     } finally {
@@ -547,7 +561,6 @@ async function save() {
   if (modal.value === "analysis") {
     saving.value = true;
     try {
-      if (draft.value.id) throw new Error("Editing analysis needs a backend update endpoint.");
       if (!draft.value.date) throw new Error("Select the analysis date and time.");
       const date = new Date(draft.value.date);
       if (!Number.isFinite(date.getTime())) throw new Error("Select a valid analysis date and time.");
@@ -559,13 +572,20 @@ async function save() {
       const timeframe = String(draft.value.timeframe || "").trim();
       const details = String(draft.value.details || "").trim();
       if (!title || !symbol || !timeframe || !details) throw new Error("Complete the title, trading pair, timeframe and details.");
-      await createAnalysisPost({ title, category, symbol, timeframe,
-        date: date.toISOString(), pictures: [], details,
-        status: draft.value.status === "Published" ? "published" : "draft" }, analysisImages.value);
+      const existingCount = draft.value.id && !replaceAnalysisImages.value ? (draft.value.pictures?.length || 0) : 0;
+      if (existingCount + analysisImages.value.length > 10) throw new Error('Maximum 10 charts in total. Select Replace existing charts to upload more.');
+      const payload = { title, category, symbol, timeframe,
+        date: date.toISOString(), details,
+        status: draft.value.status === 'Published' ? 'published' : 'draft' };
+      const result = draft.value.id
+        ? await updateAnalysisPost(draft.value.id, {
+            ...payload, imagesMode: replaceAnalysisImages.value ? 'replace' : 'append',
+          }, analysisImages.value)
+        : await createAnalysisPost({ ...payload, pictures: [] }, analysisImages.value);
       analysisImages.value = [];
       modal.value = null;
       await loadRecords();
-      notify(error.value ? "Analysis saved, but reloading failed. Click Try again to reload." : "Analysis saved successfully");
+      notify(error.value ? 'Analysis saved, but reloading failed. Click Try again to reload.' : result.message || 'Analysis saved successfully');
     } catch (e) {
       notify(e.message || "Could not save analysis.");
     } finally {
@@ -653,9 +673,20 @@ async function save() {
   }
 }
 async function remove() {
-  if (deleteTarget.value?.kind === "analysis") {
-    notify("Deleting analysis needs a backend delete endpoint.");
-    deleteTarget.value = null;
+  if (saving.value || !deleteTarget.value) return;
+  if (['analysis', 'documents'].includes(deleteTarget.value.kind)) {
+    const target = deleteTarget.value;
+    saving.value = true;
+    try {
+      await deleteAnalysisRecord(target);
+      records.value = records.value.filter(record => !(record.kind === target.kind && record.id === target.id));
+      deleteTarget.value = null;
+      notify(target.kind === 'documents' ? 'Reference document deleted' : 'Analysis deleted');
+    } catch (err) {
+      notify(err.message || 'Could not delete this record. Retry Delete.');
+    } finally {
+      saving.value = false;
+    }
     return;
   }
   if (['events', 'signals'].includes(deleteTarget.value?.kind)) {
@@ -1968,10 +1999,20 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 <p class="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{{ document.description }}</p>
                 <p class="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">{{ document.type }} · {{ document.status }}</p>
               </div>
-              <a v-if="externalUrl(document.url)" :href="externalUrl(document.url)" target="_blank" rel="noopener noreferrer"
-                class="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:w-full">
-                <Download :size="16" />Open document
-              </a>
+              <div class="flex shrink-0 flex-wrap items-center gap-2 max-[480px]:w-full">
+                <a v-if="!document.pendingDelete && externalUrl(document.url)" :href="externalUrl(document.url)" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:w-full">
+                  <Download :size="16" />Open document
+                </a>
+                <button type="button" :disabled="saving || document.pendingDelete" @click="open('documents', document)"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:flex-1">
+                  <Pencil :size="16" />Edit
+                </button>
+                <button type="button" :disabled="saving" @click="deleteTarget = document"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 dark:border-red-900 dark:text-red-400 max-[480px]:flex-1">
+                  <Trash2 :size="16" />{{ document.pendingDelete ? 'Retry Delete' : 'Delete' }}
+                </button>
+              </div>
             </article>
           </div>
         </section>
@@ -2090,6 +2131,27 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               </small>
             </label>
           </div>
+          <div v-if="modal === 'analysis' && draft.id"
+            class="mx-7 mb-5 space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700 max-[480px]:mx-4 max-[414px]:mx-3">
+            <p class="text-sm font-medium">Existing charts: {{ draft.pictures?.length || 0 }}</p>
+            <div v-if="draft.pictures?.length" class="flex flex-wrap gap-2">
+              <a v-for="(picture, index) in draft.pictures" :key="picture" :href="picture" target="_blank" rel="noopener noreferrer">
+                <img :src="picture" crossorigin="use-credentials" :alt="`Existing chart ${index + 1}`" class="h-20 w-28 rounded border border-slate-200 object-contain dark:border-slate-700" />
+              </a>
+            </div>
+            <label class="flex items-start gap-2 text-sm">
+              <input v-model="replaceAnalysisImages" type="checkbox" :disabled="saving" class="mt-1" />
+              <span>Replace all existing charts with the selected images.</span>
+            </label>
+            <p class="text-xs text-slate-500 dark:text-slate-400">
+              {{ replaceAnalysisImages ? 'Saving replaces the old charts. With no selected images, it removes all charts.' : 'Existing charts stay. Selected images are added, up to 10 charts in total.' }}
+            </p>
+          </div>
+          <p v-if="modal === 'documents' && draft.id && draft.hasFile"
+            class="mx-7 mb-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400 max-[480px]:mx-4 max-[414px]:mx-3">
+            Current file: {{ draft.filename || 'Uploaded document' }}. Leave the upload and URL empty to keep it.
+            Select a new file or enter a hosted URL to replace it.
+          </p>
           <p
             v-if="modal === 'users'"
             class="form-note mx-7 mb-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400 max-[480px]:mx-4 max-[414px]:mx-3"
@@ -2135,7 +2197,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
     <div
       v-if="deleteTarget"
       class="modal-backdrop fixed inset-0 z-70 flex items-center justify-center bg-slate-950/50 p-6 backdrop-blur-sm max-[600px]:p-3 overflow-y-auto max-[768px]:p-4 max-[414px]:p-2"
-      @click.self="deleteTarget = null"
+      @click.self="!saving && (deleteTarget = null)"
     >
       <section
         class="modal confirm-modal max-h-[90vh] w-full max-w-[620px] overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl [&_h2]:text-xl [&_h2]:font-semibold !max-w-[410px] p-6 [&>p]:my-5 [&>p]:text-sm [&>p]:leading-relaxed [&>p]:text-slate-500 [&>.modal-footer]:px-0 [&>.modal-footer]:pb-0 min-w-0 max-[768px]:max-h-[calc(100dvh-2rem)] max-[414px]:max-h-[calc(100dvh-1rem)] max-[480px]:rounded-xl [&_h2]:break-words max-[480px]:[&_h2]:text-lg max-[480px]:p-4 max-[414px]:p-3"
@@ -2153,6 +2215,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
         >
           <button
             class="btn-secondary inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-wait disabled:opacity-50 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 max-[768px]:min-h-11 max-[414px]:px-3"
+            :disabled="saving"
             @click="deleteTarget = null"
           >
             Cancel</button
@@ -2161,7 +2224,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             :disabled="saving"
             @click="remove"
           >
-            Delete record
+            {{ saving ? 'Deleting…' : 'Delete record' }}
           </button>
         </div>
       </section>

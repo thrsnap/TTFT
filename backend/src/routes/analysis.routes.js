@@ -54,6 +54,7 @@ function formatPost(post) {
     symbol: post.symbol, timeframe: post.timeframe, date: post.date.toISOString(),
     pictures: [...(post.pictures || []), ...(post.imageIds || []).map(id => `/api/analysis/images/${id}`)],
     details: post.details, status: post.status, pendingDelete: Boolean(post.pendingDelete),
+    cleanupPending: Boolean(post.obsoleteImageIds?.length || post.stagedImageIds?.length),
   }
 }
 function formatDocument(doc) {
@@ -61,6 +62,8 @@ function formatDocument(doc) {
     id: String(doc._id), title: doc.title, description: doc.description, type: doc.type,
     url: doc.hasFile ? `/api/analysis/documents/${doc._id}/download` : doc.url,
     status: doc.status, pendingDelete: Boolean(doc.pendingDelete),
+    hasFile: Boolean(doc.hasFile), filename: doc.filename || '',
+    cleanupPending: Boolean(doc.obsoleteFileKeys?.length || doc.stagedFileKeys?.length),
   }
 }
 async function listContent(res, filter) {
@@ -105,8 +108,81 @@ async function removePost(post) {
 }
 async function removeDocument(doc) {
   await AnalysisDocument.updateOne({ _id: doc._id }, { $set: { pendingDelete: true } })
-  if (doc.hasFile && doc.fileStorage === 'r2' && doc.fileKey) await deleteR2File(doc.fileKey)
+  const keys = new Set([
+    ...(doc.hasFile && doc.fileStorage === 'r2' && doc.fileKey ? [doc.fileKey] : []),
+    ...(doc.obsoleteFileKeys || []), ...(doc.stagedFileKeys || []),
+  ])
+  for (const key of keys) await deleteR2File(key)
   await AnalysisDocument.deleteOne({ _id: doc._id })
+}
+
+function httpError(status, message) {
+  const error = new Error(message)
+  error.status = status
+  return error
+}
+// Unreferenced chart metadata remains durable if R2 cleanup fails.
+async function cleanupUnusedImages(post) {
+  for (const id of post.obsoleteImageIds || []) {
+    const image = await AnalysisImage.findById(id)
+    if (image) {
+      if (image.storage === 'r2' && image.key) await deleteR2File(image.key)
+      await AnalysisImage.deleteOne({ _id: image._id })
+    }
+    await AnalysisPost.updateOne({ _id: post._id }, { $pull: { obsoleteImageIds: id } })
+  }
+}
+async function cleanupDocumentKeys(doc) {
+  for (const key of doc.obsoleteFileKeys || []) {
+    if (key !== doc.fileKey) await deleteR2File(key)
+    await AnalysisDocument.updateOne({ _id: doc._id }, { $pull: { obsoleteFileKeys: key } })
+  }
+}
+async function processCharts(files, postId) {
+  const processed = []
+  for (const file of files || []) {
+    let buffer
+    try {
+      const options = { limitInputPixels: 20000000 }
+      const metadata = await sharp(file.buffer, options).metadata()
+      if (!['jpeg', 'png', 'webp'].includes(metadata.format) || (metadata.pages || 1) > 1) throw new Error('Unsupported image')
+      buffer = await sharp(file.buffer, options).rotate()
+        .resize({ width: 2400, height: 2400, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 90 }).toBuffer()
+    } catch { throw badRequest('Invalid image. Use a non-animated JPG, PNG or WebP.') }
+    if (buffer.length > 5 * 1024 * 1024) throw badRequest('Processed image is too large.')
+    const id = new mongoose.Types.ObjectId()
+    processed.push({ buffer, record: {
+      _id: id, postId, storage: 'r2', key: `analysis/posts/${postId}/${id}.webp`,
+      contentType: 'image/webp', size: buffer.length,
+    } })
+  }
+  return processed
+}
+function documentFileInfo(file, id) {
+  const extension = file.originalname.split('.').pop().toLowerCase()
+  const formats = {
+    pdf: ['PDF', 'application/pdf'],
+    doc: ['Word Document', 'application/msword'],
+    docx: ['Word Document', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    zip: ['ZIP', 'application/zip'],
+  }
+  const format = formats[extension]
+  if (!format) throw badRequest('Upload a PDF, DOC, DOCX or ZIP file.')
+  const buffer = file.buffer
+  const isPdf = buffer.subarray(0, 5).toString() === '%PDF-'
+  const isZip = ['504b0304', '504b0506', '504b0708'].includes(buffer.subarray(0, 4).toString('hex'))
+  const isDoc = buffer.subarray(0, 8).toString('hex') === 'd0cf11e0a1b11ae1'
+  if ((extension === 'pdf' && !isPdf) || (extension === 'doc' && !isDoc) || (['docx', 'zip'].includes(extension) && !isZip)) {
+    throw badRequest('The file does not match its extension.')
+  }
+  // Every replacement gets a fresh key; a failed upload cannot overwrite the old file.
+  const filename = `reference-${id}.${extension}`
+  return {
+    type: format[0], hasFile: true, fileStorage: 'r2', filename,
+    fileKey: `analysis/documents/${id}/${new mongoose.Types.ObjectId()}-${filename}`,
+    contentType: format[1], size: buffer.length,
+  }
 }
 
 router.get('/', async (req, res, next) => {
@@ -196,6 +272,73 @@ router.post('/posts', requireUser, requireAdmin, upload.array('images', 10), asy
   }
 })
 
+router.patch('/posts/:id', requireUser, requireAdmin, upload.array('images', 10), async (req, res, next) => {
+  const stagedImages = []
+  let committed = false
+  try {
+    validId(req.params.id, 'analysis')
+    const post = await AnalysisPost.findById(req.params.id)
+    if (!post) throw httpError(404, 'Analysis not found.')
+    if (post.pendingDelete) throw httpError(409, 'Deletion is pending. Retry Delete before editing this record.')
+    const data = pick(req.body, ['title', 'category', 'symbol', 'timeframe', 'date', 'pictures', 'details', 'status', 'imagesMode'])
+    const mode = data.imagesMode || 'append'
+    if (!['append', 'replace'].includes(mode)) throw badRequest('imagesMode must be append or replace.')
+    delete data.imagesMode
+    if (typeof data.pictures === 'string') {
+      try { data.pictures = JSON.parse(data.pictures) }
+      catch { throw badRequest('pictures must be a JSON array.') }
+    }
+    if (data.pictures !== undefined && !Array.isArray(data.pictures)) throw badRequest('pictures must be an array.')
+    const oldIds = [...(post.imageIds || [])]
+    const keepIds = mode === 'replace' ? [] : oldIds
+    const pictures = data.pictures ?? (mode === 'replace' ? [] : post.pictures || [])
+    if (pictures.length + keepIds.length + (req.files?.length || 0) > 10) throw badRequest('Maximum 10 charts per analysis. Replace existing charts to upload more.')
+    Object.assign(post, data, { pictures })
+    await post.validate()
+    const processed = await processCharts(req.files, post._id)
+    for (const item of processed) {
+      await AnalysisImage.create(item.record)
+      stagedImages.push(item.record)
+      const stage = await AnalysisPost.updateOne(
+        { _id: post._id, __v: post.__v ?? 0, pendingDelete: { $ne: true } },
+        { $addToSet: { stagedImageIds: item.record._id } },
+      )
+      if (!stage.matchedCount) throw httpError(409, 'This analysis changed. Reload and try again.')
+      await uploadAnalysisBuffer({ key: item.record.key, buffer: item.buffer, contentType: item.record.contentType })
+    }
+    const imageIds = [...keepIds, ...processed.map(item => item.record._id)]
+    const fields = ['title', 'category', 'symbol', 'timeframe', 'date', 'pictures', 'details', 'status']
+    const update = {
+      $set: { ...Object.fromEntries(fields.map(key => [key, post[key]])), imageIds },
+      $inc: { __v: 1 },
+      $pull: { stagedImageIds: { $in: processed.map(item => item.record._id) } },
+    }
+    if (mode === 'replace' && oldIds.length) update.$addToSet = { obsoleteImageIds: { $each: oldIds } }
+    const saved = await AnalysisPost.findOneAndUpdate(
+      { _id: post._id, __v: post.__v ?? 0, pendingDelete: { $ne: true } },
+      update, { new: true }, // Complete candidate was validated above.
+    )
+    if (!saved) throw httpError(409, 'This analysis changed. Reload and try again.')
+    committed = true
+    let cleanupPending = false
+    try { await cleanupUnusedImages(saved) }
+    catch (error) { cleanupPending = true; console.error('Chart cleanup pending:', String(saved._id), error.name) }
+    const current = await AnalysisPost.findById(saved._id)
+    res.json({ message: cleanupPending ? 'Analysis updated. Old chart cleanup is pending; save again to retry.' : 'Analysis updated.', post: formatPost(current || saved), cleanupPending })
+  } catch (error) {
+    if (!committed) {
+      for (const image of stagedImages) {
+        try {
+          await deleteR2File(image.key)
+          await AnalysisImage.deleteOne({ _id: image._id })
+          await AnalysisPost.updateOne({ _id: image.postId }, { $pull: { stagedImageIds: image._id } })
+        } catch (cleanupError) { console.error('Replacement chart cleanup pending:', String(image._id), cleanupError.name) }
+      }
+    }
+    next(error)
+  }
+})
+
 router.delete('/posts/:id', requireUser, requireAdmin, async (req, res, next) => {
   try {
     validId(req.params.id, 'analysis')
@@ -280,6 +423,71 @@ router.post('/documents', requireUser, requireAdmin, documentUpload.single('file
   }
 })
 
+router.patch('/documents/:id', requireUser, requireAdmin, documentUpload.single('file'), async (req, res, next) => {
+  let stagedKey
+  let committed = false
+  try {
+    validId(req.params.id, 'document')
+    const doc = await AnalysisDocument.findById(req.params.id)
+    if (!doc) throw httpError(404, 'Reference document not found.')
+    if (doc.pendingDelete) throw httpError(409, 'Deletion is pending. Retry Delete before editing this record.')
+    const data = pick(req.body, ['title', 'description', 'type', 'url', 'status'])
+    const oldKey = doc.hasFile && doc.fileStorage === 'r2' ? doc.fileKey : undefined
+    let replacement
+    if (req.file) {
+      replacement = documentFileInfo(req.file, doc._id)
+      Object.assign(doc, data, replacement, { url: undefined })
+    } else if (typeof data.url === 'string' && data.url.trim()) {
+      // An explicit nonempty hosted URL replaces the uploaded file.
+      replacement = { hasFile: false, url: data.url.trim() }
+      Object.assign(doc, data, replacement)
+    } else {
+      delete data.url // Empty URL means retain the current file/link.
+      Object.assign(doc, data)
+    }
+    await doc.validate()
+    if (req.file) {
+      const stage = await AnalysisDocument.updateOne(
+        { _id: doc._id, __v: doc.__v ?? 0, pendingDelete: { $ne: true } },
+        { $addToSet: { stagedFileKeys: replacement.fileKey } },
+      )
+      if (!stage.matchedCount) throw httpError(409, 'This document changed. Reload and try again.')
+      stagedKey = replacement.fileKey
+      await uploadAnalysisBuffer({ key: stagedKey, buffer: req.file.buffer, contentType: replacement.contentType })
+    }
+    const fields = ['title', 'description', 'type', 'status']
+    const update = { $set: Object.fromEntries(fields.map(key => [key, doc[key]])), $inc: { __v: 1 } }
+    if (replacement?.hasFile) {
+      Object.assign(update.$set, replacement)
+      update.$unset = { fileData: '', url: '' }
+      update.$pull = { stagedFileKeys: stagedKey }
+    } else if (replacement) {
+      Object.assign(update.$set, replacement)
+      update.$unset = { fileData: '', fileKey: '', fileStorage: '', filename: '', contentType: '', size: '' }
+    }
+    if (replacement && oldKey) update.$addToSet = { obsoleteFileKeys: oldKey }
+    const saved = await AnalysisDocument.findOneAndUpdate(
+      { _id: doc._id, __v: doc.__v ?? 0, pendingDelete: { $ne: true } },
+      update, { new: true }, // Document validation above handles conditional fields.
+    )
+    if (!saved) throw httpError(409, 'This document changed. Reload and try again.')
+    committed = true
+    let cleanupPending = false
+    try { await cleanupDocumentKeys(saved) }
+    catch (error) { cleanupPending = true; console.error('Document cleanup pending:', String(saved._id), error.name) }
+    const current = await AnalysisDocument.findById(saved._id)
+    res.json({ message: cleanupPending ? 'Document updated. Old file cleanup is pending; save again to retry.' : 'Reference document updated.', document: formatDocument(current || saved), cleanupPending })
+  } catch (error) {
+    if (stagedKey && !committed) {
+      try {
+        await deleteR2File(stagedKey)
+        await AnalysisDocument.updateOne({ _id: req.params.id }, { $pull: { stagedFileKeys: stagedKey } })
+      } catch (cleanupError) { console.error('Replacement document cleanup pending:', req.params.id, cleanupError.name) }
+    }
+    next(error)
+  }
+})
+
 router.delete('/documents/:id', requireUser, requireAdmin, async (req, res, next) => {
   try {
     validId(req.params.id, 'document')
@@ -294,12 +502,13 @@ router.use((error, req, res, next) => {
   if (res.headersSent) return next(error)
   if (error instanceof multer.MulterError || error.status === 400 || ['ValidationError', 'CastError'].includes(error.name)) {
     return res.status(400).json({ message: error.code === 'LIMIT_FILE_SIZE'
-      ? (req.path === '/documents' ? 'The document must be 10 MB or smaller.' : 'Each image must be 2 MB or smaller.')
+      ? (req.path.startsWith('/documents') ? 'The document must be 10 MB or smaller.' : 'Each image must be 2 MB or smaller.')
       : error.message })
   }
   if (error.name === 'NoSuchKey' || error.$metadata?.httpStatusCode === 404) {
     return res.status(404).json({ message: 'Uploaded file not found.' })
   }
+  if ([404, 409].includes(error.status)) return res.status(error.status).json({ message: error.message })
   // Log only the error type; credentials and raw SDK errors stay out of responses.
   console.error('Analysis request failed:', error.name)
   res.status(500).json({ message: 'Analysis request failed. Check backend logs. If deletion failed, retry Delete.' })
