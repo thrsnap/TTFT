@@ -4,24 +4,19 @@ import { useRouter, useRoute } from "vue-router";
 import { adminApi as api, fileUrl, externalUrl } from "../../api/adminApi.js";
 import CourseAdmin from "./CourseAdmin.vue";
 import {
-  getAnalysisRecords, createAnalysisPost, createAnalysisDocument,
-  updateAnalysisPost, updateAnalysisDocument, deleteAnalysisRecord,
-} from '../../api/analysisApi.js'
-
+  getAnalysisRecords,
+  createAnalysisPost,
+  createAnalysisDocument,
+  updateAnalysisPost,
+  updateAnalysisDocument,
+  deleteAnalysisRecord,
+} from "../../api/analysisApi.js";
 import {
   getNewsRecords,
   saveCalendarEvent,
   saveNewsSignal,
   deleteNewsRecord,
-} from '../../api/newApi.js'
-
-const signalImage = ref(null)
-const analysisImages = ref([])
-const replaceAnalysisImages = ref(false)
-const documentFile = ref(null)
-
-const router = useRouter();
-const route = useRoute();
+} from "../../api/newApi.js";
 import {
   LayoutDashboard,
   Newspaper,
@@ -56,6 +51,13 @@ import {
   TrendingUp,
   Activity,
 } from "lucide-vue-next";
+
+const signalImage = ref(null);
+const analysisImages = ref([]);
+const replaceAnalysisImages = ref(false);
+const documentFile = ref(null);
+const router = useRouter();
+const route = useRoute();
 const nav = [
   ["Dashboard", LayoutDashboard],
   ["News", Newspaper],
@@ -112,10 +114,7 @@ const sectionPaths = {
   Support: "/admin/support",
   Settings: "/admin/settings",
 };
-const navigate = (section) => {
-  return router.push(sectionPaths[section] || "/admin");
-};
-// Keep section controls in sync with sidebar and Back/Forward navigation.
+const navigate = (section) => router.push(sectionPaths[section] || "/admin");
 watch(
   () => route.path,
   () => {
@@ -139,7 +138,11 @@ async function fetchDashboard() {
     const data = await api("dashboard");
     for (const field of ["totalUsers", "newUsers", "activeUsers"]) {
       if (!Number.isInteger(data?.[field]) || data[field] < 0) {
-        throw new Error("Invalid dashboard response: expected " + field + " to be a non-negative integer.");
+        throw new Error(
+          "Invalid dashboard response: expected " +
+            field +
+            " to be a non-negative integer.",
+        );
       }
     }
     dashboardStats.value = data;
@@ -150,35 +153,26 @@ async function fetchDashboard() {
   }
 }
 async function loadRecords() {
-  loading.value = true
-  error.value = ''
-  recordsLoaded.value = false
-
+  loading.value = true;
+  error.value = "";
+  recordsLoaded.value = false;
   try {
-    let data
-
-    if (page.value === 'Academy') {
-      records.value = []
-      recordsLoaded.value = true
-      return
-    } else if (page.value === 'Analysis') {
-      data = await getAnalysisRecords()
-    } else if (page.value === 'News') {
-      data = await getNewsRecords()
-    } else {
-      data = await api('data')
-    }
-
-    if (!Array.isArray(data)) {
-      throw new Error('The endpoint must return an array of records.')
-    }
-
-    records.value = data
-    recordsLoaded.value = true
+    let data;
+    if (page.value === "Academy") {
+      records.value = [];
+      recordsLoaded.value = true;
+      return;
+    } else if (page.value === "Analysis") data = await getAnalysisRecords();
+    else if (page.value === "News") data = await getNewsRecords();
+    else data = await api("data");
+    if (!Array.isArray(data))
+      throw new Error("The endpoint must return an array of records.");
+    records.value = data;
+    recordsLoaded.value = true;
   } catch (errorCaught) {
-    error.value = errorCaught.message || 'Could not load records.'
+    error.value = errorCaught.message || "Could not load records.";
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 async function load() {
@@ -193,9 +187,7 @@ async function load() {
   if (page.value === "Dashboard") {
     loading.value = false;
     await fetchDashboard();
-  } else {
-    await loadRecords();
-  }
+  } else await loadRecords();
 }
 watch(page, async (section) => {
   error.value = "";
@@ -203,12 +195,27 @@ watch(page, async (section) => {
   else await loadRecords();
 });
 const statCards = computed(() => [
-  { label: "Total users", value: dashboardStats.value?.totalUsers, icon: Users,
-    note: "All registered accounts", color: "mint" },
-  { label: "New users", value: dashboardStats.value?.newUsers, icon: UserRound,
-    note: "Registered in the last 30 days", color: "blue" },
-  { label: "Active users", value: dashboardStats.value?.activeUsers, icon: Activity,
-    note: "Active in the last 15 minutes", color: "purple" },
+  {
+    label: "Total users",
+    value: dashboardStats.value?.totalUsers,
+    icon: Users,
+    note: "All registered accounts",
+    color: "mint",
+  },
+  {
+    label: "New users",
+    value: dashboardStats.value?.newUsers,
+    icon: UserRound,
+    note: "Registered in the last 30 days",
+    color: "blue",
+  },
+  {
+    label: "Active users",
+    value: dashboardStats.value?.activeUsers,
+    icon: Activity,
+    note: "Active in the last 15 minutes",
+    color: "purple",
+  },
 ]);
 function notify(text) {
   toast.value = text;
@@ -223,18 +230,83 @@ const currentKind = computed(
       Users: "users",
     })[page.value],
 );
-const visible = computed(() =>
-  list(currentKind.value).filter(
+
+// Calendar days use the same browser-local timezone as the event form.
+function localDateKey(value) {
+  if (!value) return "";
+  const valueDate = new Date(value);
+  if (!Number.isFinite(valueDate.getTime())) return "";
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${valueDate.getFullYear()}-${pad(valueDate.getMonth() + 1)}-${pad(valueDate.getDate())}`;
+}
+function parseCalendarDay(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return null;
+  // Local noon avoids parsing YYYY-MM-DD as UTC and keeps DST day changes safe.
+  const valueDate = new Date(`${value}T12:00:00`);
+  return Number.isFinite(valueDate.getTime()) &&
+    localDateKey(valueDate) === value
+    ? valueDate
+    : null;
+}
+const calendarDay = ref(localDateKey(new Date()));
+const calendarTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const isCalendar = computed(
+  () => page.value === "News" && tab.value === "Calendar",
+);
+const calendarDayLabel = computed(() => {
+  const selected = parseCalendarDay(calendarDay.value);
+  return selected
+    ? selected.toLocaleDateString("en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : "";
+});
+const calendarDayEvents = computed(() =>
+  list("events")
+    .filter((record) => localDateKey(record.scheduledAt) === calendarDay.value)
+    .sort(
+      (a, b) =>
+        new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
+    ),
+);
+function selectCalendarDay(value) {
+  if (!parseCalendarDay(value)) return;
+  calendarDay.value = value;
+}
+function changeCalendarDay(offset) {
+  const selected = parseCalendarDay(calendarDay.value);
+  if (!selected) return;
+  selected.setDate(selected.getDate() + offset);
+  calendarDay.value = localDateKey(selected);
+}
+function showCalendarToday() {
+  calendarDay.value = localDateKey(new Date());
+}
+const visible = computed(() => {
+  const source = isCalendar.value
+    ? calendarDayEvents.value
+    : list(currentKind.value);
+  return source.filter(
     (r) =>
       (filter.value === "All" ||
         r.category === filter.value ||
         r.status === filter.value) &&
-      [r.title, r.name, r.email, r.currency, r.pair]
+      [
+        r.title,
+        r.name,
+        r.email,
+        r.currency,
+        r.pair,
+        ...(isCalendar.value ? [r.country] : []),
+      ]
         .join(" ")
         .toLowerCase()
         .includes(search.value.toLowerCase()),
-  ),
-);
+  );
+});
 const recent = computed(() =>
   records.value
     .filter((x) => !["settings", "profile"].includes(x.kind))
@@ -292,35 +364,28 @@ const fields = {
     ["sourceUrl", "Source link", "url"],
   ],
   signals: [
-  ['title', 'Signal title', 'text', true],
-  ['pair', 'Trading pair', 'text', true],
-  ['scheduledAt', 'News date and time (your local timezone)', 'datetime-local', true],
-  ['newsType', 'News type', 'text', true],
-  [
-    'direction',
-    'Direction',
-    'select',
-    true,
-    ['pending', 'buy', 'sell'],
+    ["title", "Signal title", "text", true],
+    ["pair", "Trading pair", "text", true],
+    [
+      "scheduledAt",
+      "News date and time (your local timezone)",
+      "datetime-local",
+      true,
+    ],
+    ["newsType", "News type", "text", true],
+    ["direction", "Direction", "select", true, ["pending", "buy", "sell"]],
+    ["confirmed", "Confirmed", "select", true, ["false", "true"]],
+    ["previewText", "Public preview text", "textarea"],
+    ["details", "Private signal details", "textarea", true],
+    ["news", "Private news information", "textarea"],
+    [
+      "attachment",
+      "Signal image — JPG, PNG or WebP, maximum 2 MB",
+      "file",
+      false,
+      "image/jpeg,image/png,image/webp",
+    ],
   ],
-  [
-    'confirmed',
-    'Confirmed',
-    'select',
-    true,
-    ['false', 'true'],
-  ],
-  ['previewText', 'Public preview text', 'textarea'],
-  ['details', 'Private signal details', 'textarea', true],
-  ['news', 'Private news information', 'textarea'],
-  [
-    'attachment',
-    'Signal image — JPG, PNG or WebP, maximum 2 MB',
-    'file',
-    false,
-    'image/jpeg,image/png,image/webp',
-  ],
-],
   courses: [
     ["title", "Course title", "text", true],
     ["description", "Description", "textarea", true],
@@ -337,19 +402,43 @@ const fields = {
   ],
   analysis: [
     ["title", "Analysis title", "text", true],
-    ["category", "Category", "select", true, ["ICT", "PD Array", "CSNR", "SMS"]],
+    [
+      "category",
+      "Category",
+      "select",
+      true,
+      ["ICT", "PD Array", "CSNR", "SMS"],
+    ],
     ["pair", "Trading pair", "text", true],
     ["timeframe", "Timeframe (for example H4)", "text", true],
     ["date", "Analysis date and time", "datetime-local", true],
-    ["images", "Chart images (up to 10)", "file", false, "image/jpeg,image/png,image/webp"],
+    [
+      "images",
+      "Chart images (up to 10)",
+      "file",
+      false,
+      "image/jpeg,image/png,image/webp",
+    ],
     ["details", "Technical analysis", "textarea", true],
     ["status", "Status", "select", true, ["Draft", "Published"]],
   ],
   documents: [
     ["title", "Document title", "text", true],
     ["description", "Description", "textarea"],
-    ["type", "Document type", "select", true, ["PDF", "Word Document", "ZIP", "Other"]],
-    ["file", "Upload document from your computer", "file", false, ".pdf,.doc,.docx,.zip"],
+    [
+      "type",
+      "Document type",
+      "select",
+      true,
+      ["PDF", "Word Document", "ZIP", "Other"],
+    ],
+    [
+      "file",
+      "Upload document from your computer",
+      "file",
+      false,
+      ".pdf,.doc,.docx,.zip",
+    ],
     ["url", "Or hosted document URL (optional when uploading)", "url", false],
     ["status", "Status", "select", true, ["Draft", "Published"]],
   ],
@@ -392,27 +481,27 @@ const fields = {
   ],
 };
 function toLocalDateTimeInput(value) {
-  if (!value) return ''
-  const date = new Date(value)
-  if (!Number.isFinite(date.getTime())) return ''
-  const pad = number => String(number).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (number) => String(number).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 function open(kind, record) {
   if (saving.value) return;
-  if (kind === 'courses') {
+  if (kind === "courses") {
     modal.value = null;
-    navigate('Academy');
+    navigate("Academy");
     return;
   }
   documentFile.value = null;
   analysisImages.value = [];
   replaceAnalysisImages.value = false;
-  if (['analysis', 'documents'].includes(kind) && record?.pendingDelete) {
-    notify('Cleanup is pending. Retry Delete before editing this record.');
+  if (["analysis", "documents"].includes(kind) && record?.pendingDelete) {
+    notify("Cleanup is pending. Retry Delete before editing this record.");
     return;
   }
-  signalImage.value = null
+  signalImage.value = null;
   modal.value = kind;
   draft.value = record
     ? { ...record }
@@ -436,38 +525,53 @@ function open(kind, record) {
         timezone: "Asia/Phnom_Penh",
         defaultAccess: "Subscribers only",
       };
-  if (kind === 'documents') {
+  if (kind === "documents") {
     draft.value.id = record?.id || record?._id || undefined;
-    draft.value.type = record?.type || 'PDF';
+    draft.value.type = record?.type || "PDF";
     draft.value.hasFile = Boolean(record?.hasFile);
-    draft.value.url = record?.hasFile ? '' : record?.url || '';
-    draft.value.description = record?.description || '';
-    draft.value.status = record?.status === 'Published' ? 'Published' : 'Draft';
+    draft.value.url = record?.hasFile ? "" : record?.url || "";
+    draft.value.description = record?.description || "";
+    draft.value.status = record?.status === "Published" ? "Published" : "Draft";
   }
-  if (kind === 'analysis') {
+  if (kind === "analysis") {
     draft.value.id = record?.id || record?._id || undefined;
     draft.value.date = toLocalDateTimeInput(record?.date || new Date());
-    draft.value.timeframe = record?.timeframe || 'H4';
-    draft.value.pair = record?.pair || record?.symbol || 'XAUUSD';
-    draft.value.category = record?.category === 'PDArray' ? 'PD Array' : record?.category || 'ICT';
-    draft.value.status = record?.status === 'Published' ? 'Published' : 'Draft';
+    draft.value.timeframe = record?.timeframe || "H4";
+    draft.value.pair = record?.pair || record?.symbol || "XAUUSD";
+    draft.value.category =
+      record?.category === "PDArray" ? "PD Array" : record?.category || "ICT";
+    draft.value.status = record?.status === "Published" ? "Published" : "Draft";
     draft.value.pictures = [...(record?.pictures || [])];
   }
-  if (kind === 'signals') {
-    draft.value.id = record?.id || record?._id || undefined
-    draft.value.direction = record?.direction || 'pending'
-    draft.value.confirmed = String(record?.confirmed === true || record?.confirmed === 'true')
+  if (kind === "signals") {
+    draft.value.id = record?.id || record?._id || undefined;
+    draft.value.direction = record?.direction || "pending";
+    draft.value.confirmed = String(
+      record?.confirmed === true || record?.confirmed === "true",
+    );
   }
-  if (kind === 'events' || kind === 'signals') {
-    draft.value.scheduledAt = toLocalDateTimeInput(record?.scheduledAt)
+  if (kind === "events") {
+    draft.value.id = record?.id || record?._id || undefined;
+    draft.value.scheduledAt = record
+      ? toLocalDateTimeInput(record.scheduledAt)
+      : `${calendarDay.value}T09:00`;
+  } else if (kind === "signals") {
+    draft.value.scheduledAt = toLocalDateTimeInput(record?.scheduledAt);
   }
 }
 async function upload(e, key) {
   if (modal.value === "documents") {
     const file = e.target.files?.[0];
-    if (!file) { documentFile.value = null; draft.value.file = null; return; }
-    const ext = file.name.split('.').pop().toLowerCase();
-    if (!['pdf', 'doc', 'docx', 'zip'].includes(ext) || file.size > 10 * 1024 * 1024) {
+    if (!file) {
+      documentFile.value = null;
+      draft.value.file = null;
+      return;
+    }
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (
+      !["pdf", "doc", "docx", "zip"].includes(ext) ||
+      file.size > 10 * 1024 * 1024
+    ) {
       e.target.value = "";
       documentFile.value = null;
       draft.value.file = null;
@@ -476,43 +580,57 @@ async function upload(e, key) {
     }
     documentFile.value = file;
     draft.value.file = { name: file.name };
-    draft.value.type = ext === 'pdf' ? 'PDF' : ext === 'zip' ? 'ZIP' : 'Word Document';
+    draft.value.type =
+      ext === "pdf" ? "PDF" : ext === "zip" ? "ZIP" : "Word Document";
     notify("Document selected. Click Save to upload it.");
     return;
   }
   if (modal.value === "analysis") {
     const files = Array.from(e.target.files || []);
-    const existingCount = draft.value.id && !replaceAnalysisImages.value ? (draft.value.pictures?.length || 0) : 0;
-    if (existingCount + files.length > 10 || files.some(file => file.size > 2 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type))) {
+    const existingCount =
+      draft.value.id && !replaceAnalysisImages.value
+        ? draft.value.pictures?.length || 0
+        : 0;
+    if (
+      existingCount + files.length > 10 ||
+      files.some(
+        (file) =>
+          file.size > 2 * 1024 * 1024 ||
+          !["image/jpeg", "image/png", "image/webp"].includes(file.type),
+      )
+    ) {
       e.target.value = "";
       analysisImages.value = [];
-      notify('Maximum 10 charts in total, each 2 MB or smaller. Select Replace existing charts to upload more.');
+      notify(
+        "Maximum 10 charts in total, each 2 MB or smaller. Select Replace existing charts to upload more.",
+      );
       return;
     }
     analysisImages.value = files;
-    notify(files.length ? `${files.length} image(s) selected. Click Save to upload.` : "Image selection cleared.");
+    notify(
+      files.length
+        ? `${files.length} image(s) selected. Click Save to upload.`
+        : "Image selection cleared.",
+    );
     return;
   }
-  if (modal.value === 'signals') {
-  const file = e.target.files?.[0]
-  if (!file) return
-
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    e.target.value = ''
-    notify('Use a JPG, PNG or WebP image')
-    return
+  if (modal.value === "signals") {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      e.target.value = "";
+      notify("Use a JPG, PNG or WebP image");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      e.target.value = "";
+      notify("The signal image must be 2 MB or smaller");
+      return;
+    }
+    signalImage.value = file;
+    notify("Image selected. Click Save to upload it.");
+    return;
   }
-
-  if (file.size > 2 * 1024 * 1024) {
-    e.target.value = ''
-    notify('The signal image must be 2 MB or smaller')
-    return
-  }
-
-  signalImage.value = file
-  notify('Image selected. Click Save to upload it.')
-  return
-}
   const file = e.target.files[0];
   if (!file) return;
   saving.value = true;
@@ -535,22 +653,43 @@ async function save() {
       const title = String(draft.value.title || "").trim();
       const url = String(draft.value.url || "").trim();
       if (!title) throw new Error("Enter a document title.");
-      if (!documentFile.value && (url || !draft.value.id || !draft.value.hasFile)) {
+      if (
+        !documentFile.value &&
+        (url || !draft.value.id || !draft.value.hasFile)
+      ) {
         let parsed;
-        try { parsed = new URL(url); } catch { throw new Error("Select a document file or enter a full HTTP/HTTPS URL."); }
-        if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("The document URL must use HTTP or HTTPS.");
+        try {
+          parsed = new URL(url);
+        } catch {
+          throw new Error(
+            "Select a document file or enter a full HTTP/HTTPS URL.",
+          );
+        }
+        if (!["http:", "https:"].includes(parsed.protocol))
+          throw new Error("The document URL must use HTTP or HTTPS.");
       }
-      const payload = { title,
-        description: String(draft.value.description || '').trim(),
-        type: draft.value.type, url,
-        status: draft.value.status === 'Published' ? 'published' : 'draft' };
+      const payload = {
+        title,
+        description: String(draft.value.description || "").trim(),
+        type: draft.value.type,
+        url,
+        status: draft.value.status === "Published" ? "published" : "draft",
+      };
       const result = draft.value.id
-        ? await updateAnalysisDocument(draft.value.id, payload, documentFile.value)
+        ? await updateAnalysisDocument(
+            draft.value.id,
+            payload,
+            documentFile.value,
+          )
         : await createAnalysisDocument(payload, documentFile.value);
       documentFile.value = null;
       modal.value = null;
       await loadRecords();
-      notify(error.value ? 'Document saved, but reloading failed. Click Try again.' : result.message || 'Reference document saved successfully');
+      notify(
+        error.value
+          ? "Document saved, but reloading failed. Click Try again."
+          : result.message || "Reference document saved successfully",
+      );
     } catch (e) {
       notify(e.message || "Could not save reference document.");
     } finally {
@@ -561,31 +700,66 @@ async function save() {
   if (modal.value === "analysis") {
     saving.value = true;
     try {
-      if (!draft.value.date) throw new Error("Select the analysis date and time.");
+      if (!draft.value.date)
+        throw new Error("Select the analysis date and time.");
       const date = new Date(draft.value.date);
-      if (!Number.isFinite(date.getTime())) throw new Error("Select a valid analysis date and time.");
-      const categories = { ICT: "ICT", "PD Array": "PDArray", PDArray: "PDArray", CSNR: "CSNR", SMS: "SMS" };
+      if (!Number.isFinite(date.getTime()))
+        throw new Error("Select a valid analysis date and time.");
+      const categories = {
+        ICT: "ICT",
+        "PD Array": "PDArray",
+        PDArray: "PDArray",
+        CSNR: "CSNR",
+        SMS: "SMS",
+      };
       const category = categories[draft.value.category];
       if (!category) throw new Error("Select a valid category.");
       const title = String(draft.value.title || "").trim();
       const symbol = String(draft.value.pair || "").trim();
       const timeframe = String(draft.value.timeframe || "").trim();
       const details = String(draft.value.details || "").trim();
-      if (!title || !symbol || !timeframe || !details) throw new Error("Complete the title, trading pair, timeframe and details.");
-      const existingCount = draft.value.id && !replaceAnalysisImages.value ? (draft.value.pictures?.length || 0) : 0;
-      if (existingCount + analysisImages.value.length > 10) throw new Error('Maximum 10 charts in total. Select Replace existing charts to upload more.');
-      const payload = { title, category, symbol, timeframe,
-        date: date.toISOString(), details,
-        status: draft.value.status === 'Published' ? 'published' : 'draft' };
+      if (!title || !symbol || !timeframe || !details)
+        throw new Error(
+          "Complete the title, trading pair, timeframe and details.",
+        );
+      const existingCount =
+        draft.value.id && !replaceAnalysisImages.value
+          ? draft.value.pictures?.length || 0
+          : 0;
+      if (existingCount + analysisImages.value.length > 10)
+        throw new Error(
+          "Maximum 10 charts in total. Select Replace existing charts to upload more.",
+        );
+      const payload = {
+        title,
+        category,
+        symbol,
+        timeframe,
+        date: date.toISOString(),
+        details,
+        status: draft.value.status === "Published" ? "published" : "draft",
+      };
       const result = draft.value.id
-        ? await updateAnalysisPost(draft.value.id, {
-            ...payload, imagesMode: replaceAnalysisImages.value ? 'replace' : 'append',
-          }, analysisImages.value)
-        : await createAnalysisPost({ ...payload, pictures: [] }, analysisImages.value);
+        ? await updateAnalysisPost(
+            draft.value.id,
+            {
+              ...payload,
+              imagesMode: replaceAnalysisImages.value ? "replace" : "append",
+            },
+            analysisImages.value,
+          )
+        : await createAnalysisPost(
+            { ...payload, pictures: [] },
+            analysisImages.value,
+          );
       analysisImages.value = [];
       modal.value = null;
       await loadRecords();
-      notify(error.value ? 'Analysis saved, but reloading failed. Click Try again to reload.' : result.message || 'Analysis saved successfully');
+      notify(
+        error.value
+          ? "Analysis saved, but reloading failed. Click Try again to reload."
+          : result.message || "Analysis saved successfully",
+      );
     } catch (e) {
       notify(e.message || "Could not save analysis.");
     } finally {
@@ -593,41 +767,70 @@ async function save() {
     }
     return;
   }
-  if (['events', 'signals'].includes(modal.value)) {
-    const kind = modal.value
-    saving.value = true
+  if (["events", "signals"].includes(modal.value)) {
+    const kind = modal.value;
+    saving.value = true;
     try {
-      if (!draft.value.scheduledAt) throw new Error('Select the news date and time.')
-      const scheduledDate = new Date(draft.value.scheduledAt)
-      if (!Number.isFinite(scheduledDate.getTime())) throw new Error('Select a valid news date and time.')
-      const payload = { ...draft.value, scheduledAt: scheduledDate.toISOString() }
-      if (kind === 'events') {
-        await saveCalendarEvent(payload)
+      if (!draft.value.scheduledAt)
+        throw new Error("Select the news date and time.");
+      const scheduledDate = new Date(draft.value.scheduledAt);
+      if (!Number.isFinite(scheduledDate.getTime()))
+        throw new Error("Select a valid news date and time.");
+      const payload = {
+        ...draft.value,
+        scheduledAt: scheduledDate.toISOString(),
+      };
+      if (kind === "events") {
+        await saveCalendarEvent(payload);
+        // Follow a saved event if its date was changed, so it stays easy to find.
+        calendarDay.value = localDateKey(scheduledDate);
       } else {
-        payload.id = payload.id || payload._id || undefined
-        const title = String(payload.title || '').trim()
-        const pair = String(payload.pair || '').trim().toUpperCase()
-        const newsType = String(payload.newsType || '').trim()
-        const details = String(payload.details || '').trim()
-        if (!title || !pair || !newsType || !details) throw new Error('Complete the title, pair, news type and private details.')
-        const direction = String(payload.direction || 'pending').toLowerCase()
-        const confirmed = payload.confirmed === true || payload.confirmed === 'true'
-        if (!['pending', 'buy', 'sell'].includes(direction)) throw new Error('Select a valid signal direction.')
-        if (confirmed && direction === 'pending') throw new Error('A confirmed signal must have direction buy or sell.')
-        if (!payload.id && !signalImage.value) throw new Error('Upload a signal image.')
-        Object.assign(payload, { title, pair, newsType, details, direction, confirmed })
-        await saveNewsSignal(payload, signalImage.value)
+        payload.id = payload.id || payload._id || undefined;
+        const title = String(payload.title || "").trim();
+        const pair = String(payload.pair || "")
+          .trim()
+          .toUpperCase();
+        const newsType = String(payload.newsType || "").trim();
+        const details = String(payload.details || "").trim();
+        if (!title || !pair || !newsType || !details)
+          throw new Error(
+            "Complete the title, pair, news type and private details.",
+          );
+        const direction = String(payload.direction || "pending").toLowerCase();
+        const confirmed =
+          payload.confirmed === true || payload.confirmed === "true";
+        if (!["pending", "buy", "sell"].includes(direction))
+          throw new Error("Select a valid signal direction.");
+        if (confirmed && direction === "pending")
+          throw new Error(
+            "A confirmed signal must have direction buy or sell.",
+          );
+        if (!payload.id && !signalImage.value)
+          throw new Error("Upload a signal image.");
+        Object.assign(payload, {
+          title,
+          pair,
+          newsType,
+          details,
+          direction,
+          confirmed,
+        });
+        await saveNewsSignal(payload, signalImage.value);
       }
-      modal.value = null
-      signalImage.value = null
-      await loadRecords()
-      notify(error.value ? 'Saved, but reloading failed. Click Try again.' : 'News date and details saved successfully.')
+      modal.value = null;
+      signalImage.value = null;
+      await loadRecords();
+      notify(
+        error.value
+          ? "Saved, but reloading failed. Click Try again."
+          : "News date and details saved successfully.",
+      );
     } catch (errorCaught) {
-      notify(errorCaught.message || 'Unable to save news.')
+      notify(errorCaught.message || "Unable to save news.");
     } finally {
-      saving.value = false
+      saving.value = false;
     }
-    return
+    return;
   }
   saving.value = true;
   try {
@@ -674,37 +877,41 @@ async function save() {
 }
 async function remove() {
   if (saving.value || !deleteTarget.value) return;
-  if (['analysis', 'documents'].includes(deleteTarget.value.kind)) {
+  if (["analysis", "documents"].includes(deleteTarget.value.kind)) {
     const target = deleteTarget.value;
     saving.value = true;
     try {
       await deleteAnalysisRecord(target);
-      records.value = records.value.filter(record => !(record.kind === target.kind && record.id === target.id));
+      records.value = records.value.filter(
+        (record) => !(record.kind === target.kind && record.id === target.id),
+      );
       deleteTarget.value = null;
-      notify(target.kind === 'documents' ? 'Reference document deleted' : 'Analysis deleted');
+      notify(
+        target.kind === "documents"
+          ? "Reference document deleted"
+          : "Analysis deleted",
+      );
     } catch (err) {
-      notify(err.message || 'Could not delete this record. Retry Delete.');
+      notify(err.message || "Could not delete this record. Retry Delete.");
     } finally {
       saving.value = false;
     }
     return;
   }
-  if (['events', 'signals'].includes(deleteTarget.value?.kind)) {
-  saving.value = true
-
-  try {
-    await deleteNewsRecord(deleteTarget.value)
-    deleteTarget.value = null
-    await loadRecords()
-    notify('News deleted successfully')
-  } catch (error) {
-    notify(error.message)
-  } finally {
-    saving.value = false
+  if (["events", "signals"].includes(deleteTarget.value?.kind)) {
+    saving.value = true;
+    try {
+      await deleteNewsRecord(deleteTarget.value);
+      deleteTarget.value = null;
+      await loadRecords();
+      notify("News deleted successfully");
+    } catch (error) {
+      notify(error.message);
+    } finally {
+      saving.value = false;
+    }
+    return;
   }
-
-  return
-}
   saving.value = true;
   try {
     await api("records/" + deleteTarget.value.id, { method: "DELETE" });
@@ -774,11 +981,13 @@ async function resolveTicket() {
   }
 }
 // Optional growth data: fourteen daily counts supplied by the backend.
-// Do not derive registered-user statistics from admin content records.
 const activityBars = computed(() => {
   const counts = dashboardStats.value?.userGrowth;
-  return Array.isArray(counts) && counts.length === 14 &&
-    counts.every((n) => Number.isInteger(n) && n >= 0) ? counts : null;
+  return Array.isArray(counts) &&
+    counts.length === 14 &&
+    counts.every((n) => Number.isInteger(n) && n >= 0)
+    ? counts
+    : null;
 });
 const today = new Date().toLocaleDateString("en-GB", {
   day: "numeric",
@@ -854,16 +1063,16 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
         class="brand flex items-center gap-3 px-3 text-2xl font-bold tracking-tight [&_small]:mt-1 [&_small]:block [&_small]:text-[10px] [&_small]:font-semibold [&_small]:tracking-wider [&_small]:text-slate-500 max-[600px]:gap-2 max-[600px]:px-2 max-[480px]:text-xl"
         href="#Dashboard"
         @click.prevent="navigate('Dashboard')"
-        ><span
-          class="brand-symbol grid size-10 place-items-center rounded-xl bg-emerald-700 text-white "
-          >
-          <img src="../../assets/fav/fav.jpg" class="object-cover rounded-xl"/>
-          </span
-        ><span
+      >
+        <span
+          class="brand-symbol grid size-10 place-items-center rounded-xl bg-emerald-700 text-white"
+          ><img src="../../assets/fav/fav.jpg" class="object-cover rounded-xl"
+        /></span>
+        <span
           >CMM<span class="brand-light font-normal">-FT</span
           ><small>MANAGEMENT CONSOLE</small></span
-        ></a
-      >
+        >
+      </a>
       <div
         class="workspace mx-1 mt-8 mb-7 flex items-center gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3 [&_strong]:block [&_strong]:text-xs [&_span]:mt-1 [&_span]:block [&_span]:text-xs [&_span]:text-slate-500 [&>svg]:ml-auto [&>svg]:text-emerald-600 max-[768px]:mt-5 max-[768px]:mb-5 max-[600px]:p-2.5 [&>div:not(.workspace-logo)]:min-w-0"
       >
@@ -873,7 +1082,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
           M
         </div>
         <div>
-          <strong>Creator of Money Mentorship-FT</strong><span>Administrator workspace</span>
+          <strong>Creator of Money Mentorship-FT</strong
+          ><span>Administrator workspace</span>
         </div>
         <ShieldCheck :size="17" />
       </div>
@@ -891,8 +1101,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
           :class="{ active: page === label }"
           @click="navigate(label)"
         >
-          <component :is="icon" :size="20" /><span>{{ label }}</span
-          ><span
+          <component :is="icon" :size="20" /><span>{{ label }}</span>
+          <span
             v-if="
               label === 'Support' &&
               list('tickets').filter((x) => x.status !== 'Resolved').length
@@ -921,7 +1131,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
           <span
             class="avatar grid size-10 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
             >{{ initials(profile.name) }}</span
-          ><span
+          >
+          <span
             ><strong>{{ profile.name }}</strong
             ><small>Administrator</small></span
           ><Settings :size="17" />
@@ -938,8 +1149,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             aria-label="Open menu"
             @click="mobile = true"
           >
-            <Menu :size="21" /></button
-          ><span
+            <Menu :size="21" />
+          </button>
+          <span
             class="top-title font-semibold shrink-0 whitespace-nowrap max-[480px]:text-xs"
             >Admin Panel</span
           ><span
@@ -955,8 +1167,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
         >
           <span
             class="secure flex items-center gap-1 border-r border-slate-200 dark:border-slate-700 pr-4 text-xs text-emerald-700 dark:text-emerald-300 max-[768px]:hidden"
-            ><ShieldCheck :size="14" /> Admin access</span
-          ><button
+            ><ShieldCheck :size="14" />Admin access</span
+          >
+          <button
             class="icon-btn inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-slate-500 dark:text-slate-400 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/30 dark:hover:text-emerald-300 max-[768px]:size-11"
             :aria-label="dark ? 'Use light theme' : 'Use dark theme'"
             @click="toggleTheme"
@@ -976,8 +1189,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               class="dropdown absolute top-12 right-0 z-50 w-60 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-xl [&>strong]:block [&>small]:mt-1 [&>small]:mb-3 [&>small]:block [&>small]:break-all [&>small]:text-slate-500 [&_button]:flex [&_button]:w-full [&_button]:items-center [&_button]:gap-2 [&_button]:py-2 max-w-[calc(100vw-1.5rem)] max-[480px]:w-56 [&>strong]:break-words"
             >
               <strong>{{ profile.name }}</strong
-              ><small>{{ profile.email }}</small
-              ><button
+              ><small>{{ profile.email }}</small>
+              <button
                 @click="
                   profileMenu = false;
                   open('profile', list('profile')[0]);
@@ -1059,7 +1272,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               @click="fetchDashboard"
               class="rounded-lg bg-emerald-700 px-4 py-2.5 font-medium text-white hover:bg-emerald-800 disabled:opacity-50 max-[768px]:min-h-11"
             >
-              {{ dashboardLoading ? 'Loading…' : 'Refresh' }}
+              {{ dashboardLoading ? "Loading…" : "Refresh" }}
             </button>
             <button
               v-if="page === 'Analysis'"
@@ -1082,8 +1295,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   analysis: "Add analysis",
                   users: "Add user",
                 }[currentKind]
-              }}</button
-            ><button
+              }}
+            </button>
+            <button
               v-if="page === 'Support'"
               class="btn-secondary inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-wait disabled:opacity-50 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 max-[768px]:min-h-11 max-[414px]:px-3"
               @click="open('tickets')"
@@ -1093,11 +1307,23 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
           </div>
         </div>
         <template v-if="page === 'Dashboard'">
-          <div v-if="dashboardError" role="alert"
-            class="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
-            {{ dashboardError }}
-            <button type="button" @click="fetchDashboard" :disabled="dashboardLoading" class="ml-2 underline">Try again</button>
-            <p v-if="dashboardStats" class="mt-2 text-xs">Showing the last successfully fetched counts.</p>
+          <div
+            v-if="dashboardError"
+            role="alert"
+            class="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+          >
+            {{ dashboardError
+            }}<button
+              type="button"
+              @click="fetchDashboard"
+              :disabled="dashboardLoading"
+              class="ml-2 underline"
+            >
+              Try again
+            </button>
+            <p v-if="dashboardStats" class="mt-2 text-xs">
+              Showing the last successfully fetched counts.
+            </p>
           </div>
           <div
             class="welcome-strip mb-6 flex items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/40 max-[600px]:p-4 [&_strong]:block [&_strong]:font-semibold [&_span:not(.workspace-label)]:mt-1 [&_span:not(.workspace-label)]:block [&_span:not(.workspace-label)]:text-xs [&_span:not(.workspace-label)]:text-slate-500 dark:[&_span:not(.workspace-label)]:text-slate-400 min-w-0 [&>div:not(.welcome-icon)]:min-w-0 max-[480px]:gap-2 max-[480px]:p-3 max-[414px]:items-start max-[320px]:p-2.5"
@@ -1136,7 +1362,13 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               </div>
               <strong
                 class="stat-value mt-3 mb-2 block text-3xl font-semibold tracking-tight max-[600px]:text-2xl max-[480px]:mt-2 max-[320px]:text-xl"
-                >{{ dashboardLoading && !dashboardStats ? "…" : (s.value == null ? "—" : s.value.toLocaleString()) }}</strong
+                >{{
+                  dashboardLoading && !dashboardStats
+                    ? "…"
+                    : s.value == null
+                      ? "—"
+                      : s.value.toLocaleString()
+                }}</strong
               ><span
                 class="stat-note block text-xs leading-relaxed text-slate-500 dark:text-slate-400 max-[320px]:text-xs"
                 >{{ s.note }}</span
@@ -1165,7 +1397,10 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 class="chart-top flex items-center justify-between gap-3 px-6 [&>strong]:text-2xl [&>strong>span]:ml-2 [&>strong>span]:text-xs [&>strong>span]:font-normal [&>strong>span]:text-slate-500 flex-wrap min-w-0 max-[600px]:px-4 max-[414px]:px-3 max-[320px]:gap-2"
               >
                 <strong
-                  >{{ activityBars ? activityBars.reduce((a, b) => a + b, 0) : "—"
+                  >{{
+                    activityBars
+                      ? activityBars.reduce((a, b) => a + b, 0)
+                      : "—"
                   }}<span>new members</span></strong
                 ><span
                   class="chart-key flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 [&_i]:size-2 [&_i]:rounded-full [&_i]:bg-emerald-600"
@@ -1184,7 +1419,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   class="bars absolute inset-0 flex items-end gap-2 max-[480px]:gap-1 max-[320px]:gap-0.5"
                 >
                   <div
-                    v-for="(n, i) in (activityBars || [])"
+                    v-for="(n, i) in activityBars || []"
                     :key="i"
                     class="bar-slot flex h-full flex-1 items-end [&>div]:min-h-px [&>div]:w-full [&>div]:rounded-t [&>div]:bg-emerald-400"
                   >
@@ -1268,10 +1503,13 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   ><strong>{{ c.label }}</strong
                   ><small
                     >{{
-                      recordsLoaded ? list(c.kind).filter(
-                        (x) =>
-                          x.status === "Published" || x.status === "Released",
-                      ).length : '—'
+                      recordsLoaded
+                        ? list(c.kind).filter(
+                            (x) =>
+                              x.status === "Published" ||
+                              x.status === "Released",
+                          ).length
+                        : "—"
                     }}
                     published / released</small
                   ></span
@@ -1302,9 +1540,19 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   class="empty-icon inline-grid size-14 place-items-center rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
                   ><Activity :size="25"
                 /></span>
-                <h3>{{ recordsLoaded ? "A fresh start" : "Activity not connected yet" }}</h3>
+                <h3>
+                  {{
+                    recordsLoaded
+                      ? "A fresh start"
+                      : "Activity not connected yet"
+                  }}
+                </h3>
                 <p>
-                  {{ recordsLoaded ? "Publish content to see activity here." : "User counts are connected. Content and activity data will appear when those endpoints are connected." }}
+                  {{
+                    recordsLoaded
+                      ? "Publish content to see activity here."
+                      : "User counts are connected. Content and activity data will appear when those endpoints are connected."
+                  }}
                 </p>
               </div>
               <div
@@ -1366,9 +1614,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             </section>
           </div>
         </template>
-        <template v-else-if="page === 'Academy'">
-          <CourseAdmin />
-        </template>
+        <template v-else-if="page === 'Academy'"><CourseAdmin /></template>
         <template v-else-if="currentKind">
           <div
             v-if="page === 'News'"
@@ -1383,8 +1629,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             >
               <CalendarDays :size="17" />Economic calendar<span>{{
                 list("events").length
-              }}</span></button
-            ><button
+              }}</span>
+            </button>
+            <button
               :class="{ selected: tab === 'Signals' }"
               @click="
                 tab = 'Signals';
@@ -1396,6 +1643,70 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               }}</span>
             </button>
           </div>
+
+          <!-- Only economic calendar records are filtered by this selected day. -->
+          <section
+            v-if="isCalendar"
+            aria-labelledby="calendar-day-heading"
+            class="mb-5 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900 max-[600px]:p-4 max-[414px]:p-3"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-4">
+              <div class="min-w-0">
+                <h2
+                  id="calendar-day-heading"
+                  class="flex items-start gap-2 text-base font-semibold"
+                >
+                  <CalendarDays :size="20" />{{ calendarDayLabel }}
+                </h2>
+                <p
+                  class="mt-2 text-xs text-slate-500 dark:text-slate-400"
+                  role="status"
+                  aria-live="polite"
+                >
+                  {{ calendarDayEvents.length }} event{{
+                    calendarDayEvents.length === 1 ? "" : "s"
+                  }}
+                  on this day · {{ calendarTimezone }}
+                </p>
+              </div>
+              <div class="flex flex-wrap items-end gap-2 max-[600px]:w-full">
+                <button
+                  type="button"
+                  @click="changeCalendarDay(-1)"
+                  class="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800 max-[480px]:flex-1"
+                >
+                  <ChevronRight :size="16" class="rotate-180" />Previous day
+                </button>
+                <button
+                  type="button"
+                  @click="showCalendarToday"
+                  class="min-h-11 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  @click="changeCalendarDay(1)"
+                  class="inline-flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800 max-[480px]:flex-1"
+                >
+                  Next day<ChevronRight :size="16" />
+                </button>
+                <label class="min-w-0 max-[600px]:w-full">
+                  <span
+                    class="mb-1 block text-xs text-slate-500 dark:text-slate-400"
+                    >Select date</span
+                  >
+                  <input
+                    type="date"
+                    :value="calendarDay"
+                    @change="selectCalendarDay($event.target.value)"
+                    class="min-h-11 max-w-full rounded-lg border border-slate-200 bg-transparent px-3 py-2 dark:border-slate-700 max-[600px]:w-full"
+                  />
+                </label>
+              </div>
+            </div>
+          </section>
+
           <section
             class="panel listing overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 min-w-0 max-w-full"
           >
@@ -1407,14 +1718,21 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               >
                 <Search :size="18" /><input
                   v-model="search"
-                  placeholder="Search records…"
-                  aria-label="Search records"
+                  :placeholder="
+                    isCalendar ? 'Search this day’s events…' : 'Search records…'
+                  "
+                  :aria-label="
+                    isCalendar
+                      ? 'Search selected day’s events'
+                      : 'Search records'
+                  "
                 />
               </div>
               <div class="flex min-w-0 items-center gap-3">
                 <span
                   class="result-count whitespace-nowrap text-xs text-slate-500 dark:text-slate-400"
-                  >{{ visible.length }} records</span
+                  >{{ visible.length }}
+                  {{ isCalendar ? "events on this day" : "records" }}</span
                 ><select
                   v-if="page === 'Analysis' || page === 'Users'"
                   v-model="filter"
@@ -1462,22 +1780,30 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 {{
                   search || filter !== "All"
                     ? "No matching records"
-                    : "Your " +
-                      {
-                        events: "calendar",
-                        signals: "signal library",
-                        courses: "course library",
-                        analysis: "analysis library",
-                        users: "member list",
-                      }[currentKind] +
-                      " starts here"
+                    : isCalendar
+                      ? "No events for this day"
+                      : "Your " +
+                        {
+                          events: "calendar",
+                          signals: "signal library",
+                          courses: "course library",
+                          analysis: "analysis library",
+                          users: "member list",
+                        }[currentKind] +
+                        " starts here"
                 }}
               </h2>
               <p>
                 {{
                   search
-                    ? "Try another search."
-                    : "Add your first record to start managing this section."
+                    ? isCalendar
+                      ? "Try another search or select another day."
+                      : "Try another search."
+                    : isCalendar
+                      ? "Select another date or add an event for " +
+                        calendarDayLabel +
+                        "."
+                      : "Add your first record to start managing this section."
                 }}
               </p>
               <button
@@ -1485,15 +1811,17 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 class="btn-primary inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-wait disabled:opacity-50 bg-emerald-700 text-white hover:bg-emerald-800 max-[768px]:min-h-11 max-[414px]:px-3"
                 @click="open(currentKind)"
               >
-                <Plus :size="17" />Add your first
-                {{
-                  {
-                    events: "event",
-                    signals: "signal",
-                    courses: "course",
-                    analysis: "analysis",
-                    users: "user",
-                  }[currentKind]
+                <Plus :size="17" />{{
+                  isCalendar
+                    ? "Add event for this day"
+                    : "Add your first " +
+                      {
+                        events: "event",
+                        signals: "signal",
+                        courses: "course",
+                        analysis: "analysis",
+                        users: "user",
+                      }[currentKind]
                 }}
               </button>
             </div>
@@ -1627,9 +1955,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="r in visible">
-                    <template v-if="currentKind === 'users'"
-                      ><td>
+                  <tr v-for="r in visible" :key="r.id || r._id">
+                    <template v-if="currentKind === 'users'">
+                      <td>
                         <div
                           class="member-cell flex items-center gap-3 [&_strong]:block [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-slate-500"
                         >
@@ -1657,9 +1985,10 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                           >{{ r.status }}</span
                         >
                       </td>
-                      <td>{{ date(r.createdAt) }}</td></template
-                    ><template v-else
-                      ><td>
+                      <td>{{ date(r.createdAt) }}</td>
+                    </template>
+                    <template v-else>
+                      <td>
                         <strong>{{ r.title }}</strong
                         ><small
                           class="block muted text-xs text-slate-500 dark:text-slate-400"
@@ -1692,8 +2021,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                       <td>{{ r.actual || "—" }}</td>
                       <td>{{ r.forecast || "—" }}</td>
                       <td>{{ r.previous || "—" }}</td>
-                      <td>{{ r.status }}</td></template
-                    >
+                      <td>{{ r.status }}</td>
+                    </template>
                     <td>
                       <div class="flex gap-1">
                         <button
@@ -1724,8 +2053,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             your public backend to enforce them on cmm-ft.com.
           </p>
         </template>
-        <template v-else-if="page === 'Support'"
-          ><div
+        <template v-else-if="page === 'Support'">
+          <div
             class="connection-note my-5 flex items-start gap-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-emerald-50 p-4 text-sm leading-relaxed text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 min-w-0 max-[600px]:p-3 max-[480px]:text-xs"
           >
             <CircleHelp :size="18" /><span
@@ -1788,8 +2117,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 <h2>Your support conversations</h2>
                 <p>Select a message to read and reply.</p>
               </div>
-              <template v-else
-                ><div
+              <template v-else>
+                <div
                   class="conversation-head flex items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-700 p-6 [&_h2]:font-semibold [&_p]:mt-2 [&_p]:text-xs [&_p]:text-slate-500 min-w-0 [&>div]:min-w-0 [&_h2]:break-words [&_p]:break-words max-[600px]:flex-col max-[600px]:p-4 max-[414px]:p-3"
                 >
                   <div>
@@ -1846,13 +2175,13 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                       <Send :size="16" />Save reply
                     </button>
                   </div>
-                </form></template
-              >
+                </form>
+              </template>
             </div>
-          </section></template
-        >
-        <template v-else-if="page === 'Settings'"
-          ><div
+          </section>
+        </template>
+        <template v-else-if="page === 'Settings'">
+          <div
             class="settings-grid grid grid-cols-2 gap-6 max-[768px]:grid-cols-1 min-w-0 max-[600px]:gap-4 max-[414px]:gap-3"
           >
             <section
@@ -1975,42 +2304,91 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 >Admin access required</span
               >
             </section>
-          </div></template
+          </div>
+        </template>
+        <section
+          v-if="page === 'Analysis'"
+          aria-labelledby="admin-documents-heading"
+          class="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900"
         >
-        <section v-if="page === 'Analysis'" aria-labelledby="admin-documents-heading"
-          class="mt-10 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-          <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-6 dark:border-slate-700 max-[600px]:p-4 max-[414px]:p-3">
+          <header
+            class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-6 dark:border-slate-700 max-[600px]:p-4 max-[414px]:p-3"
+          >
             <div>
-              <h2 id="admin-documents-heading" class="text-lg font-semibold">Download References</h2>
-              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Documents shown below the technical analysis on your public page.</p>
+              <h2 id="admin-documents-heading" class="text-lg font-semibold">
+                Download References
+              </h2>
+              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Documents shown below the technical analysis on your public
+                page.
+              </p>
             </div>
-            <button type="button" @click="open('documents')"
-              class="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 max-[480px]:w-full max-[480px]:justify-center">
+            <button
+              type="button"
+              @click="open('documents')"
+              class="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 max-[480px]:w-full max-[480px]:justify-center"
+            >
               <Plus :size="17" />Add document
             </button>
           </header>
-          <p v-if="loading" role="status" class="p-6 text-slate-500 dark:text-slate-400">Loading documents…</p>
-          <p v-else-if="!error && !list('documents').length" class="p-6 text-slate-500 dark:text-slate-400">No reference documents yet. Click Add document to create one.</p>
+          <p
+            v-if="loading"
+            role="status"
+            class="p-6 text-slate-500 dark:text-slate-400"
+          >
+            Loading documents…
+          </p>
+          <p
+            v-else-if="!error && !list('documents').length"
+            class="p-6 text-slate-500 dark:text-slate-400"
+          >
+            No reference documents yet. Click Add document to create one.
+          </p>
           <div v-else class="divide-y divide-slate-200 dark:divide-slate-700">
-            <article v-for="document in list('documents')" :key="document.id"
-              class="flex items-center justify-between gap-4 p-6 max-[600px]:flex-col max-[600px]:items-start max-[600px]:p-4 max-[414px]:p-3">
+            <article
+              v-for="document in list('documents')"
+              :key="document.id"
+              class="flex items-center justify-between gap-4 p-6 max-[600px]:flex-col max-[600px]:items-start max-[600px]:p-4 max-[414px]:p-3"
+            >
               <div class="min-w-0">
                 <h3 class="break-words font-semibold">{{ document.title }}</h3>
-                <p class="mt-1 break-words text-sm text-slate-500 dark:text-slate-400">{{ document.description }}</p>
-                <p class="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-300">{{ document.type }} · {{ document.status }}</p>
+                <p
+                  class="mt-1 break-words text-sm text-slate-500 dark:text-slate-400"
+                >
+                  {{ document.description }}
+                </p>
+                <p
+                  class="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+                >
+                  {{ document.type }} · {{ document.status }}
+                </p>
               </div>
-              <div class="flex shrink-0 flex-wrap items-center gap-2 max-[480px]:w-full">
-                <a v-if="!document.pendingDelete && externalUrl(document.url)" :href="externalUrl(document.url)" target="_blank" rel="noopener noreferrer"
-                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:w-full">
-                  <Download :size="16" />Open document
-                </a>
-                <button type="button" :disabled="saving || document.pendingDelete" @click="open('documents', document)"
-                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:flex-1">
-                  <Pencil :size="16" />Edit
-                </button>
-                <button type="button" :disabled="saving" @click="deleteTarget = document"
-                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 dark:border-red-900 dark:text-red-400 max-[480px]:flex-1">
-                  <Trash2 :size="16" />{{ document.pendingDelete ? 'Retry Delete' : 'Delete' }}
+              <div
+                class="flex shrink-0 flex-wrap items-center gap-2 max-[480px]:w-full"
+              >
+                <a
+                  v-if="!document.pendingDelete && externalUrl(document.url)"
+                  :href="externalUrl(document.url)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:w-full"
+                  ><Download :size="16" />Open document</a
+                ><button
+                  type="button"
+                  :disabled="saving || document.pendingDelete"
+                  @click="open('documents', document)"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium dark:border-slate-700 max-[480px]:flex-1"
+                >
+                  <Pencil :size="16" />Edit</button
+                ><button
+                  type="button"
+                  :disabled="saving"
+                  @click="deleteTarget = document"
+                  class="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 dark:border-red-900 dark:text-red-400 max-[480px]:flex-1"
+                >
+                  <Trash2 :size="16" />{{
+                    document.pendingDelete ? "Retry Delete" : "Delete"
+                  }}
                 </button>
               </div>
             </article>
@@ -2089,14 +2467,15 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 'col-span-2 max-[600px]:col-span-1':
                   type === 'textarea' || type === 'file',
               }"
-              ><span>{{ label }}<b v-if="required"> *</b></span
-              ><select
+              ><span>{{ label }}<b v-if="required"> *</b></span>
+              <select
                 v-if="type === 'select'"
                 v-model="draft[key]"
                 :required="required"
               >
-                <option v-for="o in options">{{ o }}</option></select
-              ><textarea
+                <option v-for="o in options">{{ o }}</option>
+              </select>
+              <textarea
                 v-else-if="type === 'textarea'"
                 v-model="draft[key]"
                 :required="required"
@@ -2107,7 +2486,11 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 class="upload-field rounded-lg border border-dashed border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-5 text-center text-slate-500 dark:text-slate-400 [&_svg]:mx-auto [&_svg]:mb-2 [&_span]:my-2 [&_span]:block [&_small]:my-2 [&_small]:block [&_small]:text-xs [&_input]:max-w-full [&_input]:text-xs [&_input]:file:mr-2 [&_input]:file:rounded [&_input]:file:border-0 [&_input]:file:bg-emerald-100 [&_input]:file:px-3 [&_input]:file:py-2 [&_input]:file:text-emerald-800 min-w-0 [&_span]:break-words max-[480px]:p-3 [&_input]:w-full [&_input]:min-w-0 max-[320px]:[&_input]:file:px-2"
               >
                 <Upload :size="23" /><span>{{
-                  modal === "analysis" ? (analysisImages.length ? `${analysisImages.length} image(s) selected` : "Choose chart images") : (draft[key]?.name || "Choose a file to upload")
+                  modal === "analysis"
+                    ? analysisImages.length
+                      ? `${analysisImages.length} image(s) selected`
+                      : "Choose chart images"
+                    : draft[key]?.name || "Choose a file to upload"
                 }}</span
                 ><input
                   type="file"
@@ -2115,7 +2498,15 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   :multiple="modal === 'analysis'"
                   :disabled="saving"
                   @change="upload($event, key)"
-                /><small>{{ modal === "analysis" ? "Up to 10 images · 2 MB each · JPG, PNG, WebP" : modal === "documents" ? "Maximum document size: 10 MB · PDF, DOC, DOCX, ZIP" : modal === "signals" ? "Maximum image size: 2 MB" : "Maximum file size: 100 MB" }}</small>
+                /><small>{{
+                  modal === "analysis"
+                    ? "Up to 10 images · 2 MB each · JPG, PNG, WebP"
+                    : modal === "documents"
+                      ? "Maximum document size: 10 MB · PDF, DOC, DOCX, ZIP"
+                      : modal === "signals"
+                        ? "Maximum image size: 2 MB"
+                        : "Maximum file size: 100 MB"
+                }}</small>
               </div>
               <input
                 v-else
@@ -2124,33 +2515,61 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 :required="required"
                 :min="type === 'number' ? 0 : undefined"
                 :step="type === 'number' ? '0.01' : undefined"
-            />
-              <small v-if="type === 'datetime-local'"
-                class="mt-2 block text-xs text-slate-500 dark:text-slate-400">
-                Timezone: {{ Intl.DateTimeFormat().resolvedOptions().timeZone }}
-              </small>
+              />
+              <small
+                v-if="type === 'datetime-local'"
+                class="mt-2 block text-xs text-slate-500 dark:text-slate-400"
+                >Timezone:
+                {{ Intl.DateTimeFormat().resolvedOptions().timeZone }}</small
+              >
             </label>
           </div>
-          <div v-if="modal === 'analysis' && draft.id"
-            class="mx-7 mb-5 space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700 max-[480px]:mx-4 max-[414px]:mx-3">
-            <p class="text-sm font-medium">Existing charts: {{ draft.pictures?.length || 0 }}</p>
+          <div
+            v-if="modal === 'analysis' && draft.id"
+            class="mx-7 mb-5 space-y-3 rounded-lg border border-slate-200 p-4 dark:border-slate-700 max-[480px]:mx-4 max-[414px]:mx-3"
+          >
+            <p class="text-sm font-medium">
+              Existing charts: {{ draft.pictures?.length || 0 }}
+            </p>
             <div v-if="draft.pictures?.length" class="flex flex-wrap gap-2">
-              <a v-for="(picture, index) in draft.pictures" :key="picture" :href="picture" target="_blank" rel="noopener noreferrer">
-                <img :src="picture" crossorigin="use-credentials" :alt="`Existing chart ${index + 1}`" class="h-20 w-28 rounded border border-slate-200 object-contain dark:border-slate-700" />
-              </a>
+              <a
+                v-for="(picture, index) in draft.pictures"
+                :key="picture"
+                :href="picture"
+                target="_blank"
+                rel="noopener noreferrer"
+                ><img
+                  :src="picture"
+                  crossorigin="use-credentials"
+                  :alt="`Existing chart ${index + 1}`"
+                  class="h-20 w-28 rounded border border-slate-200 object-contain dark:border-slate-700"
+              /></a>
             </div>
-            <label class="flex items-start gap-2 text-sm">
-              <input v-model="replaceAnalysisImages" type="checkbox" :disabled="saving" class="mt-1" />
-              <span>Replace all existing charts with the selected images.</span>
-            </label>
+            <label class="flex items-start gap-2 text-sm"
+              ><input
+                v-model="replaceAnalysisImages"
+                type="checkbox"
+                :disabled="saving"
+                class="mt-1"
+              /><span
+                >Replace all existing charts with the selected images.</span
+              ></label
+            >
             <p class="text-xs text-slate-500 dark:text-slate-400">
-              {{ replaceAnalysisImages ? 'Saving replaces the old charts. With no selected images, it removes all charts.' : 'Existing charts stay. Selected images are added, up to 10 charts in total.' }}
+              {{
+                replaceAnalysisImages
+                  ? "Saving replaces the old charts. With no selected images, it removes all charts."
+                  : "Existing charts stay. Selected images are added, up to 10 charts in total."
+              }}
             </p>
           </div>
-          <p v-if="modal === 'documents' && draft.id && draft.hasFile"
-            class="mx-7 mb-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400 max-[480px]:mx-4 max-[414px]:mx-3">
-            Current file: {{ draft.filename || 'Uploaded document' }}. Leave the upload and URL empty to keep it.
-            Select a new file or enter a hosted URL to replace it.
+          <p
+            v-if="modal === 'documents' && draft.id && draft.hasFile"
+            class="mx-7 mb-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400 max-[480px]:mx-4 max-[414px]:mx-3"
+          >
+            Current file: {{ draft.filename || "Uploaded document" }}. Leave the
+            upload and URL empty to keep it. Select a new file or enter a hosted
+            URL to replace it.
           </p>
           <p
             v-if="modal === 'users'"
@@ -2224,7 +2643,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             :disabled="saving"
             @click="remove"
           >
-            {{ saving ? 'Deleting…' : 'Delete record' }}
+            {{ saving ? "Deleting…" : "Delete record" }}
           </button>
         </div>
       </section>
