@@ -376,11 +376,11 @@ const fields = {
     ["direction", "Direction", "select", true, ["pending", "buy", "sell"]],
     ["confirmed", "Confirmed", "select", true, ["false", "true"]],
     ["previewText", "Public preview text", "textarea"],
-    ["details", "Private signal details", "textarea", true],
+    ["details", "Private signal details (optional)", "textarea", false],
     ["news", "Private news information", "textarea"],
     [
       "attachment",
-      "Signal image — JPG, PNG or WebP, maximum 2 MB",
+      "Signal image (optional) — JPG, PNG or WebP, maximum 2 MB",
       "file",
       false,
       "image/jpeg,image/png,image/webp",
@@ -616,6 +616,7 @@ async function upload(e, key) {
   }
   if (modal.value === "signals") {
     const file = e.target.files?.[0];
+    signalImage.value = null;
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       e.target.value = "";
@@ -792,9 +793,9 @@ async function save() {
           .toUpperCase();
         const newsType = String(payload.newsType || "").trim();
         const details = String(payload.details || "").trim();
-        if (!title || !pair || !newsType || !details)
+        if (!title || !pair || !newsType)
           throw new Error(
-            "Complete the title, pair, news type and private details.",
+            "Complete the title, pair and news type.",
           );
         const direction = String(payload.direction || "pending").toLowerCase();
         const confirmed =
@@ -805,8 +806,6 @@ async function save() {
           throw new Error(
             "A confirmed signal must have direction buy or sell.",
           );
-        if (!payload.id && !signalImage.value)
-          throw new Error("Upload a signal image.");
         Object.assign(payload, {
           title,
           pair,
@@ -834,8 +833,6 @@ async function save() {
   }
   saving.value = true;
   try {
-    if (modal.value === "signals" && !draft.value.attachment)
-      throw Error("Upload a signal image.");
     if (
       modal.value === "courses" &&
       !draft.value.attachment &&
@@ -2490,7 +2487,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                     ? analysisImages.length
                       ? `${analysisImages.length} image(s) selected`
                       : "Choose chart images"
-                    : draft[key]?.name || "Choose a file to upload"
+                    : modal === "signals"
+                      ? signalImage?.name || (draft.hasImage ? "Existing image saved — choose a file to replace it" : "Optional — add the chart later")
+                      : draft[key]?.name || "Choose a file to upload"
                 }}</span
                 ><input
                   type="file"
@@ -2504,7 +2503,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                     : modal === "documents"
                       ? "Maximum document size: 10 MB · PDF, DOC, DOCX, ZIP"
                       : modal === "signals"
-                        ? "Maximum image size: 2 MB"
+                        ? "Optional · Maximum image size: 2 MB · Upload now or when editing later"
                         : "Maximum file size: 100 MB"
                 }}</small>
               </div>
