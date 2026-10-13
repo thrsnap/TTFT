@@ -259,7 +259,7 @@ router.get('/', async (req, res, next) => {
     const userId = await getSessionUserId(req)
 
     const records = await Signal.find()
-      .select('+image +details -preview')
+      .select('+image +details')
       .sort({ scheduledAt: -1 })
       .limit(50)
       .lean()
