@@ -25,7 +25,6 @@ const analysisGroups = computed(() => {
     posts: filteredAnalysis.value.filter(post => post.category === category),
   })).filter(group => group.posts.length)
 })
-
 function fileUrl(path) {
   if (typeof path !== 'string' || !path.trim()) return ''
   try {
@@ -53,6 +52,7 @@ async function loadAnalysis() {
   error.value = ''
   try {
     const response = await fetch(`${BASE}/api/analysis`, {
+      credentials: 'include',
       cache: 'no-store',
     })
     const data = await response.json().catch(() => null)
@@ -225,7 +225,7 @@ onMounted(loadAnalysis)
             >
               {{ post.title }}
             </h2>
-            <!-- Charts for this post stay in one horizontal row. -->
+            <!-- Charts remain vertically stacked within each post. -->
            <div class="space-y-5 max-[480px]:space-y-3">
   <a
     v-for="(picture, index) in post.pictures"
