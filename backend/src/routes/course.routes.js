@@ -433,6 +433,78 @@ router.delete(
   },
 );
 
+// Delete one lesson; media cleanup starts only after MongoDB commits.
+router.delete(
+  "/admin/:courseId/lessons/:lessonId",
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const courseId = id(req.params.courseId);
+      const lessonId = id(req.params.lessonId);
+      const course = await Course.findById(courseId);
+      if (!course) throw inputError("Course not found.", 404);
+
+      const lesson = course.lessons.id(lessonId);
+      if (!lesson) throw inputError("Lesson not found in this course.", 404);
+
+      // Read storage metadata from the selected lesson, never from the request body.
+      const videoFile = lesson.videoFile;
+      const videoStorage = lesson.videoStorage || "local";
+      const removedId = String(lesson._id);
+
+      course.lessons.pull(lesson._id);
+      if (!course.lessons.length && course.status === "published") {
+        course.status = "draft";
+      }
+
+      // Your model's optimisticConcurrency rejects conflicting edits before
+      // any video file is deleted. A failed save leaves storage untouched.
+      await course.save();
+
+      let cleanupFailed = false;
+      if (videoStorage === "r2") {
+        cleanupFailed = !(await cleanR2(videoFile));
+      } else {
+        const filename = path.join(uploadDirectory, path.basename(videoFile));
+        try {
+          await unlink(filename);
+        } catch (error) {
+          if (error.code !== "ENOENT") cleanupFailed = true;
+        }
+      }
+
+      if (cleanupFailed) {
+        // Retain the exact stored key in server logs for manual cleanup.
+        console.error("Deleted lesson media requires cleanup:", {
+          courseId: String(course._id),
+          lessonId: removedId,
+          videoStorage,
+          videoFile,
+        });
+      }
+
+      res.json({
+        success: true,
+        deletedLessonId: removedId,
+        cleanupFailed,
+        message: cleanupFailed
+          ? "Lesson removed from the course, but its video file could not be deleted. Check the backend logs for the stored file key."
+          : "Lesson and its video file deleted.",
+        course: {
+          ...summary(course, true),
+          lessons: course.lessons.map((item) => ({
+            id: String(item._id),
+            title: item.title,
+          })),
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 // Upload a lesson video to R2.
 router.post(
   "/admin/:courseId/lessons",

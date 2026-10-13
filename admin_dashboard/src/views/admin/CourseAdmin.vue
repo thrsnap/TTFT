@@ -64,10 +64,14 @@ async function deleteLesson(course, lesson) {
   clearFeedback()
   busy.value = true
   try {
-    await courseApi(lessonPath(course, lesson), { method: 'DELETE' })
+    const data = await courseApi(lessonPath(course, lesson), { method: 'DELETE' })
     course.lessons = course.lessons.filter(item => getId(item) !== getId(lesson))
     if (course.videoCount != null) course.videoCount = Math.max(0, Number(course.videoCount) - 1)
-    message.value = 'Video deleted from this course.'
+    if (data.cleanupFailed) {
+      error.value = data.message || 'Lesson removed, but video file cleanup failed. Check the backend logs.'
+    } else {
+      message.value = data.message || 'Lesson and video deleted.'
+    }
     await reloadCoursesAfterAction()
   } catch (err) {
     error.value = err?.status === 404 || err?.status === 405
