@@ -339,7 +339,7 @@ onUnmounted(() => {
               class="mt-2 text-xs font-medium
                      text-slate-500 dark:text-slate-400"
             >
-              Technical Analysis
+              by Thun Tula
             </p>
             <!-- Outside the blur and subscription overlay. -->
             <div
