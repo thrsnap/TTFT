@@ -23,7 +23,7 @@ const purchasingSignalId = ref('')
 const purchaseError = ref('')
 
 const abortController = new AbortController()
-const imageUrls = new Set()
+const imageTimers = new Map()
 
 let loadingRequest = false
 let refreshPending = false
@@ -178,8 +178,21 @@ async function goToPurchase(signal) {
 }
 
 function clearImages() {
-  imageUrls.forEach((url) => URL.revokeObjectURL(url))
-  imageUrls.clear()
+  imageTimers.forEach((timer) => window.clearTimeout(timer))
+  imageTimers.clear()
+}
+
+function finishImageLoading(signal) {
+  const timer = imageTimers.get(signal)
+  if (timer !== undefined) window.clearTimeout(timer)
+  imageTimers.delete(signal)
+  signal.imageLoading = false
+}
+
+function handleImageLoaded(signal) {
+  finishImageLoading(signal)
+  signal.imageError = false
+  signal.imageErrorMessage = ''
 }
 
 function hasConfirmedDirection(signal) {
@@ -191,62 +204,30 @@ function hasConfirmedDirection(signal) {
 }
 
 function handleImageError(signal) {
-  if (signal.imageSrc) {
-    URL.revokeObjectURL(signal.imageSrc)
-    imageUrls.delete(signal.imageSrc)
-  }
-
+  finishImageLoading(signal)
   signal.imageError = true
+  signal.imageErrorMessage = 'Unable to display the chart. Please retry.'
   signal.imageSrc = ''
 }
 
-async function loadImage(signal) {
-  if (signal.hasImage === false) return
+function loadImage(signal) {
+  if (signal.hasImage === false || abortController.signal.aborted) return
+
+  finishImageLoading(signal)
+  signal.imageError = false
+  signal.imageErrorMessage = ''
+  signal.imageLoading = true
 
   const endpoint = signal.hasAccess ? 'image' : 'preview'
+  signal.imageSrc = `${BASE}/api/signals/${encodeURIComponent(signal._id)}/${endpoint}?v=${Date.now()}`
 
-  try {
-    const response = await fetch(
-      `${BASE}/api/signals/${encodeURIComponent(signal._id)}/${endpoint}`,
-      {
-        credentials: 'include',
-        cache: 'no-store',
-        signal: abortController.signal,
-      },
-    )
-
-    if (!response.ok) {
-      if (
-        signal.hasAccess &&
-        [401, 403].includes(response.status)
-      ) {
-        signal.hasAccess = false
-        signal.details = ''
-        signal.news = ''
-        signal.direction = ''
-        signal.confirmed = false
-      }
-
-      throw new Error('Image unavailable')
-    }
-
-    const blob = await response.blob()
-
-    if (!blob.type.startsWith('image/')) {
-      throw new Error('Invalid image response')
-    }
-
-    if (abortController.signal.aborted) return
-
-    const url = URL.createObjectURL(blob)
-
-    imageUrls.add(url)
-    signal.imageSrc = url
-  } catch (err) {
-    if (err.name !== 'AbortError') {
-      signal.imageError = true
-    }
-  }
+  imageTimers.set(signal, window.setTimeout(() => {
+    imageTimers.delete(signal)
+    signal.imageLoading = false
+    signal.imageError = true
+    signal.imageErrorMessage = 'Chart loading timed out. Please retry.'
+    signal.imageSrc = ''
+  }, 20_000))
 }
 
 async function loadSignals(background = false) {
@@ -319,12 +300,14 @@ async function loadSignals(background = false) {
           signal.confirmed === true,
         imageSrc: '',
         imageError: false,
+        imageLoading: false,
+        imageErrorMessage: '',
       }))
 
     error.value = ''
     loading.value = false
 
-    await Promise.all(signals.value.map(loadImage))
+    signals.value.forEach(loadImage)
   } catch (err) {
     if (err.name !== 'AbortError' && !background) {
       error.value =
@@ -403,7 +386,7 @@ onUnmounted(() => {
 <template>
   <section
     class="bg-(--page-bg) px-4 py-12 text-(--text-color)
-            
+
            max-[768px]:py-10 max-[600px]:px-4
            max-[480px]:py-8 max-[414px]:px-3
            max-[320px]:px-2"
@@ -495,7 +478,7 @@ onUnmounted(() => {
         >
           <header
             class="border-b border-(--border-color) p-5
-                   
+
                    max-[480px]:p-4 max-[320px]:p-3"
           >
             <div
@@ -620,6 +603,8 @@ onUnmounted(() => {
               >
                 <img
                   v-if="signal.imageSrc"
+                  crossorigin="use-credentials"
+                  @load="handleImageLoaded(signal)"
                   :src="signal.imageSrc"
                   :alt="
                     signal.hasAccess
@@ -640,22 +625,32 @@ onUnmounted(() => {
                   class="flex h-full w-full items-center
                          justify-center bg-gradient-to-br
                          from-(--input-bg) via-(--surface-bg) to-(--hover-bg)
-                          
+
                          "
                 >
-                  <p
+                  <div
                     v-if="signal.hasAccess"
-                    class="px-4 text-center text-sm
-                           text-(--muted-color) "
+                    class="px-4 text-center text-sm text-(--muted-color)"
                   >
-                    {{
-                      signal.imageError
-                        ? 'Image unavailable'
-                        : signal.hasImage === false
-                          ? 'Chart will be added soon.'
-                          : 'Loading chart…'
-                    }}
-                  </p>
+                    <p role="status">
+                      {{
+                        signal.imageError
+                          ? signal.imageErrorMessage || 'Image unavailable.'
+                          : signal.hasImage === false
+                            ? 'Chart will be added soon.'
+                            : 'Loading chart…'
+                      }}
+                    </p>
+                    <button
+                      v-if="signal.imageError"
+                      type="button"
+                      :disabled="signal.imageLoading"
+                      class="mt-3 min-h-11 rounded-lg border border-(--border-color) px-4 py-2 font-semibold text-(--text-color) disabled:opacity-50"
+                      @click="loadImage(signal)"
+                    >
+                      Retry chart
+                    </button>
+                  </div>
                 </div>
 
                 <span
@@ -713,14 +708,14 @@ onUnmounted(() => {
               v-if="!signal.hasAccess"
               class="absolute inset-0 flex items-center
                      justify-center bg-(--surface-bg)/45 p-4
-                     
+
                      max-[414px]:p-3 max-[320px]:p-2"
             >
               <div
                 class="w-full max-w-xs rounded-2xl
                        border border-(--border-color) bg-(--surface-bg)/95
                        p-5 text-center shadow-xl
-                        
+
                        max-[480px]:p-4 max-[320px]:p-3"
               >
                 <svg
