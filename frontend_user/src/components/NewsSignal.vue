@@ -5,12 +5,13 @@ const router = useRouter()
 const route = useRoute()
 const BASE = (
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-).replace(/\/+$/, '')
+).trim().replace(/\/+$/, '')
 const signals = ref([])
 const loading = ref(true)
 const error = ref('')
-const checkingSubscription = ref(false)
-const subscriptionError = ref('')
+const checkingPurchase = ref(false)
+const purchasingSignalId = ref('')
+const purchaseError = ref('')
 const abortController = new AbortController()
 const imageUrls = new Set()
 let loadingRequest = false
@@ -56,19 +57,27 @@ function formatTime(value) {
     timeZoneName: 'shortOffset',
   }).format(date)
 }
-async function goToSubscription() {
+async function goToPurchase(signal) {
   if (
-    checkingSubscription.value ||
+    checkingPurchase.value ||
     abortController.signal.aborted
   ) {
     return
   }
-  checkingSubscription.value = true
-  subscriptionError.value = ''
+  checkingPurchase.value = true
+  purchaseError.value = ''
+  const signalId = String(signal?._id || '')
+  if (!/^[a-fA-F0-9]{24}$/.test(signalId)) {
+    checkingPurchase.value = false
+    purchaseError.value = 'This signal is unavailable. Please refresh the page.'
+    return
+  }
+  purchasingSignalId.value = signalId
   const paymentLocation = {
     path: localizedPath('/payment'),
     query: {
-      product: 'news-signals-monthly',
+      product: 'news-signal',
+      signalId,
     },
   }
   const paymentDestination =
@@ -96,11 +105,12 @@ async function goToSubscription() {
     await router.push(paymentLocation)
   } catch (err) {
     if (err.name !== 'AbortError') {
-      subscriptionError.value =
+      purchaseError.value =
         err.message || 'Unable to continue. Please try again.'
     }
   } finally {
-    checkingSubscription.value = false
+    checkingPurchase.value = false
+    purchasingSignalId.value = ''
   }
 }
 function clearImages() {
@@ -123,6 +133,7 @@ function handleImageError(signal) {
   signal.imageSrc = ''
 }
 async function loadImage(signal) {
+  if (signal.hasImage === false) return
   const endpoint = signal.hasAccess ? 'image' : 'preview'
   try {
     const response = await fetch(
@@ -134,6 +145,13 @@ async function loadImage(signal) {
       },
     )
     if (!response.ok) {
+      if (signal.hasAccess && [401, 403].includes(response.status)) {
+        signal.hasAccess = false
+        signal.details = ''
+        signal.news = ''
+        signal.direction = ''
+        signal.confirmed = false
+      }
       throw new Error('Image unavailable')
     }
     const blob = await response.blob()
@@ -173,16 +191,18 @@ async function loadSignals(background = false) {
     if (abortController.signal.aborted) return
     clearImages()
     signals.value = data.signals
-      .filter((signal) => signal && typeof signal === 'object')
+      .filter((signal) => signal && typeof signal === 'object' && /^[a-fA-F0-9]{24}$/.test(String(signal._id || '')))
       .map((signal) => ({
         ...signal,
         scheduledAt: dateTimeValue(signal.scheduledAt) || null,
         hasAccess: signal.hasAccess === true,
+        details: signal.hasAccess === true ? String(signal.details || '') : '',
+        news: signal.hasAccess === true ? String(signal.news || '') : '',
         direction:
-          typeof signal.direction === 'string'
+          signal.hasAccess === true && typeof signal.direction === 'string'
             ? signal.direction.trim().toLowerCase()
             : '',
-        confirmed: signal.confirmed === true,
+        confirmed: signal.hasAccess === true && signal.confirmed === true,
         imageSrc: '',
         imageError: false,
       }))
@@ -199,13 +219,40 @@ async function loadSignals(background = false) {
     }
   }
 }
+function refreshVisibleSignals() {
+  if (document.visibilityState === 'visible') loadSignals(true)
+}
+
 onMounted(() => {
+  window.addEventListener('focus', refreshVisibleSignals)
+  document.addEventListener('visibilitychange', refreshVisibleSignals)
   loadSignals()
   refreshTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') loadSignals(true)
   }, 60_000)
 })
+function formatSignalPrice(signal) {
+  const price = 25
+
+  if (price === undefined || price === null || price === '') {
+    return 'Price not available'
+  }
+
+  const amount = Number(price)
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    return 'Price not available'
+  }
+
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: signal.currency || 'USD',
+  }).format(amount)
+  
+}
 onUnmounted(() => {
+  window.removeEventListener('focus', refreshVisibleSignals)
+  document.removeEventListener('visibilitychange', refreshVisibleSignals)
   window.clearInterval(refreshTimer)
   abortController.abort()
   clearImages()
@@ -243,12 +290,12 @@ onUnmounted(() => {
         </p>
       </div>
       <p
-        v-if="subscriptionError"
+        v-if="purchaseError"
         role="alert"
         class="mb-6 rounded-xl bg-red-50 p-4 text-sm text-red-700
                dark:bg-red-950/30 dark:text-red-300"
       >
-        {{ subscriptionError }}
+        {{ purchaseError }}
       </p>
       <div
         v-if="loading"
@@ -296,7 +343,7 @@ onUnmounted(() => {
                  border border-slate-200 bg-white shadow-sm
                  dark:border-slate-800 dark:bg-slate-900"
         >
-          <!-- Public information: visible without subscribing. -->
+          <!-- Public information: visible without purchasing. -->
           <header
             class="border-b border-slate-200 p-5
                    dark:border-slate-800
@@ -341,7 +388,7 @@ onUnmounted(() => {
             >
               by Thun Tula
             </p>
-            <!-- Outside the blur and subscription overlay. -->
+            <!-- Outside the blur and purchase overlay. -->
             <div
               class="mt-4 rounded-xl border border-slate-200
                      bg-slate-50 p-3
@@ -425,7 +472,9 @@ onUnmounted(() => {
                     {{
                       signal.imageError
                         ? 'Image unavailable'
-                        : 'Loading chart…'
+                        : signal.hasImage === false
+                          ? 'Chart will be added soon.'
+                          : 'Loading chart…'
                     }}
                   </p>
                 </div>
@@ -507,20 +556,21 @@ onUnmounted(() => {
                   <path d="M8 10V7a4 4 0 0 1 8 0v3" />
                   <path d="M12 14v3" />
                 </svg>
-                <h4 class="mt-3 text-lg font-bold">
-                  Unlock this signal
-                </h4>
+                <h4 class="mt-3 text-2xl font-bold text-amber-600 dark:text-amber-300">
+  {{ formatSignalPrice(signal) }}
+</h4>
                 <p
                   class="mt-2 text-sm leading-6
                          text-slate-600 dark:text-slate-400"
                 >
-                  Subscribe to unlock the chart, confirmed
-                  direction, and full technical analysis.
+                  Pay once to unlock this signal’s chart, confirmed
+                  direction, and full technical analysis. Each new signal
+                  requires a separate purchase.
                 </p>
                 <button
                   type="button"
-                  :disabled="checkingSubscription"
-                  :aria-busy="checkingSubscription"
+                  :disabled="checkingPurchase"
+                  :aria-busy="checkingPurchase && purchasingSignalId === signal._id"
                   class="mt-5 w-full cursor-pointer rounded-xl
                          bg-amber-400 px-5 py-3 text-sm font-bold
                          text-slate-950 transition hover:bg-amber-300
@@ -528,12 +578,12 @@ onUnmounted(() => {
                          focus-visible:outline-2
                          focus-visible:outline-offset-2
                          focus-visible:outline-amber-500"
-                  @click="goToSubscription"
+                  @click="goToPurchase(signal)"
                 >
                   {{
-                    checkingSubscription
+                    checkingPurchase && purchasingSignalId === signal._id
                       ? 'Please wait…'
-                      : 'Subscribe now'
+                      : 'Buy this signal'
                   }}
                 </button>
               </div>
