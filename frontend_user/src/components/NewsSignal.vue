@@ -402,8 +402,8 @@ onUnmounted(() => {
 
 <template>
   <section
-    class="bg-slate-50 px-4 py-12 text-slate-900
-           dark:bg-slate-950 dark:text-white
+    class="bg-(--page-bg) px-4 py-12 text-(--text-color)
+            
            max-[768px]:py-10 max-[600px]:px-4
            max-[480px]:py-8 max-[414px]:px-3
            max-[320px]:px-2"
@@ -427,7 +427,7 @@ onUnmounted(() => {
 
         <p
           class="mt-3 max-w-2xl text-sm leading-6
-                 text-slate-600 dark:text-slate-400"
+                 text-(--muted-color) "
         >
           Technical chart analysis and trading setups around
           economic news, including CPI, NFP, and FOMC.
@@ -446,9 +446,9 @@ onUnmounted(() => {
       <div
         v-if="loading"
         role="status"
-        class="rounded-2xl border border-slate-200
-               py-12 text-center text-slate-500
-               dark:border-slate-800 dark:text-slate-400"
+        class="rounded-2xl border border-(--border-color)
+               py-12 text-center text-(--muted-color)
+                "
       >
         Loading signals…
       </div>
@@ -473,8 +473,8 @@ onUnmounted(() => {
       <div
         v-else-if="signals.length === 0"
         class="rounded-2xl border border-dashed
-               border-slate-300 py-12 text-center text-slate-500
-               dark:border-slate-700 dark:text-slate-400"
+               border-(--border-color) py-12 text-center text-(--muted-color)
+                "
       >
         No signals published yet.
       </div>
@@ -490,12 +490,12 @@ onUnmounted(() => {
           v-for="signal in signals"
           :key="signal._id"
           class="min-w-0 overflow-hidden rounded-2xl
-                 border border-slate-200 bg-white shadow-sm
-                 dark:border-slate-800 dark:bg-slate-900"
+                 border border-(--border-color) bg-(--surface-bg) shadow-sm
+                  "
         >
           <header
-            class="border-b border-slate-200 p-5
-                   dark:border-slate-800
+            class="border-b border-(--border-color) p-5
+                   
                    max-[480px]:p-4 max-[320px]:p-3"
           >
             <div
@@ -557,19 +557,19 @@ onUnmounted(() => {
 
             <p
               class="mt-2 text-xs font-medium
-                     text-slate-500 dark:text-slate-400"
+                     text-(--muted-color) "
             >
               by Thun Tula
             </p>
 
             <div
-              class="mt-4 rounded-xl border border-slate-200
-                     bg-slate-50 p-3 dark:border-slate-700
-                     dark:bg-slate-800/60"
+              class="mt-4 rounded-xl border border-(--border-color)
+                     bg-(--page-bg) p-3 
+                     "
             >
               <p
                 class="mb-2 text-xs font-semibold
-                       text-slate-500 dark:text-slate-400"
+                       text-(--muted-color) "
               >
                 News date and time
               </p>
@@ -578,7 +578,7 @@ onUnmounted(() => {
                 v-if="signal.scheduledAt"
                 :datetime="signal.scheduledAt"
                 class="block break-words text-sm font-semibold
-                       text-slate-900 dark:text-white"
+                       text-(--text-color) "
               >
                 {{ formatDate(signal.scheduledAt) }},
                 {{ formatTime(signal.scheduledAt) }}
@@ -586,7 +586,7 @@ onUnmounted(() => {
 
               <p
                 v-else
-                class="text-sm text-slate-500 dark:text-slate-400"
+                class="text-sm text-(--muted-color) "
               >
                 Date and time not announced.
               </p>
@@ -616,7 +616,7 @@ onUnmounted(() => {
               <div
                 class="relative flex aspect-video items-center
                        justify-center overflow-hidden
-                       bg-slate-100 dark:bg-slate-800"
+                       bg-(--input-bg) "
               >
                 <img
                   v-if="signal.imageSrc"
@@ -639,14 +639,14 @@ onUnmounted(() => {
                   v-else
                   class="flex h-full w-full items-center
                          justify-center bg-gradient-to-br
-                         from-slate-200 via-slate-100 to-slate-300
-                         dark:from-slate-800 dark:via-slate-700
-                         dark:to-slate-900"
+                         from-(--input-bg) via-(--surface-bg) to-(--hover-bg)
+                          
+                         "
                 >
                   <p
                     v-if="signal.hasAccess"
                     class="px-4 text-center text-sm
-                           text-slate-500 dark:text-slate-400"
+                           text-(--muted-color) "
                   >
                     {{
                       signal.imageError
@@ -683,8 +683,8 @@ onUnmounted(() => {
 
                 <p
                   class="mt-2 whitespace-pre-line break-words
-                         text-sm leading-6 text-slate-600
-                         dark:text-slate-300"
+                         text-sm leading-6 text-(--muted-color)
+                         "
                 >
                   {{
                     signal.hasAccess
@@ -700,8 +700,8 @@ onUnmounted(() => {
 
                   <p
                     class="mt-2 whitespace-pre-line break-words
-                           text-sm leading-6 text-slate-600
-                           dark:text-slate-300"
+                           text-sm leading-6 text-(--muted-color)
+                           "
                   >
                     {{ signal.news }}
                   </p>
@@ -712,15 +712,15 @@ onUnmounted(() => {
             <div
               v-if="!signal.hasAccess"
               class="absolute inset-0 flex items-center
-                     justify-center bg-white/45 p-4
-                     dark:bg-slate-950/55
+                     justify-center bg-(--surface-bg)/45 p-4
+                     
                      max-[414px]:p-3 max-[320px]:p-2"
             >
               <div
                 class="w-full max-w-xs rounded-2xl
-                       border border-slate-200 bg-white/95
+                       border border-(--border-color) bg-(--surface-bg)/95
                        p-5 text-center shadow-xl
-                       dark:border-slate-700 dark:bg-slate-900/95
+                        
                        max-[480px]:p-4 max-[320px]:p-3"
               >
                 <svg
@@ -751,7 +751,7 @@ onUnmounted(() => {
 
                 <p
                   class="mt-2 text-sm leading-6
-                         text-slate-600 dark:text-slate-400"
+                         text-(--muted-color) "
                 >
                   Pay once to unlock this signal’s chart,
                   confirmed direction, and full technical
