@@ -738,11 +738,11 @@ onUnmounted(() => {
                 </svg>
 
                 <h4
-                  class="mt-3 text-2xl font-bold
-                         text-amber-600 dark:text-amber-300"
-                >
-                  {{ formatSignalPrice(signal) }}
-                </h4>
+  class="mt-3 text-2xl font-bold
+         text-amber-600 dark:text-amber-300"
+>
+  {{ formatSignalPrice(signal) }} /month
+</h4>
 
                 <p
                   class="mt-2 text-sm leading-6
@@ -750,8 +750,7 @@ onUnmounted(() => {
                 >
                   Pay once to unlock this signal’s chart,
                   confirmed direction, and full technical
-                  analysis. Each new signal requires a
-                  separate purchase.
+                  analysis. This signal you can use whole month,signal will update before news in that month.
                 </p>
 
                 <button
