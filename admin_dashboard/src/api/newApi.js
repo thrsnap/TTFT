@@ -66,6 +66,16 @@ function scheduledAt(value) {
   return date.toISOString()
 }
 
+function objectId(value, label) {
+  const id = String(value || '').trim()
+
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) {
+    throw new Error(`Enter a valid ${label}.`)
+  }
+
+  return id
+}
+
 export async function getNewsRecords() {
   const [calendar, signals] = await Promise.all([
     request('/api/calendar'),
@@ -86,7 +96,7 @@ export async function getNewsRecords() {
       id: String(signal._id),
       kind: 'signals',
       status: signal.confirmed ? 'Confirmed' : 'Pending',
-      audience: 'Subscribers only',
+      audience: 'One payment per signal',
     })),
   ]
 }
@@ -128,7 +138,7 @@ export async function saveNewsSignal(draft, imageFile = null) {
     news: String(draft.news || '').trim(),
     previewText: String(
       draft.previewText ??
-        'Subscribe to unlock the chart and technical analysis.',
+        'Purchase this signal to unlock the chart and technical analysis.',
     ).trim(),
   }
 
@@ -171,7 +181,6 @@ export async function saveNewsSignal(draft, imageFile = null) {
     throw new Error('The signal image must be 2 MB or smaller.')
   }
 
-  // Image uploads work for both creation and editing.
   const body = new FormData()
 
   for (const [key, value] of Object.entries(fields)) {
@@ -180,15 +189,33 @@ export async function saveNewsSignal(draft, imageFile = null) {
 
   body.append('image', imageFile)
 
-  // Do not set Content-Type manually for FormData.
+  // The browser sets the multipart Content-Type.
   return request(path, {
     method,
     body,
   })
 }
 
+// Admin approval after confirming payment.
+// Unlocks only the selected signal.
+export function grantSignalAccess({ userId, signalId }) {
+  return request(
+    '/api/signals/access',
+    jsonOptions('POST', {
+      userId: objectId(userId, 'user MongoDB ID'),
+      signalId: objectId(signalId, 'signal ID'),
+    }),
+  )
+}
+
 export function deleteNewsRecord(record) {
-  const id = encodeURIComponent(record.id)
+  const recordId = record.id || record._id
+
+  if (!recordId) {
+    throw new Error('Missing record ID.')
+  }
+
+  const id = encodeURIComponent(recordId)
 
   const path = record.kind === 'events'
     ? `/api/calendar/${id}`

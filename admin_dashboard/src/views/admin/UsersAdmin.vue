@@ -3,7 +3,6 @@ import {
   computed,
   nextTick,
   onMounted,
-  onUnmounted,
   ref,
 } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
@@ -15,8 +14,6 @@ import {
   getUserAccess,
   grantCourseAccess,
   revokeCourseAccess,
-  grantSignalAccess,
-  revokeSignalAccess,
 } from '../../api/userApi.js'
 
 const router = useRouter()
@@ -65,15 +62,60 @@ const availableCourses = ref([])
 const grantedCourses = ref([])
 const selectedCourseId = ref('')
 
-const signalAccess = ref(null)
-const signalExpiry = ref('')
+const availableSignals = ref([])
+const grantedSignals = ref([])
+const selectedSignalId = ref('')
+const signalGrantCounts = ref({})
+const signalChoices = computed(() => {
+  const grantedIds = new Set(grantedSignals.value.map(signal => String(signal.id)))
+  return availableSignals.value.filter(signal => !grantedIds.has(String(signal.id)))
+})
+
+const SIGNAL_BASE = (
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+).trim().replace(/\/+$/, '')
+
+async function signalRequest(path, options = {}) {
+  const method = (options.method || 'GET').toUpperCase()
+  const headers = new Headers(options.headers)
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.set('X-CMM-Request', '1')
+  const response = await fetch(`${SIGNAL_BASE}/api/signals${path}`, {
+    ...options, method, headers, credentials: 'include', cache: 'no-store',
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    const failure = new Error(data?.message || `Request failed (${response.status})`)
+    failure.status = response.status
+    throw failure
+  }
+  if (!data) throw new Error('The backend did not return JSON.')
+  return data
+}
+
+function getSignalUserAccess(userId) {
+  return signalRequest(`/access/${encodeURIComponent(userId)}`)
+}
+
+function grantSignalAccess(userId, signalId) {
+  return signalRequest('/access', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, signalId }),
+  })
+}
+
+function revokeSignalAccess(userId, signalId) {
+  return signalRequest('/access', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, signalId }),
+  })
+}
 
 const locked = computed(() =>
   busy.value || loading.value || accessLoading.value,
 )
 
-const now = ref(Date.now())
-let clock
 
 const courseChoices = computed(() => {
   const grantedIds = new Set(
@@ -84,17 +126,6 @@ const courseChoices = computed(() => {
     course => !grantedIds.has(String(course.id)),
   )
 })
-
-function activeSubscription(subscription) {
-  return Boolean(
-    subscription?.expiresAt &&
-    new Date(subscription.expiresAt).getTime() > now.value,
-  )
-}
-
-const signalActive = computed(() =>
-  activeSubscription(signalAccess.value),
-)
 
 function date(value) {
   if (!value) return '—'
@@ -114,29 +145,6 @@ function dateTime(value) {
   return Number.isNaN(parsed.getTime())
     ? '—'
     : parsed.toLocaleString()
-}
-
-function localDateTime(value) {
-  if (!value) return ''
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-
-  const pad = number => String(number).padStart(2, '0')
-
-  return (
-    `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-` +
-    `${pad(parsed.getDate())}T${pad(parsed.getHours())}:` +
-    `${pad(parsed.getMinutes())}`
-  )
-}
-
-function subscriptionLabel(subscription) {
-  if (!subscription?.expiresAt) return 'No subscription'
-
-  return activeSubscription(subscription)
-    ? 'Active subscription'
-    : 'Expired subscription'
 }
 
 async function report(err, access = false) {
@@ -247,8 +255,9 @@ function clearPanel() {
   availableCourses.value = []
   grantedCourses.value = []
   selectedCourseId.value = ''
-  signalAccess.value = null
-  signalExpiry.value = ''
+  availableSignals.value = []
+  grantedSignals.value = []
+  selectedSignalId.value = ''
 }
 
 function closePanel() {
@@ -308,9 +317,8 @@ async function loadPanel() {
   accessError.value = ''
 
   try {
-    const data = await getUserAccess(accessUser.value.id)
-
     if (panelType.value === 'course') {
+      const data = await getUserAccess(accessUser.value.id)
       if (
         !Array.isArray(data.availableCourses) ||
         !Array.isArray(data.courses)
@@ -329,14 +337,19 @@ async function loadPanel() {
         selectedCourseId.value = ''
       }
     } else {
-      if (!Object.hasOwn(data, 'signalAccess')) {
-        throw new Error('Invalid signal subscription response.')
+      const data = await getSignalUserAccess(accessUser.value.id)
+      if (!Array.isArray(data.availableSignals) || !Array.isArray(data.signals)) {
+        throw new Error('Invalid per-signal access response.')
       }
-
-      signalAccess.value = data.signalAccess || null
-      signalExpiry.value = localDateTime(
-        signalAccess.value?.expiresAt,
-      )
+      availableSignals.value = data.availableSignals
+      grantedSignals.value = data.signals
+      signalGrantCounts.value = {
+        ...signalGrantCounts.value,
+        [accessUser.value.id]: data.signals.length,
+      }
+      if (!signalChoices.value.some(signal => String(signal.id) === selectedSignalId.value)) {
+        selectedSignalId.value = ''
+      }
     }
 
     accessReady.value = true
@@ -445,70 +458,32 @@ async function removeCourse(course) {
 }
 
 async function saveSignals() {
-  if (
-    panelType.value !== 'signal' ||
-    !accessUser.value ||
-    locked.value
-  ) {
+  if (panelType.value !== 'signal' || !accessUser.value || locked.value) return
+  if (!signalChoices.value.some(signal => String(signal.id) === selectedSignalId.value)) {
+    accessError.value = 'Select a signal first.'
     return
   }
-
-  accessError.value = ''
-
-  const expiry = new Date(signalExpiry.value)
-
-  if (
-    !signalExpiry.value ||
-    Number.isNaN(expiry.getTime()) ||
-    expiry.getTime() <= Date.now()
-  ) {
-    accessError.value = 'Choose a future expiry date and time.'
-    return
-  }
-
   const userId = accessUser.value.id
-
+  const signalId = selectedSignalId.value
   await changeAccess(
-    () => grantSignalAccess(userId, expiry.toISOString()),
-    'Signal subscription saved.',
+    () => grantSignalAccess(userId, signalId),
+    'Access granted for this signal only.',
   )
 }
 
-async function removeSignals() {
-  if (
-    panelType.value !== 'signal' ||
-    !accessUser.value ||
-    locked.value ||
-    !accessReady.value
-  ) {
-    return
-  }
-
-  if (
-    !window.confirm(
-      `Remove the signal subscription for ${accessUser.value.email}?`,
-    )
-  ) {
-    return
-  }
-
+async function removeSignals(signal) {
+  if (panelType.value !== 'signal' || !accessUser.value || locked.value || !accessReady.value) return
+  if (!grantedSignals.value.some(item => String(item.id) === String(signal?.id))) return
+  if (!window.confirm(`Remove "${signal.title}" access for ${accessUser.value.email}?`)) return
   const userId = accessUser.value.id
-
   await changeAccess(
-    () => revokeSignalAccess(userId),
-    'Signal subscription removed.',
+    () => revokeSignalAccess(userId, signal.id),
+    'Access removed for this signal only.',
   )
 }
 
 onMounted(() => {
   load()
-  clock = window.setInterval(() => {
-    now.value = Date.now()
-  }, 30_000)
-})
-
-onUnmounted(() => {
-  window.clearInterval(clock)
 })
 </script>
 
@@ -711,7 +686,7 @@ onUnmounted(() => {
               {{
                 panelType === 'course'
                   ? 'Course Access'
-                  : 'Signal Subscription'
+                  : 'Signal Access'
               }}
               · {{ accessUser.username }}
             </h2>
@@ -778,7 +753,7 @@ onUnmounted(() => {
           {{
             panelType === 'course'
               ? 'Loading course access…'
-              : 'Loading signal subscription…'
+              : 'Loading signal access…'
           }}
         </p>
 
@@ -873,84 +848,46 @@ onUnmounted(() => {
           </ul>
         </div>
 
-        <!-- Signal controls only -->
-        <div
-          v-if="accessReady && !accessLoading && panelType === 'signal'"
-          class="max-w-xl"
-        >
-          <div
-            class="mb-4 rounded-lg border border-(--border-color) p-4"
-          >
-            <p
-              class="text-sm font-semibold"
-              :class="
-                signalActive
-                  ? 'text-emerald-600'
-                  : 'text-(--muted-color)'
-              "
-            >
-              {{ subscriptionLabel(signalAccess) }}
-            </p>
-
-            <p
-              v-if="signalAccess?.expiresAt"
-              class="mt-2 text-sm text-(--muted-color)"
-            >
-              Expires: {{ dateTime(signalAccess.expiresAt) }}
-            </p>
-          </div>
-
+        <!-- Access is granted separately for each signal. -->
+        <div v-if="accessReady && !accessLoading && panelType === 'signal'" class="max-w-xl">
+          <p class="mb-4 text-sm text-(--muted-color)">
+            Choose one news signal to unlock. Access lasts until that signal is deleted.
+            Each new signal requires a separate purchase or approval.
+          </p>
           <form @submit.prevent="saveSignals">
             <fieldset :disabled="locked">
-              <label
-                for="signal-expiry"
-                class="mb-2 block text-sm font-semibold"
-              >
-                Subscription expiry
-              </label>
-
-              <input
-                id="signal-expiry"
-                v-model="signalExpiry"
-                type="datetime-local"
-                required
-                class="min-h-11 w-full min-w-0 rounded-lg border
-                       border-(--border-color) bg-(--input-bg) px-3 py-2"
-              />
-
-              <p class="mt-2 text-xs text-(--muted-color)">
-                Select the date and time in your local timezone.
-              </p>
-
-              <button
-                type="submit"
-                :disabled="locked || !signalExpiry"
-                class="mt-4 min-h-11 rounded-lg bg-indigo-600
-                       px-4 py-2 text-sm font-semibold text-white
-                       disabled:opacity-50 max-[480px]:w-full"
-              >
-                {{
-                  busy
-                    ? 'Please wait…'
-                    : signalAccess?.expiresAt
-                      ? 'Update Signal Subscription'
-                      : 'Grant Signal Subscription'
-                }}
+              <label for="selected-signal" class="mb-2 block text-sm font-semibold">News signal</label>
+              <select id="selected-signal" v-model="selectedSignalId" required
+                class="min-h-11 w-full min-w-0 rounded-lg border border-(--border-color) bg-(--input-bg) px-3 py-2">
+                <option disabled value="">Select a signal</option>
+                <option v-for="signal in signalChoices" :key="signal.id" :value="String(signal.id)">
+                  {{ signal.pair }} — {{ signal.title }} — {{ dateTime(signal.scheduledAt) }}
+                </option>
+              </select>
+              <button type="submit" :disabled="locked || !selectedSignalId"
+                class="mt-4 min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 max-[480px]:w-full">
+                {{ busy ? 'Please wait…' : 'Grant Selected Signal Access' }}
               </button>
             </fieldset>
           </form>
-
-          <button
-            v-if="signalAccess?.expiresAt"
-            type="button"
-            :disabled="locked"
-            class="mt-3 min-h-11 rounded-lg bg-red-500/10
-                   px-4 py-2 text-sm font-semibold text-red-500
-                   disabled:opacity-50 max-[480px]:w-full"
-            @click="removeSignals"
-          >
-            Remove Signal Subscription
-          </button>
+          <p v-if="!signalChoices.length" class="mt-2 text-xs text-(--muted-color)">
+            No additional signals are available to grant.
+          </p>
+          <h3 class="mt-6 font-semibold">Approved signals</h3>
+          <p v-if="!grantedSignals.length" class="mt-2 text-sm text-(--muted-color)">No signal access granted.</p>
+          <ul v-else class="mt-3 space-y-3">
+            <li v-for="signal in grantedSignals" :key="signal.id"
+              class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-(--border-color) p-4">
+              <div class="min-w-0">
+                <p class="break-words text-sm font-semibold">{{ signal.pair }} — {{ signal.title }}</p>
+                <p class="mt-1 text-xs text-(--muted-color)">Granted {{ dateTime(signal.grantedAt) }}</p>
+              </div>
+              <button type="button" :disabled="locked" @click="removeSignals(signal)"
+                class="min-h-11 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-500 disabled:opacity-50">
+                Remove This Signal Access
+              </button>
+            </li>
+          </ul>
         </div>
 
         <p class="mt-5 text-xs text-(--muted-color)">
@@ -1122,46 +1059,18 @@ onUnmounted(() => {
               </button>
             </section>
 
-            <!-- Independent signal option -->
-            <section
-              class="mt-4 border-t border-(--border-color) pt-4"
-              :aria-label="`Signal subscription for ${user.username}`"
-            >
-              <h4 class="text-sm font-semibold">Signal Subscription</h4>
-
-              <template v-if="user.signalAccess !== undefined">
-                <p
-                  class="mt-2 text-xs"
-                  :class="
-                    activeSubscription(user.signalAccess)
-                      ? 'text-emerald-600'
-                      : 'text-(--muted-color)'
-                  "
-                >
-                  {{ subscriptionLabel(user.signalAccess) }}
-                </p>
-
-                <p
-                  v-if="user.signalAccess?.expiresAt"
-                  class="mt-1 text-xs text-(--muted-color)"
-                >
-                  Expires {{ dateTime(user.signalAccess.expiresAt) }}
-                </p>
-              </template>
-
-              <p v-else class="mt-2 text-xs text-(--muted-color)">
-                Open Signal Subscription to check the current status.
+            <!-- Signal access is independent from course access. -->
+            <section class="mt-4 border-t border-(--border-color) pt-4"
+              :aria-label="`Signal access for ${user.username}`">
+              <h4 class="text-sm font-semibold">Signal Access</h4>
+              <p class="mt-2 text-xs text-(--muted-color)">
+                {{ signalGrantCounts[user.id] !== undefined
+                  ? `${signalGrantCounts[user.id]} signal(s) approved`
+                  : 'Open Signal Access to manage individual news signals.' }}
               </p>
-
-              <button
-                type="button"
-                :disabled="locked"
-                class="mt-3 min-h-11 rounded-lg bg-indigo-600 px-4 py-2
-                       text-sm font-semibold text-white
-                       disabled:opacity-40 max-[480px]:w-full"
-                @click="openPanel(user, 'signal')"
-              >
-                Signal Subscription
+              <button type="button" :disabled="locked" @click="openPanel(user, 'signal')"
+                class="mt-3 min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 max-[480px]:w-full">
+                Signal Access
               </button>
             </section>
 
@@ -1245,7 +1154,7 @@ onUnmounted(() => {
 
         <p class="mt-2 text-sm text-(--muted-color)">
           This permanently removes the account. To remove a course or
-          subscription, use its separate permission button.
+          signal access, use its separate permission button.
         </p>
 
         <div class="mt-4 flex flex-wrap gap-3">
