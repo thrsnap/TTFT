@@ -101,12 +101,12 @@ function formatSignalPrice(signal) {
     return 'Price not available'
   }
 
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: signal.currency || 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(amount)
+ return new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: signal.currency || 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+}).format(amount)
 }
 
 async function goToPurchase(signal) {
