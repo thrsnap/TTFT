@@ -1,222 +1,494 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import {
+  computed,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import QRCode from 'qrcode'
+
 const route = useRoute()
-const telegramUrl = 'https://t.me/ThunTulaFT'
-const baseURL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
-  .trim().replace(/\/+$/, '')
-const productId = computed(() => {
-  const courseId = route.params.courseId
-  if (typeof courseId === 'string' && courseId) return `course:${courseId}`
-  const selectedId = route.query.signalId
-  if (typeof selectedId === 'string' && /^[a-fA-F0-9]{24}$/.test(selectedId)) {
-    return `signal:${selectedId.toLowerCase()}`
-  }
-  const explicit = route.params.productId || route.query.productId || route.query.product
-  return typeof explicit === 'string' && /^(signal|course):[a-fA-F0-9]{24}$/.test(explicit)
-    ? explicit
-    : ''
-})
-const isSignalPurchase = computed(() => productId.value.startsWith('signal:'))
-const validProduct = computed(() => /^(signal|course):[a-fA-F0-9]{24}$/.test(productId.value))
-const dashboardPath = computed(() => route.params.lang === 'km' ? '/km/dashboard' : '/dashboard')
-const signalsPath = computed(() => route.params.lang === 'km' ? '/km/signal' : '/signal')
-const productLabel = computed(() => isSignalPurchase.value ? 'One payment for this news signal' : 'Course purchase')
+const router = useRouter()
+
+const BASE = (
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+).trim().replace(/\/+$/, '')
+
 const order = ref(null)
 const qrImage = ref('')
-const creating = ref(false)
-const creationUncertain = ref(false)
+const generating = ref(false)
 const checking = ref(false)
+const creationUncertain = ref(false)
 const error = ref('')
-const notice = ref('')
+const message = ref('')
 const now = ref(Date.now())
-let ticker
-let disposed = false
+
+let timer
 let version = 0
-const paid = computed(() => order.value?.status === 'paid')
-const expired = computed(() => Boolean(order.value) && !paid.value && (
-  order.value.status === 'expired' || now.value >= new Date(order.value.expiresAt).getTime()
-))
+let disposed = false
+
+const productId = computed(() => {
+  const courseId = route.params.courseId
+
+  if (
+    typeof courseId === 'string' &&
+    /^[a-f0-9]{24}$/i.test(courseId)
+  ) {
+    return `course:${courseId}`
+  }
+
+  const signalId = route.query.signalId
+
+  if (
+    typeof signalId === 'string' &&
+    /^[a-f0-9]{24}$/i.test(signalId)
+  ) {
+    return `signal:${signalId}`
+  }
+
+  const value =
+    route.params.productId ||
+    route.query.productId ||
+    route.query.product
+
+  return (
+    typeof value === 'string' &&
+    /^(signal|course):[a-f0-9]{24}$/i.test(value)
+  ) ? value : ''
+})
+
+const paid = computed(() =>
+  order.value?.status === 'paid',
+)
+
+const unlocked = computed(() =>
+  paid.value && order.value?.accessGranted === true,
+)
+
+const expired = computed(() => {
+  if (!order.value || paid.value) return false
+
+  const expiresAt = new Date(order.value.expiresAt).getTime()
+
+  return (
+    order.value.status === 'expired' ||
+    (Number.isFinite(expiresAt) && now.value >= expiresAt)
+  )
+})
+
 const countdown = computed(() => {
   if (!order.value) return ''
-  const seconds = Math.max(0, Math.ceil((new Date(order.value.expiresAt).getTime() - now.value) / 1000))
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+
+  const expiresAt = new Date(order.value.expiresAt).getTime()
+
+  if (!Number.isFinite(expiresAt)) return ''
+
+  const seconds = Math.max(
+    0,
+    Math.ceil((expiresAt - now.value) / 1000),
+  )
+
+  return `${Math.floor(seconds / 60)}:${String(
+    seconds % 60,
+  ).padStart(2, '0')}`
 })
-const accessReady = computed(() => paid.value && order.value?.accessGranted === true)
-const canCheck = computed(() => Boolean(order.value?.orderId) && order.value.verificationAvailable !== false && (
-  !paid.value || (!accessReady.value && !order.value.signalDeleted)
-))
-function formatAmount(value, currency) {
-  const amount = Number(value)
-  if (!Number.isFinite(amount)) return '—'
-  return amount.toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: currency === 'KHR' ? 0 : 2,
+
+const price = computed(() => {
+  if (!order.value) return ''
+
+  const amount = Number(order.value.amount)
+
+  if (!Number.isFinite(amount)) return ''
+
+  return `${order.value.currency || 'USD'} ${amount.toLocaleString(
+    'en-US',
+    {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    },
+  )}`
+})
+
+const buttonLabel = computed(() => {
+  if (generating.value) return 'Generating QR…'
+  if (checking.value) return 'Checking payment…'
+  if (unlocked.value) return 'Return to signals'
+  if (creationUncertain.value && !order.value) {
+    return 'Order status uncertain'
+  }
+  if (!order.value) return 'Generate QR'
+  if (paid.value) return 'Retry unlock'
+
+  return 'Check payment'
+})
+
+const buttonDisabled = computed(() => {
+  if (generating.value || checking.value) return true
+
+  if (!order.value) {
+    return !productId.value || creationUncertain.value
+  }
+
+  if (unlocked.value) return false
+
+  return (
+    !order.value.orderId ||
+    order.value.verificationAvailable === false ||
+    order.value.signalDeleted === true
+  )
+})
+
+function returnToPurchase() {
+  const prefix = route.params.lang === 'km' ? '/km' : ''
+  const isSignal = productId.value.startsWith('signal:')
+
+  return router.replace({
+    path: `${prefix}${isSignal ? '/signal' : '/dashboard'}`,
+    query: {
+      paymentReturn: String(Date.now()),
+    },
   })
 }
 
 async function request(path, body = {}) {
   let response
+
   try {
-    response = await fetch(`${baseURL}/api/payments${path}`, {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CMM-Request': '1' },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(25000),
+    response = await fetch(`${BASE}/api/payments${path}`, {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'X-CMM-Request': '1',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(25000),
     })
-  } catch (cause) {
-    const failure = new Error(['TimeoutError', 'AbortError'].includes(cause.name)
-      ? 'The request timed out. Contact admin to check this order before making another payment.'
-      : 'Cannot reach the backend. Please check your connection.')
+  } catch {
+    const failure = new Error(
+      'Connection interrupted. Check your order before paying again.',
+    )
+
     failure.uncertain = true
     throw failure
   }
+
   const result = await response.json().catch(() => null)
+
   if (!response.ok) {
-    const failure = new Error(result?.message || `Payment request failed (${response.status})`)
-    failure.status = response.status
+    const failure = new Error(
+      result?.message || `Request failed (${response.status}).`,
+    )
+
     failure.uncertain = response.status >= 500
     throw failure
   }
-  if (result?.success !== true || !result.data || typeof result.data !== 'object') {
-    const failure = new Error('The backend returned an invalid payment response. Check with admin before creating another order.')
+
+  if (
+    result?.success !== true ||
+    !result.data ||
+    typeof result.data !== 'object' ||
+    !result.data.orderId
+  ) {
+    const failure = new Error(
+      'Invalid payment response. Contact admin before paying again.',
+    )
+
     failure.uncertain = true
     throw failure
   }
+
   return result.data
 }
-async function renderQR() {
-  if (!order.value?.qrCode) return
-  const current = version
-  try {
-    const image = await QRCode.toDataURL(order.value.qrCode, {
-      width: 420, margin: 4, errorCorrectionLevel: 'M',
-      color: { dark: '#000000', light: '#ffffff' },
-    })
-    if (!disposed && current === version) qrImage.value = image
-  } catch {
-    if (!disposed && current === version) error.value = 'Could not display the saved QR. Contact admin with the order ID.'
-  }
-}
-async function generatePayment() {
-  if (creating.value || creationUncertain.value || order.value) return
-  if (!validProduct.value) {
-    error.value = 'Select a specific signal or course before creating a payment.'
+
+async function generateQR() {
+  if (
+    generating.value ||
+    order.value ||
+    creationUncertain.value ||
+    !productId.value
+  ) {
     return
   }
+
   const current = version
-  creating.value = true
+
+  generating.value = true
   error.value = ''
-  notice.value = ''
+  message.value = ''
+
   try {
-    const data = await request('/orders', { productId: productId.value })
+    const data = await request('/orders', {
+      productId: productId.value,
+    })
+
     if (disposed || current !== version) return
-    // Retain a created order even if QR rendering fails; do not create a replacement automatically.
+
     order.value = data
     now.value = Date.now()
-    if (data.status === 'paid') {
-      notice.value = data.accessGranted
-        ? 'Payment confirmed. Your purchase is unlocked.'
-        : 'Payment confirmed. Contact admin with your order ID.'
+
+    if (unlocked.value) {
+      message.value = 'Payment confirmed. Returning…'
+      await returnToPurchase()
       return
     }
-    if (!data.orderId || typeof data.qrCode !== 'string' || !data.qrCode.trim() || !Number.isFinite(new Date(data.expiresAt).getTime())) {
-      throw new Error('The order was created but its QR details are incomplete. Contact admin before paying.')
+
+    if (paid.value) {
+      message.value = 'Payment confirmed. Click Retry unlock.'
+      return
     }
-    await renderQR()
+
+    if (
+      typeof data.qrCode !== 'string' ||
+      !data.qrCode.trim() ||
+      !Number.isFinite(new Date(data.expiresAt).getTime())
+    ) {
+      throw new Error(
+        'QR unavailable. Keep your order ID and contact admin.',
+      )
+    }
+
+    const image = await QRCode.toDataURL(data.qrCode, {
+      width: 420,
+      margin: 4,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    })
+
+    if (disposed || current !== version) return
+
+    qrImage.value = image
+
     if (data.verificationAvailable === false) {
-      notice.value = 'Online confirmation is unavailable. Contact admin to confirm your payment.'
+      message.value =
+        'Payment checking is unavailable. Contact admin.'
     }
   } catch (cause) {
-    if (!disposed && current === version) {
-      error.value = cause.message
-      if (cause.uncertain) creationUncertain.value = true
+    if (disposed || current !== version) return
+
+    error.value = cause.message
+
+    if (cause.uncertain) {
+      creationUncertain.value = true
     }
   } finally {
-    if (!disposed && current === version) creating.value = false
+    if (!disposed && current === version) {
+      generating.value = false
+    }
   }
 }
-async function verifyPayment() {
-  if (!canCheck.value || checking.value || creating.value) return
+
+async function checkPayment() {
+  if (
+    !order.value?.orderId ||
+    checking.value ||
+    generating.value
+  ) {
+    return
+  }
+
   const current = version
   const orderId = order.value.orderId
+
   checking.value = true
   error.value = ''
-  notice.value = ''
+  message.value = ''
+
   try {
-    const data = await request(`/orders/${encodeURIComponent(orderId)}/check`)
+    const data = await request(
+      `/orders/${encodeURIComponent(orderId)}/check`,
+    )
+
     if (disposed || current !== version) return
-    if (data.orderId !== orderId) throw new Error('The backend returned a different order. Contact admin.')
-    order.value = { ...order.value, ...data }
+
+    if (data.orderId !== orderId) {
+      throw new Error('Order mismatch. Contact admin.')
+    }
+
+    order.value = {
+      ...order.value,
+      ...data,
+    }
+
     now.value = Date.now()
-    notice.value = data.status === 'paid'
-      ? data.signalDeleted
-        ? 'Payment confirmed, but this signal was deleted. Contact admin with your order ID.'
-        : data.accessGranted
-          ? 'Payment confirmed. Your purchase is unlocked.'
-          : 'Payment confirmed. Contact admin if your access is not available yet.'
-      : data.status === 'expired'
-        ? 'This order has expired and no payment was found. If you already paid, contact admin.'
-        : 'Payment has not been found yet. If you already paid, wait a moment and check again.'
+
+    if (unlocked.value) {
+      message.value = 'Payment confirmed. Returning…'
+      await returnToPurchase()
+    } else if (paid.value) {
+      message.value = data.signalDeleted
+        ? 'Signal unavailable. Contact admin.'
+        : 'Payment confirmed. Access pending — retry unlock.'
+    } else {
+      message.value = expired.value
+        ? 'QR expired. If you paid, contact admin.'
+        : 'Payment not found yet. Please check again.'
+    }
   } catch (cause) {
     if (!disposed && current === version) {
       error.value = cause.message
-      notice.value = 'Payment status is unconfirmed. If you already paid, do not pay again; contact admin with this order ID.'
     }
   } finally {
-    if (!disposed && current === version) checking.value = false
+    if (!disposed && current === version) {
+      checking.value = false
+    }
   }
 }
+
+async function handlePayment() {
+  if (buttonDisabled.value) return
+
+  if (unlocked.value) {
+    try {
+      await returnToPurchase()
+    } catch {
+      error.value = 'Unable to return. Please try again.'
+    }
+    return
+  }
+
+  if (order.value) {
+    await checkPayment()
+  } else {
+    await generateQR()
+  }
+}
+
 watch(productId, () => {
   version++
   order.value = null
   qrImage.value = ''
-  error.value = ''
-  notice.value = ''
-  creating.value = false
-  creationUncertain.value = false
+  generating.value = false
   checking.value = false
+  creationUncertain.value = false
+  error.value = ''
+  message.value = ''
 })
-onMounted(() => { ticker = setInterval(() => { now.value = Date.now() }, 1000) })
-onUnmounted(() => { disposed = true; version++; clearInterval(ticker) })
+
+onMounted(() => {
+  timer = window.setInterval(() => {
+    now.value = Date.now()
+  }, 1000)
+})
+
+onUnmounted(() => {
+  disposed = true
+  version++
+  window.clearInterval(timer)
+})
 </script>
+
 <template>
-  <main class="flex min-h-[70vh] items-center justify-center px-4 py-8 text-(--text-color) sm:px-6 sm:py-10">
-    <section aria-labelledby="payment-heading" class="w-full max-w-md rounded-2xl border border-(--border-color) bg-(--surface-bg) p-4 text-center sm:p-6">
-      <h1 id="payment-heading" class="text-xl font-bold sm:text-2xl">Bakong QR Payment</h1>
-      <p class="mt-2 text-sm text-(--muted-color)">{{ validProduct ? productLabel : 'Select a signal or course first' }}</p>
-      <p v-if="isSignalPurchase" class="mt-2 text-sm leading-6 text-(--muted-color)">This payment unlocks only the selected signal until it is deleted. Each new signal requires a separate purchase.</p>
-      <div v-if="error" role="alert" class="mt-4 break-words rounded-lg bg-red-500/10 p-3 text-sm leading-6 text-red-600 dark:text-red-400">{{ error }}</div>
-      <p v-if="notice" role="status" aria-live="polite" class="mt-4 rounded-lg bg-sky-500/10 p-3 text-sm leading-6">{{ notice }}</p>
-      <template v-if="!order">
-        <p class="mt-5 text-sm leading-6 text-(--muted-color)">Generate your payment QR, review the amount and recipient, then scan it using Bakong or a supported banking app.</p>
-        <p class="mt-2 text-sm leading-6 text-(--muted-color)">If you have already paid, contact admin before creating another order.</p>
-        <button type="button" :disabled="creating || creationUncertain || !validProduct" @click="generatePayment" class="mt-5 min-h-11 w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
-          {{ creating ? 'Generating QR…' : creationUncertain ? 'Contact admin to check the order' : 'Generate payment QR' }}
-        </button>
+  <main
+    class="flex min-h-[70vh] items-center justify-center
+           px-4 py-8 text-(--text-color)"
+  >
+    <section
+      class="w-full max-w-sm rounded-2xl
+             border border-(--border-color)
+             bg-(--surface-bg) p-5 text-center sm:p-6"
+    >
+      <h1 class="text-xl font-bold">
+        Bakong QR Payment
+      </h1>
+
+      <template v-if="order">
+        <p class="mt-4 text-3xl font-bold">
+          {{ price }}
+        </p>
+
+        <p class="mt-2 break-words text-sm text-(--muted-color)">
+          Receiver: {{ order.merchantName || 'Merchant' }}
+        </p>
+
+        <div
+          v-if="qrImage && !paid && !expired"
+          class="mx-auto mt-5 max-w-[280px]
+                 rounded-xl bg-white p-2"
+        >
+          <img
+            :src="qrImage"
+            alt="Scan to pay with Bakong"
+            width="420"
+            height="420"
+            class="block h-auto w-full"
+          />
+        </div>
+
+        <p
+          v-if="!paid && !expired && countdown"
+          class="mt-3 text-sm text-(--muted-color)"
+        >
+          QR expires in
+          <span class="font-semibold">{{ countdown }}</span>
+        </p>
+
+        <p
+          v-if="expired"
+          class="mt-4 text-sm font-semibold
+                 text-amber-600 dark:text-amber-400"
+        >
+          QR expired. Do not scan it.
+        </p>
+
+        <p
+          v-if="paid"
+          class="mt-4 text-sm font-semibold
+                 text-emerald-600 dark:text-emerald-400"
+        >
+          {{ unlocked ? 'Payment confirmed' : 'Paid — access pending' }}
+        </p>
       </template>
-      <template v-else>
-        <p class="mt-5 text-3xl font-bold">{{ order.currency }} {{ formatAmount(order.amount, order.currency) }}</p>
-        <p class="mt-2 break-words text-sm text-(--muted-color)">Recipient: {{ order.merchantName || 'Merchant' }}</p>
-        <div v-if="paid" role="status" class="mt-5 rounded-xl bg-green-500/10 p-5 font-semibold text-green-600 dark:text-green-400">Payment confirmed</div>
-        <div v-else-if="expired" role="status" class="mt-5 rounded-xl bg-amber-500/10 p-4 text-sm leading-6">QR expired. Do not scan it. You can still check this order if you already paid.</div>
-        <template v-else-if="qrImage">
-          <div class="mx-auto mt-5 w-full max-w-[300px] rounded-xl bg-white p-2">
-            <img :src="qrImage" alt="Scan this Bakong QR to pay the displayed amount" width="420" height="420" class="block h-auto w-full" />
-          </div>
-          <p class="mt-3 text-sm text-(--muted-color)">QR expires in {{ countdown }}</p>
-          <a :href="qrImage" :download="`bakong-${order.orderId}.png`" class="mt-2 inline-flex min-h-11 items-center px-3 text-sm font-semibold text-sky-600 hover:underline">Download QR</a>
-        </template>
-        <button v-if="!paid && !expired && !qrImage && order.qrCode" type="button" @click="renderQR" class="mt-4 min-h-11 w-full rounded-lg border border-(--border-color) px-4 py-3 text-sm">Retry displaying QR</button>
-        <p class="mt-4 text-xs leading-5 text-(--muted-color)">Order ID: <span class="break-all select-all">{{ order.orderId }}</span></p>
-        <button v-if="canCheck" type="button" :disabled="checking || !canCheck" @click="verifyPayment" class="mt-4 min-h-11 w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
-          {{ checking ? 'Checking payment…' : paid ? 'Retry unlocking purchase' : 'Check payment' }}
-        </button>
-        <p v-if="!paid" class="mt-3 text-xs leading-5 text-(--muted-color)">Keep this page open and save the order ID. If money was deducted, check this order or contact admin before paying again.</p>
-      </template>
-      <a :href="telegramUrl" target="_blank" rel="noopener noreferrer" class="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-(--border-color) px-4 py-3 text-sm font-semibold hover:bg-(--hover-bg)">Contact admin on Telegram</a>
-      <RouterLink v-if="isSignalPurchase" :to="signalsPath" class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white">{{ accessReady ? 'View unlocked signal' : 'Back to News Signals' }}</RouterLink>
-      <RouterLink :to="dashboardPath" class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-(--border-color) px-4 py-3 text-sm font-semibold hover:bg-(--hover-bg)">Back to dashboard</RouterLink>
+
+      <p
+        v-else
+        class="mt-3 text-sm text-(--muted-color)"
+      >
+        Generate a QR to view the amount and receiver.
+      </p>
+
+      <p
+        v-if="error"
+        role="alert"
+        class="mt-4 text-sm text-red-600 dark:text-red-400"
+      >
+        {{ error }}
+      </p>
+
+      <p
+        v-if="message"
+        role="status"
+        aria-live="polite"
+        class="mt-4 text-sm"
+      >
+        {{ message }}
+      </p>
+
+      <button
+        type="button"
+        :disabled="buttonDisabled"
+        class="mt-5 min-h-11 w-full rounded-xl
+               bg-sky-600 px-4 py-3 font-semibold text-white
+               hover:bg-sky-500
+               disabled:cursor-not-allowed disabled:opacity-50"
+        @click="handlePayment"
+      >
+        {{ buttonLabel }}
+      </button>
+
+      <p
+        v-if="order?.orderId"
+        class="mt-4 break-all text-xs text-(--muted-color)"
+      >
+        Order: {{ order.orderId }}
+      </p>
     </section>
   </main>
 </template>
