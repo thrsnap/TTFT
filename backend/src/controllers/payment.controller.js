@@ -8,10 +8,20 @@ import {
 } from 'bakong-khqr'
 
 import Payment from '../models/payment.model.js'
+import Signal from '../models/signal.model.js'
+import SignalAccess from '../models/signalAccess.model.js'
+
+import {
+  getSessionUserId,
+} from '../services/signalAccess.service.js'
 
 const PRODUCTS = {
-  'news-signals-monthly': {
-    amountCents: 1,
+  // Edit the signal price here.
+  // 1 = $0.01
+  // 100 = $1.00
+  // 500 = $5.00
+  'news-signal': {
+    amountCents: 2500,
   },
 
   'course:6ac7c7c328016c1f9ed6927a': {
@@ -19,15 +29,103 @@ const PRODUCTS = {
   },
 }
 
-function currentUserId(req) {
-  const id = req.user?._id ?? req.user?.id
-  return id == null ? null : String(id)
+async function currentUserId(req) {
+  const userId = await getSessionUserId(req)
+
+  return userId ? String(userId) : null
+}
+
+function signalIdFromProduct(productId) {
+  if (
+    typeof productId !== 'string' ||
+    !productId.startsWith('signal:')
+  ) {
+    return null
+  }
+
+  const id = productId.slice('signal:'.length)
+
+  return mongoose.isObjectIdOrHexString(id) ? id : null
+}
+
+function signalPriceCents() {
+  return PRODUCTS['news-signal'].amountCents
 }
 
 function configurationError(message) {
   const error = new Error(message)
   error.code = 'PAYMENT_CONFIG_ERROR'
   return error
+}
+
+// A verified payment unlocks only its specific signal.
+// Repeated checks safely retry an earlier failed access grant.
+async function fulfillSignalPayment(payment) {
+  const signalId = signalIdFromProduct(payment.productId)
+
+  if (!signalId || payment.status !== 'paid') {
+    return {}
+  }
+
+  if (!(await Signal.exists({ _id: signalId }))) {
+    return {
+      signalId,
+      accessGranted: false,
+      signalDeleted: true,
+    }
+  }
+
+  const filter = {
+    userId: payment.userId,
+    signalId,
+  }
+
+  try {
+    await SignalAccess.updateOne(
+      filter,
+      {
+        $setOnInsert: filter,
+      },
+      {
+        upsert: true,
+        runValidators: true,
+      },
+    )
+  } catch (error) {
+    // Concurrent checks may create the same access record.
+    if (
+      error.code !== 11000 ||
+      !(await SignalAccess.exists(filter))
+    ) {
+      throw error
+    }
+  }
+
+  return {
+    signalId,
+    accessGranted: true,
+    signalDeleted: false,
+  }
+}
+
+function paymentResult(payment) {
+  return {
+    orderId: String(payment._id),
+    productId: payment.productId,
+    signalId: signalIdFromProduct(payment.productId),
+    status: payment.status,
+    amount: (payment.amountCents / 100).toFixed(2),
+    currency: payment.currency,
+    expiresAt: payment.expiresAt,
+    paidAt: payment.paidAt ?? null,
+  }
+}
+
+async function completedPaymentResult(payment) {
+  return {
+    ...paymentResult(payment),
+    ...await fulfillSignalPayment(payment),
+  }
 }
 
 function bakongConfig({ requireToken = false } = {}) {
@@ -39,7 +137,6 @@ function bakongConfig({ requireToken = false } = {}) {
     )
   }
 
-  // These URLs do not depend on the URL variables in .env.
   const baseURL =
     environment === 'production'
       ? 'https://api-bakong.nbc.gov.kh/v1'
@@ -88,18 +185,6 @@ function usdCents(value) {
   return Number.isSafeInteger(cents) ? cents : null
 }
 
-function paymentResult(payment) {
-  return {
-    orderId: String(payment._id),
-    productId: payment.productId,
-    status: payment.status,
-    amount: (payment.amountCents / 100).toFixed(2),
-    currency: payment.currency,
-    expiresAt: payment.expiresAt,
-    paidAt: payment.paidAt ?? null,
-  }
-}
-
 function safeText(value) {
   let text
 
@@ -136,17 +221,11 @@ function logVerificationError(error) {
     httpStatus: response?.status,
     contentType: response?.headers?.['content-type'],
     server: response?.headers?.server,
-
-    cloudFrontRequestId:
-      response?.headers?.['x-amz-cf-id'],
-
-    cloudFrontPop:
-      response?.headers?.['x-amz-cf-pop'],
-
+    cloudFrontRequestId: response?.headers?.['x-amz-cf-id'],
+    cloudFrontPop: response?.headers?.['x-amz-cf-pop'],
     responseCode: data?.responseCode,
     errorCode: data?.errorCode,
     responsePreview: safeText(data),
-
     localError: axios.isAxiosError(error)
       ? undefined
       : safeText(error.message),
@@ -214,7 +293,7 @@ function verificationErrorMessage(error) {
 
 export async function createPayment(req, res) {
   try {
-    const userId = currentUserId(req)
+    const userId = await currentUserId(req)
 
     if (!userId) {
       return res.status(401).json({
@@ -222,18 +301,62 @@ export async function createPayment(req, res) {
       })
     }
 
-    const productId = req.body?.productId
+    let productId = req.body?.productId
 
-    if (
-      typeof productId !== 'string' ||
-      !Object.hasOwn(PRODUCTS, productId)
-    ) {
+    if (typeof productId !== 'string') {
       return res.status(400).json({
         message: 'Invalid product',
       })
     }
 
-    const product = PRODUCTS[productId]
+    productId = productId.trim()
+
+    // Accept a selected signal and save its ID in productId.
+    if (productId === 'news-signal') {
+      const selectedId = req.body?.signalId
+
+      if (!mongoose.isObjectIdOrHexString(selectedId)) {
+        return res.status(400).json({
+          message: 'A valid signal ID is required',
+        })
+      }
+
+      productId = `signal:${String(selectedId).toLowerCase()}`
+    }
+
+    const signalId = signalIdFromProduct(productId)
+    let product
+
+    if (signalId) {
+      productId = `signal:${signalId.toLowerCase()}`
+
+      if (!(await Signal.exists({ _id: signalId }))) {
+        return res.status(404).json({
+          message: 'This signal is no longer available',
+        })
+      }
+
+      if (await SignalAccess.exists({ userId, signalId })) {
+        return res.status(409).json({
+          message:
+            'You already have access to this signal. Return to News Signals.',
+        })
+      }
+
+      product = {
+        amountCents: signalPriceCents(),
+      }
+    } else if (
+      productId.startsWith('course:') &&
+      Object.hasOwn(PRODUCTS, productId)
+    ) {
+      product = PRODUCTS[productId]
+    } else {
+      return res.status(400).json({
+        message:
+          'Invalid product. Select a specific signal or course.',
+      })
+    }
 
     if (
       !Number.isSafeInteger(product.amountCents) ||
@@ -245,6 +368,48 @@ export async function createPayment(req, res) {
     }
 
     const config = bakongConfig()
+
+    if (signalId) {
+      // Repair access from an existing paid receipt.
+      const paidOrder = await Payment.findOne({
+        userId,
+        productId,
+        status: 'paid',
+      })
+
+      if (paidOrder) {
+        return res.json({
+          success: true,
+          data: {
+            ...await completedPaymentResult(paidOrder),
+            merchantName: config.name,
+            qrCode: paidOrder.qrCode,
+            verificationAvailable: Boolean(config.token),
+          },
+        })
+      }
+
+      // Reuse an existing unexpired order after a page refresh.
+      const pendingOrder = await Payment.findOne({
+        userId,
+        productId,
+        status: 'pending',
+        recipientAccount: config.account,
+        expiresAt: { $gt: new Date() },
+      })
+
+      if (pendingOrder) {
+        return res.json({
+          success: true,
+          data: {
+            ...paymentResult(pendingOrder),
+            merchantName: config.name,
+            qrCode: pendingOrder.qrCode,
+            verificationAvailable: Boolean(config.token),
+          },
+        })
+      }
+    }
 
     const orderId = new mongoose.Types.ObjectId()
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
@@ -314,7 +479,7 @@ export async function createPayment(req, res) {
 
 export async function checkPayment(req, res) {
   try {
-    const userId = currentUserId(req)
+    const userId = await currentUserId(req)
 
     if (!userId) {
       return res.status(401).json({
@@ -344,7 +509,7 @@ export async function checkPayment(req, res) {
     if (payment.status === 'paid') {
       return res.json({
         success: true,
-        data: paymentResult(payment),
+        data: await completedPaymentResult(payment),
       })
     }
 
@@ -441,7 +606,7 @@ export async function checkPayment(req, res) {
         })
       }
 
-      // Verify with Bakong before recording expiry.
+      // Check Bakong before recording expiry.
       // An expired order can still be checked manually.
       if (
         Date.now() >= new Date(payment.expiresAt).getTime()
@@ -474,14 +639,15 @@ export async function checkPayment(req, res) {
 
     return res.json({
       success: true,
-      data: paymentResult(payment),
+      data: await completedPaymentResult(payment),
     })
   } catch (error) {
     logVerificationError(error)
 
     if (error.code === 11000) {
       return res.status(409).json({
-        message: 'Duplicate payment reference; contact support',
+        message:
+          'Duplicate payment reference; contact support',
       })
     }
 
