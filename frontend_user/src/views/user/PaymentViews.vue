@@ -11,11 +11,22 @@ const baseURL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
 const productId = computed(() => {
   const courseId = route.params.courseId
   if (typeof courseId === 'string' && courseId) return `course:${courseId}`
-  const explicit = route.params.productId || route.query.productId
-  return typeof explicit === 'string' ? explicit : 'news-signals-monthly'
+
+  const selectedId = route.query.signalId
+  if (typeof selectedId === 'string' && /^[a-fA-F0-9]{24}$/.test(selectedId)) {
+    return `signal:${selectedId.toLowerCase()}`
+  }
+
+  const explicit = route.params.productId || route.query.productId || route.query.product
+  return typeof explicit === 'string' && /^(signal|course):[a-fA-F0-9]{24}$/.test(explicit)
+    ? explicit
+    : ''
 })
+const isSignalPurchase = computed(() => productId.value.startsWith('signal:'))
+const validProduct = computed(() => /^(signal|course):[a-fA-F0-9]{24}$/.test(productId.value))
 const dashboardPath = computed(() => route.params.lang === 'km' ? '/km/dashboard' : '/dashboard')
-const productLabel = computed(() => productId.value.startsWith('course:') ? 'Course purchase' : 'News Signals subscription')
+const signalsPath = computed(() => route.params.lang === 'km' ? '/km/signal' : '/signal')
+const productLabel = computed(() => isSignalPurchase.value ? 'One payment for this news signal' : 'Course purchase')
 const order = ref(null)
 const qrImage = ref('')
 const creating = ref(false)
@@ -36,7 +47,10 @@ const countdown = computed(() => {
   const seconds = Math.max(0, Math.ceil((new Date(order.value.expiresAt).getTime() - now.value) / 1000))
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
 })
-const canCheck = computed(() => order.value && !paid.value && order.value.verificationAvailable !== false)
+const accessReady = computed(() => paid.value && order.value?.accessGranted === true)
+const canCheck = computed(() => order.value && order.value.verificationAvailable !== false && (
+  !paid.value || (isSignalPurchase.value && !accessReady.value && !order.value.signalDeleted)
+))
 
 async function request(path, body = {}) {
   let response
@@ -54,7 +68,11 @@ async function request(path, body = {}) {
     throw failure
   }
   const result = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(result?.message || `Payment request failed (${response.status})`)
+  if (!response.ok) {
+    const failure = new Error(result?.message || `Payment request failed (${response.status})`)
+    failure.status = response.status
+    throw failure
+  }
   if (result?.success !== true || !result.data || typeof result.data !== 'object') {
     throw new Error('The backend returned an invalid payment response.')
   }
@@ -77,6 +95,10 @@ async function renderQR() {
 
 async function generatePayment() {
   if (creating.value || creationUncertain.value || order.value) return
+  if (!validProduct.value) {
+    error.value = 'Select a specific signal or course before creating a payment.'
+    return
+  }
   const current = version
   creating.value = true
   error.value = ''
@@ -87,6 +109,12 @@ async function generatePayment() {
     // Retain a created order even if QR rendering fails; do not create a replacement automatically.
     order.value = data
     now.value = Date.now()
+    if (data.status === 'paid') {
+      notice.value = data.accessGranted
+        ? 'This signal is already paid and unlocked.'
+        : 'Payment confirmed. Contact admin with your order ID.'
+      return
+    }
     if (!data.orderId || typeof data.qrCode !== 'string' || !Number.isFinite(new Date(data.expiresAt).getTime())) {
       throw new Error('The order was created but its QR details are incomplete. Contact admin before paying.')
     }
@@ -118,7 +146,11 @@ async function verifyPayment() {
     order.value = { ...order.value, ...data }
     now.value = Date.now()
     notice.value = data.status === 'paid'
-      ? 'Payment confirmed. Contact admin if your access is not available yet.'
+      ? data.signalDeleted
+        ? 'Payment confirmed, but this signal was deleted. Contact admin with your order ID.'
+        : isSignalPurchase.value && data.accessGranted
+          ? 'Payment confirmed. This signal is unlocked.'
+          : 'Payment confirmed. Contact admin if your access is not available yet.'
       : data.status === 'expired'
         ? 'This order has expired and no payment was found. If you already paid, contact admin.'
         : 'Payment has not been found yet. If you already paid, wait a moment and check again.'
@@ -150,7 +182,8 @@ onUnmounted(() => { disposed = true; version++; clearInterval(ticker) })
   <main class="flex min-h-[70vh] items-center justify-center px-4 py-8 text-(--text-color) sm:px-6 sm:py-10">
     <section aria-labelledby="payment-heading" class="w-full max-w-md rounded-2xl border border-(--border-color) bg-(--surface-bg) p-4 text-center sm:p-6">
       <h1 id="payment-heading" class="text-xl font-bold sm:text-2xl">Bakong QR Payment</h1>
-      <p class="mt-2 text-sm text-(--muted-color)">{{ productLabel }}</p>
+      <p class="mt-2 text-sm text-(--muted-color)">{{ validProduct ? productLabel : 'Select a signal or course first' }}</p>
+      <p v-if="isSignalPurchase" class="mt-2 text-sm leading-6 text-(--muted-color)">This payment unlocks only the selected signal until it is deleted. Each new signal requires a separate purchase.</p>
 
       <div v-if="error" role="alert" class="mt-4 break-words rounded-lg bg-red-500/10 p-3 text-sm leading-6 text-red-600 dark:text-red-400">{{ error }}</div>
       <p v-if="notice" role="status" aria-live="polite" class="mt-4 rounded-lg bg-sky-500/10 p-3 text-sm leading-6">{{ notice }}</p>
@@ -158,7 +191,7 @@ onUnmounted(() => { disposed = true; version++; clearInterval(ticker) })
       <template v-if="!order">
         <p class="mt-5 text-sm leading-6 text-(--muted-color)">Generate your payment QR, review the amount and recipient, then scan it using Bakong or a supported banking app.</p>
         <p class="mt-2 text-sm leading-6 text-(--muted-color)">If you have already paid, contact admin before creating another order.</p>
-        <button type="button" :disabled="creating || creationUncertain" @click="generatePayment" class="mt-5 min-h-11 w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
+        <button type="button" :disabled="creating || creationUncertain || !validProduct" @click="generatePayment" class="mt-5 min-h-11 w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
           {{ creating ? 'Generating QR…' : creationUncertain ? 'Contact admin to check the order' : 'Generate payment QR' }}
         </button>
       </template>
@@ -177,13 +210,14 @@ onUnmounted(() => { disposed = true; version++; clearInterval(ticker) })
         </template>
         <button v-if="!paid && !expired && !qrImage && order.qrCode" type="button" @click="renderQR" class="mt-4 min-h-11 w-full rounded-lg border border-(--border-color) px-4 py-3 text-sm">Retry displaying QR</button>
         <p class="mt-4 text-xs leading-5 text-(--muted-color)">Order ID: <span class="break-all select-all">{{ order.orderId }}</span></p>
-        <button v-if="!paid" type="button" :disabled="checking || !canCheck" @click="verifyPayment" class="mt-4 min-h-11 w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
-          {{ checking ? 'Checking payment…' : 'Check payment' }}
+        <button v-if="canCheck" type="button" :disabled="checking || !canCheck" @click="verifyPayment" class="mt-4 min-h-11 w-full rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500">
+          {{ checking ? 'Checking payment…' : paid ? 'Retry unlocking signal' : 'Check payment' }}
         </button>
         <p v-if="!paid" class="mt-3 text-xs leading-5 text-(--muted-color)">Keep this page open and save the order ID. If money was deducted, check this order or contact admin before paying again.</p>
       </template>
 
       <a :href="telegramUrl" target="_blank" rel="noopener noreferrer" class="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-(--border-color) px-4 py-3 text-sm font-semibold hover:bg-(--hover-bg)">Contact admin on Telegram</a>
+      <RouterLink v-if="isSignalPurchase" :to="signalsPath" class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-sky-600 px-4 py-3 text-sm font-semibold text-white">{{ accessReady ? 'View unlocked signal' : 'Back to News Signals' }}</RouterLink>
       <RouterLink :to="dashboardPath" class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-(--border-color) px-4 py-3 text-sm font-semibold hover:bg-(--hover-bg)">Back to dashboard</RouterLink>
     </section>
   </main>
