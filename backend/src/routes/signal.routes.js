@@ -239,56 +239,122 @@ router.post(
   },
 )
 
-// Grant subscription or individual signal access.
+// Approve access for a registered user to one specific signal.
+// Accept an account ID or resolve an exact registered account email.
 router.post(
   '/access',
   requireUser,
   requireAdmin,
   async (req, res, next) => {
     try {
-      const {
-        userId,
-        signalId = null,
-        expiresAt,
-      } = req.body || {}
-
-      if (!mongoose.isObjectIdOrHexString(userId)) {
-        throw badRequest('Invalid user ID.')
+      const { userId, email, signalId } = req.body || {}
+      if (!mongoose.isObjectIdOrHexString(signalId)) {
+        throw badRequest('Select a valid signal.')
       }
 
-      if (
-        signalId !== null &&
-        !mongoose.isObjectIdOrHexString(signalId)
-      ) {
-        throw badRequest('Invalid signal ID.')
+      let user
+      if (userId != null && userId !== '') {
+        if (!mongoose.isObjectIdOrHexString(userId)) {
+          throw badRequest('Invalid registered user ID.')
+        }
+        user = await User.findById(userId).select('_id email').lean()
+      } else {
+        const accountEmail = typeof email === 'string'
+          ? email.trim().toLowerCase()
+          : ''
+        if (!accountEmail) throw badRequest('A registered user email is required.')
+        user = await User.findOne({ email: accountEmail }).select('_id email').lean()
       }
 
-      const expiry = parseDate(expiresAt)
-
-      if (expiry <= new Date()) {
-        throw badRequest('Expiry must be in the future.')
+      if (!user) {
+        throw badRequest('No registered website account matches this user. Check the email in Manage Users.')
+      }
+      if (!(await Signal.exists({ _id: signalId }))) {
+        throw badRequest('This signal no longer exists. Reload the signal list.')
       }
 
-      if (!(await User.exists({ _id: userId }))) {
-        throw badRequest('User does not exist.')
+      const filter = { userId: user._id, signalId }
+      try {
+        await SignalAccess.updateOne(
+          filter,
+          { $setOnInsert: filter },
+          { upsert: true, runValidators: true },
+        )
+      } catch (error) {
+        if (error.code !== 11000 || !(await SignalAccess.exists(filter))) throw error
       }
-
-      if (
-        signalId !== null &&
-        !(await Signal.exists({ _id: signalId }))
-      ) {
-        throw badRequest('Signal does not exist.')
-      }
-
-      await SignalAccess.updateOne(
-        { userId, signalId },
-        { $set: { expiresAt: expiry } },
-        { upsert: true, runValidators: true },
-      )
 
       res.json({
-        message: 'Signal access approved.',
+        message: 'The selected signal is unlocked for this registered user.',
+        userId: user._id,
+        signalId,
+        hasAccess: true,
       })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+// Read a registered user's individual signal grants for the admin panel.
+router.get(
+  '/access/:userId',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const { userId } = req.params
+      if (!mongoose.isObjectIdOrHexString(userId)) {
+        throw badRequest('Invalid registered user ID.')
+      }
+      if (!(await User.exists({ _id: userId }))) {
+        throw badRequest('Registered user does not exist.')
+      }
+      const records = await Signal.find()
+        .select('_id title pair scheduledAt newsType')
+        .sort({ scheduledAt: -1 })
+        .lean()
+      const grants = await SignalAccess.find({
+        userId,
+        signalId: { $in: records.map(record => record._id) },
+      }).select('signalId createdAt').lean()
+      const grantsById = new Map(grants.map(grant => [String(grant.signalId), grant]))
+      const availableSignals = records.map(record => ({
+        id: String(record._id),
+        title: record.title,
+        pair: record.pair,
+        scheduledAt: record.scheduledAt,
+        newsType: record.newsType,
+      }))
+      const signals = availableSignals
+        .filter(signal => grantsById.has(signal.id))
+        .map(signal => ({
+          ...signal,
+          grantedAt: grantsById.get(signal.id).createdAt,
+        }))
+      res.json({ availableSignals, signals })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+// Revoke only the selected user's access to the selected signal.
+router.delete(
+  '/access',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const { userId, signalId } = req.body || {}
+      if (!mongoose.isObjectIdOrHexString(userId) || !mongoose.isObjectIdOrHexString(signalId)) {
+        throw badRequest('Valid user and signal IDs are required.')
+      }
+      if (!(await User.exists({ _id: userId }))) {
+        throw badRequest('Registered user does not exist.')
+      }
+      await SignalAccess.deleteMany({ userId, signalId })
+      res.json({ message: 'Access removed for this signal only.', userId, signalId })
     } catch (error) {
       next(error)
     }
@@ -309,23 +375,16 @@ router.get('/', async (req, res, next) => {
     const grants = userId
       ? await SignalAccess.find({
           userId,
-          expiresAt: { $gt: new Date() },
-        }).lean()
+          signalId: { $in: records.map(record => record._id) },
+        }).select('signalId').lean()
       : []
 
-    const subscribed = grants.some(
-      grant => grant.signalId === null,
-    )
-
     const purchasedIds = new Set(
-      grants
-        .filter(grant => grant.signalId)
-        .map(grant => String(grant.signalId)),
+      grants.map(grant => String(grant.signalId)),
     )
 
     const signals = records.map(record => {
-      const hasAccess =
-        subscribed || purchasedIds.has(String(record._id))
+      const hasAccess = purchasedIds.has(String(record._id))
 
       const result = {
         _id: record._id,
@@ -425,7 +484,7 @@ router.get('/:id/preview', async (req, res, next) => {
   }
 })
 
-// Full image requires subscription or individual access.
+// Full image requires access to this specific signal.
 router.get('/:id/image', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
@@ -443,7 +502,7 @@ router.get('/:id/image', async (req, res, next) => {
 
     if (!allowed) {
       return res.status(403).json({
-        message: 'Subscription or purchase required.',
+        message: 'Purchase this signal to unlock the chart.',
       })
     }
 
