@@ -16,7 +16,10 @@ import {
 } from '../services/signalAccess.service.js'
 
 const PRODUCTS = {
-  // Prices in cents: 2500 = $25.00
+  // Edit the signal price here.
+  // 1 = $0.01
+  // 100 = $1.00
+  // 500 = $5.00
   'news-signal': {
     amountCents: 2500,
   },
@@ -26,12 +29,9 @@ const PRODUCTS = {
   },
 }
 
-const DAILY_LIMIT_MESSAGE =
-  'Bakong’s daily verification request limit has been reached. ' +
-  'Please try again tomorrow. This does not mean a payment was made.'
-
 async function currentUserId(req) {
   const userId = await getSessionUserId(req)
+
   return userId ? String(userId) : null
 }
 
@@ -48,13 +48,18 @@ function signalIdFromProduct(productId) {
   return mongoose.isObjectIdOrHexString(id) ? id : null
 }
 
+function signalPriceCents() {
+  return PRODUCTS['news-signal'].amountCents
+}
+
 function configurationError(message) {
   const error = new Error(message)
   error.code = 'PAYMENT_CONFIG_ERROR'
   return error
 }
 
-// Only a verified paid order can grant access.
+// A verified payment unlocks only its specific signal.
+// Repeated checks safely retry an earlier failed access grant.
 async function fulfillSignalPayment(payment) {
   const signalId = signalIdFromProduct(payment.productId)
 
@@ -87,6 +92,7 @@ async function fulfillSignalPayment(payment) {
       },
     )
   } catch (error) {
+    // Concurrent checks may create the same access record.
     if (
       error.code !== 11000 ||
       !(await SignalAccess.exists(filter))
@@ -118,7 +124,7 @@ function paymentResult(payment) {
 async function completedPaymentResult(payment) {
   return {
     ...paymentResult(payment),
-    ...(await fulfillSignalPayment(payment)),
+    ...await fulfillSignalPayment(payment),
   }
 }
 
@@ -205,20 +211,12 @@ function safeText(value) {
     .slice(0, 800)
 }
 
-function isDailyLimit(result) {
-  return (
-    result?.errorCode === 19 ||
-    result?.errorCode === '19'
-  )
-}
-
 function logVerificationError(error) {
   const response = error.response
   const data = response?.data
 
-  // Never log the full Axios error or its request headers.
+  // Never log the full Axios error or request headers.
   console.error('Payment verification failed:', {
-    time: new Date().toISOString(),
     code: error.code,
     httpStatus: response?.status,
     contentType: response?.headers?.['content-type'],
@@ -237,10 +235,6 @@ function logVerificationError(error) {
 function verificationErrorMessage(error) {
   if (error.code === 'PAYMENT_CONFIG_ERROR') {
     return error.message
-  }
-
-  if (isDailyLimit(error.response?.data)) {
-    return DAILY_LIMIT_MESSAGE
   }
 
   const status = error.response?.status
@@ -298,8 +292,6 @@ function verificationErrorMessage(error) {
 }
 
 export async function createPayment(req, res) {
-  res.set('Cache-Control', 'private, no-store')
-
   try {
     const userId = await currentUserId(req)
 
@@ -319,6 +311,7 @@ export async function createPayment(req, res) {
 
     productId = productId.trim()
 
+    // Accept a selected signal and save its ID in productId.
     if (productId === 'news-signal') {
       const selectedId = req.body?.signalId
 
@@ -351,7 +344,7 @@ export async function createPayment(req, res) {
       }
 
       product = {
-        amountCents: PRODUCTS['news-signal'].amountCents,
+        amountCents: signalPriceCents(),
       }
     } else if (
       productId.startsWith('course:') &&
@@ -369,13 +362,15 @@ export async function createPayment(req, res) {
       !Number.isSafeInteger(product.amountCents) ||
       product.amountCents <= 0
     ) {
-      throw configurationError('Invalid configured product price')
+      throw configurationError(
+        'Invalid configured product price',
+      )
     }
 
     const config = bakongConfig()
 
     if (signalId) {
-      // Repair access from an existing verified receipt.
+      // Repair access from an existing paid receipt.
       const paidOrder = await Payment.findOne({
         userId,
         productId,
@@ -386,7 +381,7 @@ export async function createPayment(req, res) {
         return res.json({
           success: true,
           data: {
-            ...(await completedPaymentResult(paidOrder)),
+            ...await completedPaymentResult(paidOrder),
             merchantName: config.name,
             qrCode: paidOrder.qrCode,
             verificationAvailable: Boolean(config.token),
@@ -394,7 +389,7 @@ export async function createPayment(req, res) {
         })
       }
 
-      // Reuse an unexpired order after a page refresh.
+      // Reuse an existing unexpired order after a page refresh.
       const pendingOrder = await Payment.findOne({
         userId,
         productId,
@@ -470,7 +465,9 @@ export async function createPayment(req, res) {
     })
 
     return res
-      .status(error.code === 'PAYMENT_CONFIG_ERROR' ? 503 : 500)
+      .status(
+        error.code === 'PAYMENT_CONFIG_ERROR' ? 503 : 500,
+      )
       .json({
         message:
           error.code === 'PAYMENT_CONFIG_ERROR'
@@ -481,8 +478,6 @@ export async function createPayment(req, res) {
 }
 
 export async function checkPayment(req, res) {
-  res.set('Cache-Control', 'private, no-store')
-
   try {
     const userId = await currentUserId(req)
 
@@ -511,7 +506,6 @@ export async function checkPayment(req, res) {
       })
     }
 
-    // Already verified: no Bakong request is needed.
     if (payment.status === 'paid') {
       return res.json({
         success: true,
@@ -527,14 +521,6 @@ export async function checkPayment(req, res) {
 
     const config = bakongConfig({
       requireToken: true,
-    })
-
-    // One log entry for each outgoing verification attempt.
-    console.info('Bakong verification request:', {
-      time: new Date().toISOString(),
-      orderId: String(payment._id),
-      userId,
-      environment: config.environment,
     })
 
     const response = await axios.post(
@@ -555,22 +541,6 @@ export async function checkPayment(req, res) {
 
     const result = response.data
     const transaction = result?.data
-
-    // A quota error must never mark an order paid or expired.
-    if (isDailyLimit(result)) {
-      console.warn('Bakong daily verification limit reached:', {
-        time: new Date().toISOString(),
-        orderId: String(payment._id),
-        environment: config.environment,
-        responseCode: result?.responseCode,
-        errorCode: result?.errorCode,
-      })
-
-      return res.status(429).json({
-        code: 'BAKONG_DAILY_LIMIT',
-        message: DAILY_LIMIT_MESSAGE,
-      })
-    }
 
     if (result?.responseCode === 0) {
       if (
@@ -626,8 +596,6 @@ export async function checkPayment(req, res) {
 
       if (!notFound) {
         console.error('Bakong verification rejected:', {
-          time: new Date().toISOString(),
-          orderId: String(payment._id),
           responseCode: result?.responseCode,
           errorCode: result?.errorCode,
           responsePreview: safeText(result),
@@ -638,9 +606,11 @@ export async function checkPayment(req, res) {
         })
       }
 
-      // Expired orders can still be checked for a payment.
-      // Only record expiry after a transaction-not-found result.
-      if (Date.now() >= new Date(payment.expiresAt).getTime()) {
+      // Check Bakong before recording expiry.
+      // An expired order can still be checked manually.
+      if (
+        Date.now() >= new Date(payment.expiresAt).getTime()
+      ) {
         await Payment.updateOne(
           {
             _id: payment._id,
@@ -676,20 +646,15 @@ export async function checkPayment(req, res) {
 
     if (error.code === 11000) {
       return res.status(409).json({
-        message: 'Duplicate payment reference; contact support',
-      })
-    }
-
-    // Also handle error 19 if Bakong returns a non-2xx HTTP status.
-    if (isDailyLimit(error.response?.data)) {
-      return res.status(429).json({
-        code: 'BAKONG_DAILY_LIMIT',
-        message: DAILY_LIMIT_MESSAGE,
+        message:
+          'Duplicate payment reference; contact support',
       })
     }
 
     return res
-      .status(error.code === 'PAYMENT_CONFIG_ERROR' ? 503 : 502)
+      .status(
+        error.code === 'PAYMENT_CONFIG_ERROR' ? 503 : 502,
+      )
       .json({
         message: verificationErrorMessage(error),
       })
