@@ -1475,24 +1475,24 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
           </div>
         </div>
         <template v-if="page === 'Dashboard'">
-          <section aria-labelledby="paid-users-heading" class="mb-6 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900 max-[600px]:p-3">
-            <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <section aria-labelledby="paid-users-heading" class="mb-6 w-full min-w-0 max-w-full rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900 max-[600px]:p-3">
+            <div class="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <h2 id="paid-users-heading" class="text-lg font-semibold">Payment history</h2>
                 <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">View orders by user ID and status. Summary cards show all-time verified payments.</p>
               </div>
-              <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-slate-700">
+              <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="min-h-11 w-full shrink-0 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium disabled:opacity-50 sm:w-auto dark:border-slate-700">
                 {{ paidLoading ? "Loading…" : "Refresh payments" }}
               </button>
             </div>
-            <form @submit.prevent="fetchPaidPayments(1)" class="mb-5 flex flex-wrap items-end gap-3">
-              <label class="min-w-0 flex-1 text-sm">
+            <form @submit.prevent="fetchPaidPayments(1)" class="mb-5 grid min-w-0 grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(110px,150px)] xl:grid-cols-[minmax(0,1fr)_minmax(110px,150px)_auto_auto]">
+              <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
                 <span class="mb-1 block">User ID (optional)</span>
-                <input v-model="paymentUserIdFilter" :disabled="paidLoading" maxlength="24" placeholder="Paste user ID" class="min-h-11 w-full rounded-lg border border-slate-300 bg-transparent px-3 dark:border-slate-600" />
+                <input v-model="paymentUserIdFilter" :disabled="paidLoading" maxlength="24" placeholder="Paste user ID" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 text-base sm:text-sm dark:border-slate-600" />
               </label>
-              <label class="text-sm">
+              <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
                 <span class="mb-1 block">Status</span>
-                <select v-model="paymentStatusFilter" :disabled="paidLoading" class="min-h-11 rounded-lg border border-slate-300 bg-white px-3 dark:border-slate-600 dark:bg-slate-900">
+                <select v-model="paymentStatusFilter" :disabled="paidLoading" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-base sm:text-sm dark:border-slate-600 dark:bg-slate-900">
                   <option value="paid">Paid</option>
                   <option value="pending">Pending</option>
                   <option value="expired">Expired</option>
@@ -1502,10 +1502,10 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               <button type="submit" :disabled="paidLoading" class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white">Apply filters</button>
               <button type="button" :disabled="paidLoading" @click="paymentUserIdFilter = ''; paymentStatusFilter = 'paid'; fetchPaidPayments(1)" class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-600">Reset</button>
             </form>
-            <div class="mb-5 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 min-[900px]:grid-cols-3 min-[1400px]:grid-cols-5">
-              <article v-for="card in paidCards" :key="card.label" class="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+            <div class="mb-5 grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-5">
+              <article v-for="card in paidCards" :key="card.label" class="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">{{ card.label }}</p>
-                <p class="mt-2 break-words text-2xl font-semibold">{{ card.value ?? '—' }}</p>
+                <p class="mt-2 break-words text-xl font-semibold sm:text-2xl">{{ card.value ?? '—' }}</p>
               </article>
             </div>
             <p class="mb-4 text-xs text-slate-500 dark:text-slate-400">Course and signal buyer counts can overlap. Manually granted access is excluded unless a paid receipt exists.</p>
@@ -1516,7 +1516,39 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             </div>
             <p v-if="paidLoading" role="status" class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading payment history…</p>
             <template v-else-if="!paidError">
-              <div v-if="paidPayments.length" class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700" tabindex="0" role="region" aria-label="Payment history">
+              <div v-if="paidPayments.length" class="min-w-0">
+                <!-- Mobile: each order has its own card, with no sideways scrolling. -->
+                <div class="grid min-w-0 grid-cols-1 gap-3 md:hidden" role="list" aria-label="Payment history">
+                  <article v-for="payment in paidPayments" :key="payment.orderId" role="listitem" class="min-w-0 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+                    <div class="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                      <div class="min-w-0 flex-1 basis-36">
+                        <p class="break-words font-semibold">{{ payment.name || 'User unavailable' }}</p>
+                        <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">{{ payment.email || 'Email unavailable' }}</p>
+                      </div>
+                      <span class="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize" :class="payment.status === 'paid' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : payment.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'">{{ payment.status }}</span>
+                    </div>
+                    <dl class="mt-4 grid min-w-0 grid-cols-1 gap-3 border-t border-slate-200 pt-3 min-[400px]:grid-cols-2 dark:border-slate-700">
+                      <div class="min-w-0">
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">Product</dt>
+                        <dd class="mt-1 break-words font-medium">{{ paidProductLabel(payment) }}</dd>
+                      </div>
+                      <div class="min-w-0">
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">Amount</dt>
+                        <dd class="mt-1 break-words font-semibold">{{ money(payment.amount) }} {{ payment.currency }}</dd>
+                      </div>
+                      <div class="min-w-0 min-[400px]:col-span-2">
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">Paid at (local time)</dt>
+                        <dd class="mt-1 break-words">{{ payment.paidAt ? date(payment.paidAt) + ' ' + time(payment.paidAt) : '—' }}</dd>
+                      </div>
+                      <div v-for="field in [{ label: 'User ID', value: payment.userId }, { label: 'Product ID', value: payment.productId }, { label: 'Order ID', value: payment.orderId }]" :key="field.label" class="min-w-0 min-[400px]:col-span-2">
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">{{ field.label }}</dt>
+                        <dd class="mt-1 break-all text-xs leading-5">{{ field.value }}</dd>
+                      </div>
+                    </dl>
+                  </article>
+                </div>
+                <!-- Tablet and desktop: keep the table's scrolling inside this panel. -->
+                <div class="hidden max-w-full overflow-x-auto rounded-lg border border-slate-200 md:block dark:border-slate-700" tabindex="0" role="region" aria-label="Payment history table">
                 <table class="w-full min-w-[760px] text-left text-sm">
                   <thead class="bg-slate-50 dark:bg-slate-800">
                     <tr>
@@ -1545,11 +1577,12 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                     </tr>
                   </tbody>
                 </table>
+                </div>
               </div>
               <p v-else class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">No payment orders match these filters.</p>
-              <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+              <div class="mt-4 flex min-w-0 flex-col gap-3 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                 <span class="text-slate-500 dark:text-slate-400">Page {{ paidPagination.page }} of {{ Math.max(1, paidPagination.totalPages) }} · {{ paidPagination.total }} matching orders</span>
-                <div class="flex gap-2">
+                <div class="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                   <button type="button" :disabled="paidLoading || paidPagination.page <= 1" @click="fetchPaidPayments(paidPagination.page - 1)" class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 disabled:opacity-40 dark:border-slate-700">Previous</button>
                   <button type="button" :disabled="paidLoading || paidPagination.page >= paidPagination.totalPages" @click="fetchPaidPayments(paidPagination.page + 1)" class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 disabled:opacity-40 dark:border-slate-700">Next</button>
                 </div>
