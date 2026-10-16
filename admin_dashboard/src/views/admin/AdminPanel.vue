@@ -52,6 +52,177 @@ import {
   Activity,
 } from "lucide-vue-next";
 
+const userSignalModal = ref(null);
+const availableUserSignals = ref([]);
+const selectedUserSignalId = ref("");
+const userSignalsLoading = ref(false);
+const userSignalSaving = ref(false);
+const userSignalError = ref("");
+let userSignalRequestVersion = 0;
+const signalApiBase = (
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000"
+).trim().replace(/\/+$/, "");
+
+async function signalAccessRequest(path, options = {}) {
+  const method = (options.method || "GET").toUpperCase();
+  const headers = new Headers(options.headers);
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers.set("X-CMM-Request", "1");
+  }
+  const response = await fetch(`${signalApiBase}/api/signals${path}`, {
+    ...options, method, headers, credentials: "include", cache: "no-store",
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(data?.message || `Request failed (${response.status})`);
+  if (!data) throw new Error("The backend did not return JSON.");
+  return data;
+}
+
+async function openUserSignalAccess(user) {
+  if (saving.value || userSignalSaving.value) return;
+  const email = String(user?.email || "").trim().toLowerCase();
+  if (!email) {
+    notify("This member needs the email used by their registered website account.");
+    return;
+  }
+  const current = ++userSignalRequestVersion;
+  userSignalModal.value = { name: user.name || user.username || email, email };
+  availableUserSignals.value = [];
+  selectedUserSignalId.value = "";
+  userSignalError.value = "";
+  userSignalsLoading.value = true;
+  try {
+    const data = await signalAccessRequest("/admin");
+    if (current !== userSignalRequestVersion) return;
+    if (!Array.isArray(data.signals)) throw new Error("Invalid signal list response.");
+    availableUserSignals.value = data.signals.filter(signal =>
+      /^[a-fA-F0-9]{24}$/.test(String(signal?._id || "")),
+    );
+  } catch (e) {
+    if (current === userSignalRequestVersion) userSignalError.value = e.message;
+  } finally {
+    if (current === userSignalRequestVersion) userSignalsLoading.value = false;
+  }
+}
+
+function closeUserSignalAccess() {
+  if (userSignalSaving.value) return;
+  userSignalRequestVersion++;
+  userSignalModal.value = null;
+  userSignalsLoading.value = false;
+}
+
+async function approveUserSignalAccess() {
+  if (!userSignalModal.value || userSignalSaving.value || userSignalsLoading.value) return;
+  const signalId = selectedUserSignalId.value;
+  if (!availableUserSignals.value.some(signal => String(signal._id) === signalId)) {
+    userSignalError.value = "Select the signal to unlock.";
+    return;
+  }
+  userSignalSaving.value = true;
+  userSignalError.value = "";
+  try {
+    const result = await signalAccessRequest("/access", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: userSignalModal.value.email, signalId }),
+    });
+    userSignalModal.value = null;
+    notify(result.message || "This signal is unlocked for the registered user.");
+  } catch (e) {
+    userSignalError.value = e.message || "Could not approve access.";
+  } finally {
+    userSignalSaving.value = false;
+  }
+}
+
+const paidPayments = ref([]);
+const paidSummary = ref(null);
+const paidPagination = ref({ page: 1, totalPages: 0, total: 0 });
+const paidLoading = ref(false);
+const paidError = ref("");
+let paidRequestController;
+const paymentsAdminApiPath = (
+  import.meta.env.VITE_ADMIN_API_PATH || "/api/admin"
+).trim().replace(/\/+$/, "");
+const paymentStatusFilter = ref("paid");
+const paymentUserIdFilter = ref("");
+
+const paidCards = computed(() => [
+  { label: "Total paid users", value: paidSummary.value?.totalPaidUsers },
+  { label: "Course buyers", value: paidSummary.value?.courseBuyers },
+  { label: "Signal buyers", value: paidSummary.value?.signalBuyers },
+  { label: "Successful payments", value: paidSummary.value?.successfulPayments },
+  {
+    label: "Total collected (USD)",
+    value: paidSummary.value ? money(paidSummary.value.totalAmount) : undefined,
+  },
+]);
+
+async function fetchPaidPayments(requestedPage = 1) {
+  paidRequestController?.abort();
+  const controller = new AbortController();
+  paidRequestController = controller;
+  paidLoading.value = true;
+  paidError.value = "";
+  try {
+    const userId = paymentUserIdFilter.value.trim();
+    if (userId && !/^[a-f0-9]{24}$/i.test(userId)) {
+      throw new Error("Enter a valid 24-character user ID.");
+    }
+    const query = new URLSearchParams({
+      page: String(requestedPage),
+      status: paymentStatusFilter.value,
+    });
+    if (userId) query.set("userId", userId);
+    const response = await fetch(
+      `${signalApiBase}${paymentsAdminApiPath}/payments?${query}`,
+      {
+        credentials: "include",
+        cache: "no-store",
+        signal: controller.signal,
+      },
+    );
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message || `Unable to load payments (${response.status})`);
+    }
+    if (!data?.success || !Array.isArray(data.payments) || !data.summary || !data.pagination) {
+      throw new Error("Invalid paid payments response.");
+    }
+    const summaryFields = ["totalPaidUsers", "courseBuyers", "signalBuyers", "successfulPayments"];
+    if (summaryFields.some(field => !Number.isInteger(data.summary[field]) || data.summary[field] < 0)
+      || !Number.isFinite(Number(data.summary.totalAmount))
+      || !Number.isInteger(data.pagination.page) || data.pagination.page < 1
+      || !Number.isInteger(data.pagination.totalPages) || data.pagination.totalPages < 0) {
+      throw new Error("Invalid payment totals or pagination.");
+    }
+    if (controller.signal.aborted) return;
+    paidPayments.value = data.payments;
+    paidSummary.value = data.summary;
+    paidPagination.value = data.pagination;
+  } catch (e) {
+    if (!controller.signal.aborted) paidError.value = e.message || "Unable to load payments.";
+  } finally {
+    if (paidRequestController === controller) paidLoading.value = false;
+  }
+}
+
+function paidProductLabel(payment) {
+  if (payment.productType === "course") return "Course";
+  if (payment.productType === "news-signal") return "News signal";
+  return "Other product";
+}
+
+watch([paymentStatusFilter, paymentUserIdFilter], () => {
+  paidRequestController?.abort();
+  paidPayments.value = [];
+  paidPagination.value = { page: 1, totalPages: 0, total: 0 };
+  paidError.value = "Filters changed. Click Apply filters to load orders.";
+}, { flush: "sync" });
+
+onUnmounted(() => paidRequestController?.abort());
+
 const signalImage = ref(null);
 const analysisImages = ref([]);
 const replaceAnalysisImages = ref(false);
@@ -132,6 +303,7 @@ function toggleTheme() {
   setTheme(!dark.value);
 }
 async function fetchDashboard() {
+  void fetchPaidPayments(1);
   dashboardLoading.value = true;
   dashboardError.value = "";
   try {
@@ -447,7 +619,6 @@ const fields = {
     ["email", "Email address", "email", true],
     ["role", "Role", "select", true, ["Member", "Admin"]],
     ["status", "Account access", "select", true, ["Active", "Suspended"]],
-    ["access", "Content access", "select", true, ["Free", "Subscriber"]],
     ["notes", "Admin notes", "textarea"],
   ],
   profile: [
@@ -1242,11 +1413,11 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               {{
                 {
                   Dashboard: "A clear view of your community and content.",
-                  News: "Manage economic events and subscriber news signals.",
+                  News: "Manage economic events and individually purchased news signals.",
                   Academy: "Build your course library and manage pricing.",
                   Analysis:
                     "Share your technical outlook and downloadable resources.",
-                  Users: "Manage members, subscriptions and account access.",
+                  Users: "Manage members and approve access to specific news signals.",
                   Support: "Read messages and keep track of your replies.",
                   Settings: "Manage your workspace preferences.",
                 }[page]
@@ -1304,6 +1475,88 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
           </div>
         </div>
         <template v-if="page === 'Dashboard'">
+          <section aria-labelledby="paid-users-heading" class="mb-6 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900 max-[600px]:p-3">
+            <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <h2 id="paid-users-heading" class="text-lg font-semibold">Payment history</h2>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">View orders by user ID and status. Summary cards show all-time verified payments.</p>
+              </div>
+              <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-slate-700">
+                {{ paidLoading ? "Loading…" : "Refresh payments" }}
+              </button>
+            </div>
+            <form @submit.prevent="fetchPaidPayments(1)" class="mb-5 flex flex-wrap items-end gap-3">
+              <label class="min-w-0 flex-1 text-sm">
+                <span class="mb-1 block">User ID (optional)</span>
+                <input v-model="paymentUserIdFilter" :disabled="paidLoading" maxlength="24" placeholder="Paste user ID" class="min-h-11 w-full rounded-lg border border-slate-300 bg-transparent px-3 dark:border-slate-600" />
+              </label>
+              <label class="text-sm">
+                <span class="mb-1 block">Status</span>
+                <select v-model="paymentStatusFilter" :disabled="paidLoading" class="min-h-11 rounded-lg border border-slate-300 bg-white px-3 dark:border-slate-600 dark:bg-slate-900">
+                  <option value="paid">Paid</option>
+                  <option value="pending">Pending</option>
+                  <option value="expired">Expired</option>
+                  <option value="all">All orders</option>
+                </select>
+              </label>
+              <button type="submit" :disabled="paidLoading" class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white">Apply filters</button>
+              <button type="button" :disabled="paidLoading" @click="paymentUserIdFilter = ''; paymentStatusFilter = 'paid'; fetchPaidPayments(1)" class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-600">Reset</button>
+            </form>
+            <div class="mb-5 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 min-[900px]:grid-cols-3 min-[1400px]:grid-cols-5">
+              <article v-for="card in paidCards" :key="card.label" class="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+                <p class="text-sm text-slate-500 dark:text-slate-400">{{ card.label }}</p>
+                <p class="mt-2 break-words text-2xl font-semibold">{{ card.value ?? '—' }}</p>
+              </article>
+            </div>
+            <p class="mb-4 text-xs text-slate-500 dark:text-slate-400">Course and signal buyer counts can overlap. Manually granted access is excluded unless a paid receipt exists.</p>
+            <div v-if="paidError" role="alert" class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+              {{ paidError }}
+              <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="ml-2 min-h-11 underline disabled:opacity-50">Try again</button>
+              <p v-if="paidSummary" class="mt-1 text-xs">Counts above are from the last successful refresh.</p>
+            </div>
+            <p v-if="paidLoading" role="status" class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading payment history…</p>
+            <template v-else-if="!paidError">
+              <div v-if="paidPayments.length" class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700" tabindex="0" role="region" aria-label="Payment history">
+                <table class="w-full min-w-[760px] text-left text-sm">
+                  <thead class="bg-slate-50 dark:bg-slate-800">
+                    <tr>
+                      <th scope="col" class="px-4 py-3">Buyer</th>
+                      <th scope="col" class="px-4 py-3">Product</th>
+                      <th scope="col" class="px-4 py-3">Amount</th>
+                      <th scope="col" class="px-4 py-3">Paid at (local time)</th>
+                      <th scope="col" class="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-200 dark:divide-slate-700">
+                    <tr v-for="payment in paidPayments" :key="payment.orderId">
+                      <td class="px-4 py-3">
+                        <p class="font-medium">{{ payment.name || 'User unavailable' }}</p>
+                        <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">{{ payment.email || 'Email unavailable' }}</p>
+                        <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">User: {{ payment.userId }}</p>
+                      </td>
+                      <td class="px-4 py-3">
+                        <p class="font-medium">{{ paidProductLabel(payment) }}</p>
+                        <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">{{ payment.productId }}</p>
+                        <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">Order: {{ payment.orderId }}</p>
+                      </td>
+                      <td class="whitespace-nowrap px-4 py-3 font-medium">{{ money(payment.amount) }} {{ payment.currency }}</td>
+                      <td class="whitespace-nowrap px-4 py-3">{{ date(payment.paidAt) }} {{ payment.paidAt ? time(payment.paidAt) : '' }}</td>
+                      <td class="px-4 py-3"><span class="rounded-full px-2.5 py-1 text-xs font-medium capitalize" :class="payment.status === 'paid' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : payment.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'">{{ payment.status }}</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-else class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">No payment orders match these filters.</p>
+              <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+                <span class="text-slate-500 dark:text-slate-400">Page {{ paidPagination.page }} of {{ Math.max(1, paidPagination.totalPages) }} · {{ paidPagination.total }} matching orders</span>
+                <div class="flex gap-2">
+                  <button type="button" :disabled="paidLoading || paidPagination.page <= 1" @click="fetchPaidPayments(paidPagination.page - 1)" class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 disabled:opacity-40 dark:border-slate-700">Previous</button>
+                  <button type="button" :disabled="paidLoading || paidPagination.page >= paidPagination.totalPages" @click="fetchPaidPayments(paidPagination.page + 1)" class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 disabled:opacity-40 dark:border-slate-700">Next</button>
+                </div>
+              </div>
+            </template>
+          </section>
+
           <div
             v-if="dashboardError"
             role="alert"
@@ -1935,7 +2188,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                     <template v-if="currentKind === 'users'"
                       ><th>Member</th>
                       <th>Role</th>
-                      <th>Access</th>
+                      <th>Signal access</th>
                       <th>Status</th>
                       <th>Joined</th></template
                     ><template v-else
@@ -1969,11 +2222,11 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                       </td>
                       <td>{{ r.role }}</td>
                       <td>
-                        <span
-                          class="badge inline-flex shrink-0 items-center whitespace-nowrap rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-300 [&.green]:bg-emerald-50 [&.green]:text-emerald-700 [&.purple]:bg-violet-50 [&.purple]:text-violet-600 [&.orange]:bg-orange-50 [&.orange]:text-orange-700 [&.red]:bg-red-50 [&.red]:text-red-600 dark:[&.green]:bg-emerald-900/30 dark:[&.green]:text-emerald-300 dark:[&.purple]:bg-violet-900/30 dark:[&.orange]:bg-orange-900/30 dark:[&.red]:bg-red-900/30"
-                          :class="r.access === 'Subscriber' ? 'purple' : ''"
-                          >{{ r.access }}</span
-                        >
+                        <button type="button" :disabled="saving || userSignalSaving"
+                          @click="openUserSignalAccess(r)"
+                          class="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-medium text-emerald-700 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-300">
+                          <ShieldCheck :size="16" />Manage signals
+                        </button>
                       </td>
                       <td>
                         <span
@@ -2046,8 +2299,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             v-if="page === 'Users'"
             class="section-note my-5 flex items-center gap-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400 min-w-0 items-start max-[480px]:text-xs"
           >
-            <ShieldCheck :size="15" />Access changes are saved here. Connect
-            your public backend to enforce them on cmm-ft.com.
+            <ShieldCheck :size="15" />Use Manage signals to unlock a specific signal for the registered account with this email.
+            Each new signal needs its own purchase or admin approval.
           </p>
         </template>
         <template v-else-if="page === 'Support'">
@@ -2574,8 +2827,8 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             v-if="modal === 'users'"
             class="form-note mx-7 mb-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400 max-[480px]:mx-4 max-[414px]:mx-3"
           >
-            This creates a member record. Public login credentials are managed
-            by your existing backend.
+            Member details are saved here. To unlock a news signal, use Manage signals in the user list
+            and select the specific signal. The email must match the registered website account.
           </p>
           <div
             class="modal-footer flex justify-end gap-3 border-t border-slate-200 dark:border-slate-700 px-7 py-5 max-[600px]:px-5 min-w-0 max-[480px]:px-4 max-[480px]:py-4 max-[414px]:flex-col-reverse max-[414px]:px-3 max-[414px]:[&>button]:w-full max-[414px]:[&>button]:whitespace-normal"
@@ -2645,6 +2898,50 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             {{ saving ? "Deleting…" : "Delete record" }}
           </button>
         </div>
+      </section>
+    </div>
+    <div v-if="userSignalModal"
+      class="fixed inset-0 z-80 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm"
+      @click.self="closeUserSignalAccess" @keydown.esc="closeUserSignalAccess">
+      <section role="dialog" aria-modal="true" aria-labelledby="user-signal-title"
+        class="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+        <div class="flex items-center justify-between gap-3">
+          <h2 id="user-signal-title" class="text-lg font-semibold">Manage signal access</h2>
+          <button type="button" aria-label="Close" :disabled="userSignalSaving" @click="closeUserSignalAccess"
+            class="inline-flex size-11 shrink-0 items-center justify-center rounded-lg disabled:opacity-50"><X :size="20" /></button>
+        </div>
+        <p class="mt-3 break-words font-medium">{{ userSignalModal.name }}</p>
+        <p class="mt-1 break-all text-sm text-slate-500 dark:text-slate-400">{{ userSignalModal.email }}</p>
+        <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">
+          Choose the news signal to unlock. This approval applies only to that signal until it is deleted.
+        </p>
+        <p v-if="userSignalsLoading" role="status" class="mt-4 text-sm">Loading signals…</p>
+        <form v-else class="mt-5 space-y-4" @submit.prevent="approveUserSignalAccess">
+          <label class="block text-sm">
+            <span class="mb-2 block">News signal</span>
+            <select v-model="selectedUserSignalId" required :disabled="userSignalSaving || !availableUserSignals.length"
+              class="w-full min-w-0 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+              <option disabled value="">Select a signal</option>
+              <option v-for="signal in availableUserSignals" :key="signal._id" :value="String(signal._id)">
+                {{ signal.pair }} — {{ signal.title }} — {{ date(signal.scheduledAt) }} {{ time(signal.scheduledAt) }}
+              </option>
+            </select>
+          </label>
+          <p v-if="!availableUserSignals.length && !userSignalError" class="text-sm text-slate-500 dark:text-slate-400">
+            No signals available. Create a signal in News first.
+          </p>
+          <p v-if="userSignalError" role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{{ userSignalError }}</p>
+          <button v-if="userSignalError" type="button" :disabled="userSignalSaving"
+            @click="openUserSignalAccess(userSignalModal)" class="text-sm font-semibold underline">Reload signals</button>
+          <div class="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+            <button type="button" :disabled="userSignalSaving" @click="closeUserSignalAccess"
+              class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 disabled:opacity-50 dark:border-slate-700">Cancel</button>
+            <button type="submit" :disabled="userSignalSaving || !selectedUserSignalId || !availableUserSignals.length"
+              class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">
+              {{ userSignalSaving ? "Approving…" : "Approve selected signal" }}
+            </button>
+          </div>
+        </form>
       </section>
     </div>
   </div>
