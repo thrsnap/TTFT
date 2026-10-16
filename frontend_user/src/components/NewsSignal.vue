@@ -672,21 +672,21 @@ onUnmounted(() => {
                        max-[480px]:p-4 max-[320px]:p-3"
                 :class="!signal.hasAccess ? 'blur-sm' : ''"
               >
-                <h4 class="text-sm font-bold">
-                  Technical analysis
+                <h4 class="text-bold font-bold underline">
+                   Note:
                 </h4>
 
                 <p
-                  class="mt-2 whitespace-pre-line break-words
-                         text-sm leading-6 text-(--muted-color)
-                         "
-                >
-                  {{
-                    signal.hasAccess
-                      ? signal.details
-                      : signal.previewText
-                  }}
-                </p>
+  class="mt-3 whitespace-pre-line break-words
+         text-sm font-bold leading-6
+         text-slate-900 dark:text-slate-100"
+>
+  {{
+    signal.hasAccess
+      ? signal.details
+      : signal.previewText
+  }}
+</p>
 
                 <template v-if="signal.hasAccess && signal.news">
                   <h4 class="mt-5 text-sm font-bold">
