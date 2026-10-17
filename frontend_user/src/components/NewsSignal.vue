@@ -412,7 +412,7 @@ onUnmounted(() => {
           class="mt-3 max-w-2xl text-sm leading-6
                  text-(--muted-color) "
         >
-         Only CPI, NFP,FOMC and PPI release overhere.
+         CPI, NFP,FOMC and PPI and other USD Newsrelease overhere.
         </p>
       </div>
 
