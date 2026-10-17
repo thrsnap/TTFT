@@ -1,5 +1,6 @@
 <script setup>
 import {
+  nextTick,
   onMounted,
   onUnmounted,
   onActivated,
@@ -7,6 +8,20 @@ import {
   watch,
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+
+const chartDialog = ref(null)
+const enlargedChart = ref(null)
+async function openChart(signal) {
+  if (!signal.hasAccess || !signal.imageSrc) return
+  enlargedChart.value = { id: signal._id, src: signal.imageSrc, alt: `${signal.pair} technical analysis chart` }
+  await nextTick()
+  chartDialog.value?.showModal()
+}
+function closeChart() {
+  chartDialog.value?.close()
+  enlargedChart.value = null
+}
+
 
 const router = useRouter()
 const route = useRoute()
@@ -16,9 +31,27 @@ const BASE = (
 ).trim().replace(/\/+$/, '')
 
 const subscription = ref({ active: false, expiresAt: null })
+const showSubscriptionNotice = ref(false)
+let subscriptionNoticeTimer
+watch(
+  () => subscription.value.active ? subscription.value.expiresAt || 'active' : '',
+  (value) => {
+    clearTimeout(subscriptionNoticeTimer)
+    showSubscriptionNotice.value = Boolean(value)
+    if (value) {
+      subscriptionNoticeTimer = setTimeout(() => {
+        showSubscriptionNotice.value = false
+      }, 5000)
+    }
+  },
+)
+
 const monthlyAmount = ref(25)
 let expiryTimer
 const signals = ref([])
+watch(() => signals.value.map(signal => `${signal._id}:${signal.hasAccess}`).join(','), () => {
+  if (enlargedChart.value && !signals.value.some(signal => signal._id === enlargedChart.value.id && signal.hasAccess)) closeChart()
+})
 const loading = ref(true)
 const error = ref('')
 const checkingPurchase = ref(false)
@@ -389,6 +422,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  clearTimeout(subscriptionNoticeTimer)
   window.removeEventListener(
     'focus',
     refreshVisibleSignals,
@@ -411,14 +445,10 @@ onUnmounted(() => {
 
 <template>
   <section
-    class="bg-(--page-bg) px-4 py-12 text-(--text-color)
-
-           max-[768px]:py-10 max-[600px]:px-4
-           max-[480px]:py-8 max-[414px]:px-3
-           max-[320px]:px-2"
+    class="w-full min-w-0 text-(--text-color)"
   >
-    <div class="mx-auto max-w-7xl">
-      <div class="mb-8">
+    <div class="mx-auto w-full min-w-0 max-w-sm">
+      <div class="mb-4 lg:min-h-32">
         <span
           class="inline-flex rounded-full bg-amber-100
                  px-3 py-1 text-xs font-semibold text-amber-800
@@ -428,21 +458,20 @@ onUnmounted(() => {
         </span>
 
         <h2
-          class="mt-4 text-4xl font-bold
-                 max-[768px]:text-3xl max-[480px]:text-2xl"
+          class="mt-3 text-xl font-bold sm:text-2xl"
         >
           Daily Signals
         </h2>
 
         <p
-          class="mt-3 max-w-2xl text-sm leading-6
+          class="mt-2 max-w-full break-words text-sm leading-6
                  text-(--muted-color) "
         >
          In Daily Signal have only Daily day signal , no include News Siganl and weekend.
         </p>
       </div>
 
-      <div v-if="subscription.active" class="mb-6 rounded-xl border border-emerald-300 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+      <div v-if="subscription.active && showSubscriptionNotice" class="mb-6 rounded-xl border border-emerald-300 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
         <p class="font-bold">Daily Signal subscription active</p>
         <p class="mt-1">Access until {{ formatDate(subscription.expiresAt) }}.</p>
       </div>
@@ -482,7 +511,7 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <div v-else-if="signals.length === 0" class="max-w-md rounded-2xl border border-(--border-color) bg-(--surface-bg) p-6 text-center">
+      <div v-else-if="signals.length === 0" class="max-w-sm rounded-2xl border border-(--border-color) bg-(--surface-bg) p-6 text-center">
         <h3 class="text-xl font-bold">Daily Signals</h3>
         <p class="mt-3 text-2xl font-bold text-amber-600 dark:text-amber-300">{{ formatSignalPrice() }} / month</p>
         <p class="mt-3 text-sm leading-6 text-(--muted-color)">No Daily Signals published yet. Admin updates will appear here.</p>
@@ -491,10 +520,7 @@ onUnmounted(() => {
 
       <div
         v-else
-        class="grid grid-cols-3 gap-6
-               max-[1024px]:grid-cols-2
-               max-[768px]:grid-cols-1
-               max-[600px]:gap-5 max-[480px]:gap-4"
+        class="grid w-full min-w-0 grid-cols-1 gap-5"
       >
         <article
           v-for="signal in signals"
@@ -502,11 +528,11 @@ onUnmounted(() => {
           class="min-w-0 overflow-hidden rounded-2xl
                  border border-(--border-color) bg-(--surface-bg) shadow-sm
                   "
+          data-signal-card
         >
+          <div data-signal-card-content class="min-w-0">
           <header
-            class="border-b border-(--border-color) p-5
-
-                   max-[480px]:p-4 max-[320px]:p-3"
+            class="border-b border-(--border-color) p-4 max-[320px]:p-3"
           >
             <div
               class="flex flex-wrap items-center
@@ -561,7 +587,7 @@ onUnmounted(() => {
               </span>
             </div>
 
-            <h3 class="mt-4 break-words text-lg font-bold">
+            <h3 class="mt-3 min-h-7 break-words text-base font-bold">
               {{ signal.title }}
             </h3>
 
@@ -573,7 +599,7 @@ onUnmounted(() => {
             </p>
 
             <div
-              class="mt-4 rounded-xl border border-(--border-color)
+              class="mt-3 min-h-24 rounded-xl border border-(--border-color)
                      bg-(--page-bg) p-3&#x20;
                      "
             >
@@ -594,7 +620,7 @@ onUnmounted(() => {
 
               <span
                 v-if="signal.newsType"
-                class="mt-3 inline-flex max-w-full break-words
+                class="mt-1 inline-flex max-w-full break-words
                        rounded-md bg-blue-100 px-2 py-1
                        text-xs font-semibold text-blue-700
                        dark:bg-blue-400/10 dark:text-blue-300"
@@ -604,7 +630,7 @@ onUnmounted(() => {
             </div>
           </header>
 
-          <div class="relative overflow-hidden">
+          <div class="relative overflow-hidden" :class="!signal.hasAccess ? 'min-h-[328px]' : ''">
             <div
               :class="
                 !signal.hasAccess
@@ -630,10 +656,16 @@ onUnmounted(() => {
                       : ''
                   "
                   class="h-full w-full object-contain"
+                  :role="signal.hasAccess ? 'button' : undefined"
+                  :tabindex="signal.hasAccess ? 0 : undefined"
+                  :aria-label="signal.hasAccess ? 'Enlarge chart' : undefined"
+                  @click="openChart(signal)"
+                  @keydown.enter.prevent="openChart(signal)"
+                  @keydown.space.prevent="openChart(signal)"
                   :class="
                     !signal.hasAccess
                       ? 'scale-105 blur-sm'
-                      : ''
+                      : 'cursor-zoom-in'
                   "
                   @error="handleImageError(signal)"
                 />
@@ -685,9 +717,10 @@ onUnmounted(() => {
                 </span>
               </div>
 
+              <p v-if="signal.hasAccess && signal.imageSrc" class="px-3 pt-2 text-xs text-(--muted-color)">Click the chart to enlarge</p>
+
               <div
-                class="min-h-64 p-5
-                       max-[480px]:p-4 max-[320px]:p-3"
+                class="min-h-32 p-3 max-[320px]:p-3"
                 :class="!signal.hasAccess ? 'blur-sm' : ''"
               >
                 <h4 class="text-sm font-bold underline">
@@ -730,9 +763,9 @@ onUnmounted(() => {
                      max-[414px]:p-3 max-[320px]:p-2"
             >
               <div
-                class="w-full max-w-xs rounded-2xl
+                class="flex min-h-[264px] w-full max-w-xs flex-col rounded-xl
                        border border-(--border-color) bg-(--surface-bg)/95
-                       p-5 text-center shadow-xl
+                       p-3 text-center shadow-xl
 
                        max-[480px]:p-4 max-[320px]:p-3"
               >
@@ -756,14 +789,14 @@ onUnmounted(() => {
                 </svg>
 
                 <h4
-  class="mt-3 text-2xl font-bold
+  class="mt-2 text-xl font-bold
          text-amber-600 dark:text-amber-300"
 >
   {{ formatSignalPrice(signal) }} /month
 </h4>
 
                 <p
-                  class="mt-2 text-sm leading-6
+                  class="mt-2 min-h-20 flex-1 text-xs leading-5
                          text-(--muted-color) "
                 >
                   Subscribe to unlock every Daily Signal’s chart,
@@ -778,8 +811,8 @@ onUnmounted(() => {
                     checkingPurchase &&
                     purchasingSignalId === signal._id
                   "
-                  class="mt-5 w-full cursor-pointer rounded-xl
-                         bg-amber-400 px-5 py-3 text-sm font-bold
+                  class="mt-3 min-h-11 w-full cursor-pointer rounded-xl
+                         bg-amber-400 px-4 py-2 text-sm font-bold
                          text-slate-950 transition
                          hover:bg-amber-300
                          disabled:cursor-wait disabled:opacity-60
@@ -798,8 +831,16 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+          </div>
         </article>
       </div>
     </div>
+    <dialog ref="chartDialog" @click.self="closeChart" @close="enlargedChart = null" class="m-auto max-h-[94dvh] w-[96vw] max-w-6xl overflow-auto rounded-xl border border-slate-600 bg-slate-900 p-3 text-white backdrop:bg-black/80">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <p class="text-sm font-semibold">{{ enlargedChart?.alt }}</p>
+        <button type="button" autofocus @click="closeChart" class="min-h-11 rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold">Close</button>
+      </div>
+      <img v-if="enlargedChart" :src="enlargedChart.src" crossorigin="use-credentials" :alt="enlargedChart.alt" class="mx-auto h-auto max-h-[80dvh] max-w-full object-contain" />
+    </dialog>
   </section>
 </template>
