@@ -10,6 +10,11 @@ import {
 import Payment from '../models/payment.model.js'
 import Signal from '../models/signal.model.js'
 import SignalAccess from '../models/signalAccess.model.js'
+import { DAILY_PRODUCT_ID, DAILY_AMOUNT_CENTS } from '../services/dailySignalTerms.js'
+import { getDailySubscription, fulfillDailyPayment } from '../services/dailySignalAccess.service.js'
+const DAILY_LIMIT_MESSAGE = 'Bakong’s daily verification request limit has been reached. Please try again after the quota resets. If you already paid, do not pay again.'
+function isDailyLimit(result) { return String(result?.errorCode) === '19' }
+
 
 import {
   getSessionUserId,
@@ -125,6 +130,7 @@ async function completedPaymentResult(payment) {
   return {
     ...paymentResult(payment),
     ...await fulfillSignalPayment(payment),
+    ...await fulfillDailyPayment(payment),
   }
 }
 
@@ -346,6 +352,12 @@ export async function createPayment(req, res) {
       product = {
         amountCents: signalPriceCents(),
       }
+    } else if (productId === DAILY_PRODUCT_ID) {
+      const subscription = await getDailySubscription(userId)
+      if (subscription.active) {
+        return res.status(409).json({ message: 'Your Daily Signal subscription is already active.' })
+      }
+      product = { amountCents: DAILY_AMOUNT_CENTS }
     } else if (
       productId.startsWith('course:') &&
       Object.hasOwn(PRODUCTS, productId)
@@ -411,6 +423,18 @@ export async function createPayment(req, res) {
       }
     }
 
+    if (productId === DAILY_PRODUCT_ID) {
+      const pendingOrder = await Payment.findOne({
+        userId, productId, status: 'pending', recipientAccount: config.account,
+        amountCents: product.amountCents, expiresAt: { $gt: new Date() },
+      })
+      if (pendingOrder) {
+        return res.json({ success: true, data: {
+          ...paymentResult(pendingOrder), merchantName: config.name,
+          qrCode: pendingOrder.qrCode, verificationAvailable: Boolean(config.token),
+        } })
+      }
+    }
     const orderId = new mongoose.Types.ObjectId()
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
@@ -523,6 +547,10 @@ export async function checkPayment(req, res) {
       requireToken: true,
     })
 
+    console.info('Bakong verification request:', {
+      time: new Date().toISOString(), orderId: String(payment._id),
+      userId, environment: config.environment,
+    })
     const response = await axios.post(
       `${config.baseURL}/check_transaction_by_md5`,
       {
@@ -541,6 +569,11 @@ export async function checkPayment(req, res) {
 
     const result = response.data
     const transaction = result?.data
+    if (isDailyLimit(result)) {
+      console.warn('Bakong daily verification limit reached:', { orderId: String(payment._id), errorCode: result.errorCode })
+      return res.status(429).json({ code: 'BAKONG_DAILY_LIMIT', message: DAILY_LIMIT_MESSAGE })
+    }
+
 
     if (result?.responseCode === 0) {
       if (
@@ -643,6 +676,10 @@ export async function checkPayment(req, res) {
     })
   } catch (error) {
     logVerificationError(error)
+    if (isDailyLimit(error.response?.data)) {
+      return res.status(429).json({ code: 'BAKONG_DAILY_LIMIT', message: DAILY_LIMIT_MESSAGE })
+    }
+
 
     if (error.code === 11000) {
       return res.status(409).json({

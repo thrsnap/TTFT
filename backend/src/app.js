@@ -14,7 +14,6 @@ import courseRoutes from './routes/course.routes.js'
 import paymentRoutes from './routes/payment.route.js'
 import investingNewsRouter from './routes/investingNews.routes.js'
 import mediaRoutes from './routes/media.routes.js'
-
 import {
   publicSupportRouter,
   adminSupportRouter,
@@ -27,8 +26,9 @@ import { connectRedis } from './config/redis.js'
 import {
   createApiLimiter,
   createLoginLimiter,
+  createRegisterLimiter,
 } from './middleware/rateLimiter.js'
-
+import dailySignalRoutes from './routes/dailySignal.routes.js'
 const app = express()
 
 app.set('trust proxy', 1)
@@ -138,6 +138,7 @@ app.use(session({
   },
 }))
 
+app.use('/api/daily-signals', dailySignalRoutes)
 await connectRedis()
 
 app.use('/api', createApiLimiter())

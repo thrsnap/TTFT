@@ -4,11 +4,16 @@ import bcrypt from 'bcryptjs'
 import User from '../models/user.model.js'
 import SignalAccess from '../models/signalAccess.model.js'
 import Payment from '../models/payment.model.js'
+import DailySignalSubscription from '../models/dailySignalSubscription.model.js'
+import { DAILY_PRODUCT_ID } from '../services/dailySignalTerms.js'
+import DailySignalGrant from '../models/dailySignalGrant.model.js'
+import { getDailySubscription } from '../services/dailySignalAccess.service.js'
 import {
   Course,
   CourseEnrollment,
   CoursePayment,
 } from '../models/course.model.js'
+
 const router = Router()
 const run = handler => (req, res, next) =>
   Promise.resolve()
@@ -271,6 +276,7 @@ router.get('/dashboard', run(async (req, res) => {
 }))
 // Read-only payment history. The session/admin middleware above protects it.
 router.get('/payments', run(async (req, res) => {
+
   const page = req.query.page === undefined ? 1 : Number(req.query.page)
   if (!Number.isSafeInteger(page) || page < 1 || page > 1000000) {
     throw fail('Invalid page.')
@@ -283,13 +289,20 @@ router.get('/payments', run(async (req, res) => {
   if (typeof userId !== 'string' || (userId && !/^[a-f0-9]{24}$/i.test(userId))) {
     throw fail('Enter a valid 24-character user ID.')
   }
+  const productType = req.query.productType === undefined ? 'all' : req.query.productType
+  if (!['all', 'course', 'news-signal', 'daily-signal'].includes(productType)) {
+    throw fail('Invalid product type.')
+  }
   const filter = {}
+  if (productType === 'course') filter.productId = /^course:/
+  if (productType === 'news-signal') filter.productId = /^signal:/
+  if (productType === 'daily-signal') filter.productId = DAILY_PRODUCT_ID
   if (status !== 'all') filter.status = status
   // Payment.userId is a String, not an ObjectId reference.
   if (userId) filter.userId = userId.toLowerCase()
   const limit = 20
   const paid = { status: 'paid' }
-  const [orders, total, paidUsers, courseUsers, signalUsers, totals] = await Promise.all([
+  const [orders, total, paidUsers, courseUsers, signalUsers, dailyUsers, totals] = await Promise.all([
     Payment.find(filter)
       .select('_id userId productId amountCents currency status paidAt createdAt expiresAt')
       .sort({ createdAt: -1, _id: -1 })
@@ -298,6 +311,7 @@ router.get('/payments', run(async (req, res) => {
     Payment.distinct('userId', paid),
     Payment.distinct('userId', { ...paid, productId: /^course:/ }),
     Payment.distinct('userId', { ...paid, productId: /^signal:/ }),
+    Payment.distinct('userId', { ...paid, productId: DAILY_PRODUCT_ID }),
     Payment.aggregate([
       { $match: paid },
       { $group: { _id: null, count: { $sum: 1 }, amountCents: { $sum: '$amountCents' } } },
@@ -307,18 +321,30 @@ router.get('/payments', run(async (req, res) => {
     .filter(id => /^[a-f0-9]{24}$/i.test(id))
   const users = await User.find({ _id: { $in: ids } })
     .select('_id username email').lean()
+  const subscriptions = await DailySignalSubscription.find({
+    paymentId: { $in: orders.filter(order => order.productId === DAILY_PRODUCT_ID && order.status === 'paid').map(order => order._id) },
+  }).select('paymentId userId startsAt expiresAt').lean()
+  const subscriptionsByPayment = new Map(subscriptions.map(subscription => [String(subscription.paymentId), subscription]))
+  const now = Date.now()
   const usersById = new Map(users.map(user => [String(user._id), user]))
   res.json({
     success: true,
     payments: orders.map(order => {
       const user = usersById.get(String(order.userId).toLowerCase())
+      const subscription = subscriptionsByPayment.get(String(order._id))
+      const matchingSubscription = subscription && String(subscription.userId) === String(order.userId) ? subscription : null
       return {
+        dailySubscription: matchingSubscription ? {
+          startsAt: matchingSubscription.startsAt,
+          expiresAt: matchingSubscription.expiresAt,
+          active: new Date(matchingSubscription.startsAt).getTime() <= now && new Date(matchingSubscription.expiresAt).getTime() > now,
+        } : null,
         orderId: String(order._id),
         userId: String(order.userId),
         name: user?.username || '',
         email: user?.email || '',
         productId: order.productId,
-        productType: order.productId.startsWith('course:') ? 'course'
+        productType: order.productId === DAILY_PRODUCT_ID ? 'daily-signal' : order.productId.startsWith('course:') ? 'course'
           : order.productId.startsWith('signal:') ? 'news-signal' : 'other',
         amount: order.amountCents / 100,
         currency: order.currency,
@@ -333,11 +359,43 @@ router.get('/payments', run(async (req, res) => {
       totalPaidUsers: paidUsers.length,
       courseBuyers: courseUsers.length,
       signalBuyers: signalUsers.length,
+      dailySignalBuyers: dailyUsers.length,
       successfulPayments: totals[0]?.count ?? 0,
       totalAmount: (totals[0]?.amountCents ?? 0) / 100,
     },
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   })
+}))
+
+// Daily Signal access is independent from course and News Signal access.
+router.get('/users/:id/daily-access', run(async (req, res) => {
+  const user = await findUser(req.params.id)
+  res.json({ dailySubscription: await getDailySubscription(user._id) })
+}))
+
+router.patch('/users/:id/daily-access', run(async (req, res) => {
+  const user = await findUser(req.params.id)
+  const body = jsonBody(req.body)
+  if (Object.keys(body).some(key => key !== 'expiresAt')) throw fail('Only expiresAt is allowed.')
+  if (typeof body.expiresAt !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/i.test(body.expiresAt)) {
+    throw fail('Send an ISO expiry date with a timezone.')
+  }
+  const now = new Date()
+  const expiresAt = new Date(body.expiresAt)
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now) throw fail('Daily expiry must be in the future.')
+  await DailySignalGrant.findOneAndUpdate({ userId: user._id }, {
+    $set: { grantedBy: req.user._id, startsAt: now, expiresAt },
+  }, { upsert: true, runValidators: true, returnDocument: 'after' })
+  res.json({ message: 'Manual Daily Signal access saved. No paid receipt was created.', dailySubscription: await getDailySubscription(user._id) })
+}))
+
+router.delete('/users/:id/daily-access', run(async (req, res) => {
+  const user = await findUser(req.params.id)
+  const now = new Date()
+  // Expire both forms of access; retain paid receipts and access history.
+  await DailySignalGrant.updateMany({ userId: user._id, expiresAt: { $gt: now } }, { $set: { expiresAt: now } })
+  await DailySignalSubscription.updateMany({ userId: user._id, expiresAt: { $gt: now } }, { $set: { expiresAt: now } })
+  res.json({ message: 'Daily Signal access removed. Payment history is retained.', dailySubscription: await getDailySubscription(user._id) })
 }))
 
 // LIST USERS
