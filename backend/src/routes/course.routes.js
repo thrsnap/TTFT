@@ -278,6 +278,23 @@ router.get("/my/access", requireUser, async (req, res, next) => {
     next(error);
   }
 });
+router.get('/my', requireUser, async (req, res, next) => {
+  try {
+    const courseIds = await CourseEnrollment.distinct('courseId', {
+      userId: req.user._id,
+    })
+
+    const courses = await Course.find({
+      _id: { $in: courseIds },
+    }).sort({ createdAt: -1 })
+
+    res.json({
+      courses: courses.map(course => summary(course)),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
 
 // Admin course list.
 router.get(

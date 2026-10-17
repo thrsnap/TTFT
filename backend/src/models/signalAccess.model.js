@@ -8,15 +8,9 @@ const signalAccessSchema = new mongoose.Schema(
       required: true,
     },
 
-    // null grants access to all signals.
     signalId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Signal',
-      default: null,
-    },
-
-    expiresAt: {
-      type: Date,
       required: true,
     },
   },
@@ -26,13 +20,8 @@ const signalAccessSchema = new mongoose.Schema(
 )
 
 signalAccessSchema.index(
-  {
-    userId: 1,
-    signalId: 1,
-  },
-  {
-    unique: true,
-  },
+  { userId: 1, signalId: 1 },
+  { unique: true },
 )
 
 export default mongoose.models.SignalAccess ||

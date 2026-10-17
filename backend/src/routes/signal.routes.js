@@ -447,7 +447,40 @@ router.get(
     }
   },
 )
+// News Signals unlocked for the logged-in user.
+router.get('/my', requireUser, async (req, res, next) => {
+  try {
+    const signalIds = await SignalAccess.distinct('signalId', {
+      userId: req.user._id,
+    })
 
+    const records = await Signal.find({
+      _id: { $in: signalIds },
+    })
+      .select('+image +details')
+      .sort({ scheduledAt: -1, _id: -1 })
+
+    res.json({
+      signals: records.map(signal => ({
+        _id: String(signal._id),
+        pair: signal.pair,
+        title: signal.title,
+        scheduledAt: signal.scheduledAt,
+        newsType: signal.newsType,
+        direction: signal.direction,
+        confirmed: signal.confirmed,
+        details: signal.details || '',
+        news: signal.news || '',
+        hasAccess: true,
+        hasImage: imageByteLength(signal.image) > 0,
+        isReleased: isSignalReleased(signal),
+        updatedAt: signal.updatedAt,
+      })),
+    })
+  } catch (error) {
+    next(error)
+  }
+})
 // Validate individual signal IDs.
 router.use('/:id', (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.id)) {
