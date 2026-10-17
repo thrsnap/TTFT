@@ -825,7 +825,7 @@ onUnmounted(() => {
                     checkingPurchase &&
                     purchasingSignalId === signal._id
                       ? 'Please wait…'
-                      : 'Buy this Signal '
+                      : 'Buy Daily Signal '
                   }}
                 </button>
               </div>
