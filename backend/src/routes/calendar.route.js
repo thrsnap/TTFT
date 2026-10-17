@@ -5,6 +5,15 @@ import requireAdmin from '../middleware/requireAdmin.js'
 
 const router = express.Router()
 
+// Accept a verified calendar API key or an admin session.
+function requireCalendarWriter(req, res, next) {
+  if (req.calendarApiAuthenticated === true) {
+    return next()
+  }
+
+  return requireAdmin(req, res, next)
+}
+
 const editableFields = [
   'title',
   'country',
@@ -31,21 +40,23 @@ function getEventData(body) {
   }
 
   const unknownFields = Object.keys(body).filter(
-    (field) => !editableFields.includes(field)
+    field => !editableFields.includes(field),
   )
 
   if (unknownFields.length > 0) {
-    throw badRequest(`Unknown fields: ${unknownFields.join(', ')}`)
+    throw badRequest(
+      `Unknown fields: ${unknownFields.join(', ')}`,
+    )
   }
 
   return Object.fromEntries(
     editableFields
-      .filter((field) => Object.hasOwn(body, field))
-      .map((field) => [field, body[field]])
+      .filter(field => Object.hasOwn(body, field))
+      .map(field => [field, body[field]]),
   )
 }
 
-// Validate MongoDB IDs for routes containing :id.
+// Validate MongoDB IDs.
 router.param('id', (req, res, next, id) => {
   if (!mongoose.isObjectIdOrHexString(id)) {
     return res.status(400).json({
@@ -53,11 +64,10 @@ router.param('id', (req, res, next, id) => {
     })
   }
 
-  next()
+  return next()
 })
 
 // PUBLIC: Get events.
-// Example: ?from=2026-10-01&to=2026-11-01
 // "from" is inclusive; "to" is exclusive.
 router.get('/', async (req, res, next) => {
   try {
@@ -102,7 +112,7 @@ router.get('/', async (req, res, next) => {
       events,
     })
   } catch (error) {
-    next(error)
+    return next(error)
   }
 })
 
@@ -119,29 +129,29 @@ router.get('/:id', async (req, res, next) => {
 
     return res.status(200).json({ event })
   } catch (error) {
-    next(error)
+    return next(error)
   }
 })
 
-// ADMIN: Create multiple events.
-// Provide a shared scheduledAt or a scheduledAt inside each event.
-router.post('/bulk', requireAdmin, async (req, res, next) => {
+// API KEY OR ADMIN: Create multiple events.
+// Each event can override the shared scheduledAt.
+router.post('/bulk', requireCalendarWriter, async (req, res, next) => {
   try {
     const body = req.body
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw badRequest(
-        'Send an object containing scheduledAt and an events array'
+        'Send an object containing an events array and optional scheduledAt',
       )
     }
 
     const unknownFields = Object.keys(body).filter(
-      (field) => !['scheduledAt', 'events'].includes(field)
+      field => !['scheduledAt', 'events'].includes(field),
     )
 
     if (unknownFields.length > 0) {
       throw badRequest(
-        `Unknown bulk fields: ${unknownFields.join(', ')}`
+        `Unknown bulk fields: ${unknownFields.join(', ')}`,
       )
     }
 
@@ -163,21 +173,22 @@ router.post('/bulk', requireAdmin, async (req, res, next) => {
       try {
         data = getEventData(events[index])
       } catch (error) {
-        throw badRequest(`Event ${index + 1}: ${error.message}`)
+        throw badRequest(
+          `Event ${index + 1}: ${error.message}`,
+        )
       }
 
-      // An event's own time overrides the shared time.
       data.scheduledAt = data.scheduledAt ?? scheduledAt
 
       if (!data.scheduledAt) {
         throw badRequest(
-          `Event ${index + 1}: provide scheduledAt inside the event or at the top level`
+          `Event ${index + 1}: provide scheduledAt inside the event or at the top level`,
         )
       }
 
       const document = new EconomicEvent(data)
 
-      // Validate every event before starting the insert.
+      // Validate all events before starting the insert.
       try {
         await document.validate()
       } catch (error) {
@@ -186,7 +197,7 @@ router.post('/bulk', requireAdmin, async (req, res, next) => {
           error.name === 'CastError'
         ) {
           throw badRequest(
-            `Event ${index + 1}: ${error.message}`
+            `Event ${index + 1}: ${error.message}`,
           )
         }
 
@@ -196,9 +207,10 @@ router.post('/bulk', requireAdmin, async (req, res, next) => {
       documents.push(document)
     }
 
-    const savedEvents = await EconomicEvent.insertMany(documents, {
-      ordered: true,
-    })
+    const savedEvents = await EconomicEvent.insertMany(
+      documents,
+      { ordered: true },
+    )
 
     return res.status(201).json({
       message: 'Events created successfully',
@@ -206,12 +218,12 @@ router.post('/bulk', requireAdmin, async (req, res, next) => {
       events: savedEvents,
     })
   } catch (error) {
-    next(error)
+    return next(error)
   }
 })
 
-// ADMIN: Create one event.
-router.post('/', requireAdmin, async (req, res, next) => {
+// API KEY OR ADMIN: Create one event.
+router.post('/', requireCalendarWriter, async (req, res, next) => {
   try {
     const data = getEventData(req.body)
     const event = await EconomicEvent.create(data)
@@ -221,11 +233,11 @@ router.post('/', requireAdmin, async (req, res, next) => {
       event,
     })
   } catch (error) {
-    next(error)
+    return next(error)
   }
 })
 
-// ADMIN: Update one event.
+// ADMIN SESSION: Update one event.
 router.patch('/:id', requireAdmin, async (req, res, next) => {
   try {
     const data = getEventData(req.body)
@@ -250,15 +262,15 @@ router.patch('/:id', requireAdmin, async (req, res, next) => {
       event,
     })
   } catch (error) {
-    next(error)
+    return next(error)
   }
 })
 
-// ADMIN: Delete one event.
+// ADMIN SESSION: Delete one event.
 router.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
     const event = await EconomicEvent.findByIdAndDelete(
-      req.params.id
+      req.params.id,
     )
 
     if (!event) {
@@ -271,12 +283,11 @@ router.delete('/:id', requireAdmin, async (req, res, next) => {
       message: 'Event deleted',
     })
   } catch (error) {
-    next(error)
+    return next(error)
   }
 })
 
-// Return JSON for validation and input errors.
-// Unexpected errors continue to your app's error handler.
+// Input and validation errors.
 router.use((error, req, res, next) => {
   if (res.headersSent) {
     return next(error)
@@ -292,7 +303,7 @@ router.use((error, req, res, next) => {
     })
   }
 
-  next(error)
+  return next(error)
 })
 
 export default router

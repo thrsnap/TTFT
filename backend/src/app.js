@@ -1,5 +1,6 @@
 import 'dotenv/config'
 
+import { createHash, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import cors from 'cors'
 import session from 'express-session'
@@ -14,6 +15,8 @@ import courseRoutes from './routes/course.routes.js'
 import paymentRoutes from './routes/payment.route.js'
 import investingNewsRouter from './routes/investingNews.routes.js'
 import mediaRoutes from './routes/media.routes.js'
+import dailySignalRoutes from './routes/dailySignal.routes.js'
+
 import {
   publicSupportRouter,
   adminSupportRouter,
@@ -27,7 +30,7 @@ import {
   createApiLimiter,
   createLoginLimiter,
 } from './middleware/rateLimiter.js'
-import dailySignalRoutes from './routes/dailySignal.routes.js'
+
 const app = express()
 
 app.set('trust proxy', 1)
@@ -61,6 +64,15 @@ for (const name of [
       `${name} must contain at least 32 characters`,
     )
   }
+}
+
+// Optional: leaving this unset disables calendar API-key access.
+const calendarApiKey = process.env.CALENDAR_API_KEY?.trim()
+
+if (calendarApiKey && calendarApiKey.length < 32) {
+  throw new Error(
+    'CALENDAR_API_KEY must contain at least 32 characters',
+  )
 }
 
 if (!['lax', 'strict', 'none'].includes(sameSite)) {
@@ -138,6 +150,7 @@ app.use(session({
 }))
 
 app.use('/api/daily-signals', dailySignalRoutes)
+
 await connectRedis()
 
 app.use('/api', createApiLimiter())
@@ -171,7 +184,72 @@ function protectJsonMutations(req, res, next) {
     })
   }
 
-  next()
+  return next()
+}
+
+function protectNewsMutations(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+    return next()
+  }
+
+  if (!trustedMutation(req)) {
+    return res.status(403).json({
+      message: 'Request not allowed.',
+    })
+  }
+
+  return requireUser(req, res, next)
+}
+
+function protectCalendarMutations(req, res, next) {
+  res.set('Cache-Control', 'no-store')
+
+  // Reset this internal flag for every calendar request.
+  req.calendarApiAuthenticated = false
+
+  // Match POST / and POST /bulk, including a trailing slash.
+  const path = req.path.replace(/\/+$/, '') || '/'
+
+  const canCreateWithKey =
+    req.method === 'POST' &&
+    ['/', '/bulk'].includes(path)
+
+  const providedKey = req.get('X-API-Key')
+
+  if (canCreateWithKey && providedKey !== undefined) {
+    if (!calendarApiKey) {
+      return res.status(503).json({
+        message: 'Calendar API-key access is not configured.',
+      })
+    }
+
+    const hash = value =>
+      createHash('sha256').update(value).digest()
+
+    const valid = timingSafeEqual(
+      hash(providedKey),
+      hash(calendarApiKey),
+    )
+
+    if (!valid) {
+      return res.status(401).json({
+        message: 'Invalid calendar API key.',
+      })
+    }
+
+    if (!req.is('application/json')) {
+      return res.status(415).json({
+        message: 'Use Content-Type: application/json.',
+      })
+    }
+
+    req.calendarApiAuthenticated = true
+
+    return next()
+  }
+
+  // Public reads and existing admin session flow.
+  return protectNewsMutations(req, res, next)
 }
 
 // Public news.
@@ -198,7 +276,7 @@ app.use('/api/admin', (req, res, next) => {
     })
   }
 
-  next()
+  return next()
 })
 
 // Payments.
@@ -226,7 +304,6 @@ app.use('/api/analysis', analysisRoutes)
 app.use('/api/courses', courseRoutes)
 
 // Generic uploads must precede the admin JSON router.
-// Scope authentication to the upload endpoint.
 app.use(
   '/api/admin/upload',
   requireUser,
@@ -236,23 +313,8 @@ app.use(
 // Keep the original prefix expected by mediaRoutes.
 app.use('/api/admin', mediaRoutes)
 
-// Admin identity, statistics, users and permissions.
 // This router checks the session and admin role itself.
 app.use('/api/admin', adminRouter)
-
-function protectNewsMutations(req, res, next) {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    return next()
-  }
-
-  if (!trustedMutation(req)) {
-    return res.status(403).json({
-      message: 'Request not allowed.',
-    })
-  }
-
-  return requireUser(req, res, next)
-}
 
 // Signals.
 app.use(
@@ -264,7 +326,7 @@ app.use(
 // Economic calendar.
 app.use(
   '/api/calendar',
-  protectNewsMutations,
+  protectCalendarMutations,
   economicEventRoutes,
 )
 
@@ -272,21 +334,23 @@ app.use(
 app.get('/api/dashboard', requireUser, (req, res) => {
   res.set('Cache-Control', 'no-store')
 
-  res.json({
+  return res.json({
     message: `Welcome, ${req.user.username}!`,
   })
 })
 
 // 404: keep after all routes.
 app.use((req, res) => {
-  res.status(404).json({
+  return res.status(404).json({
     message: 'Route not found',
   })
 })
 
 // Global errors.
 app.use((error, req, res, next) => {
-  if (res.headersSent) return next(error)
+  if (res.headersSent) {
+    return next(error)
+  }
 
   if (error.code === 11000) {
     return res.status(409).json({
@@ -320,7 +384,7 @@ app.use((error, req, res, next) => {
 
   console.error('Server error:', error.name)
 
-  res.status(500).json({
+  return res.status(500).json({
     message: 'Internal server error',
   })
 })
