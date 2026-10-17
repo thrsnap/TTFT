@@ -39,9 +39,14 @@ const productId = computed(() => {
     return `signal:${signalId}`
   }
   const value = route.params.productId || route.query.productId || route.query.product
+  if (value === 'daily-signal-monthly') return value
   return typeof value === 'string' && /^(signal|course):[a-f0-9]{24}$/i.test(value)
     ? value : ''
 })
+
+const isDaily = computed(() => productId.value === 'daily-signal-monthly')
+const isSignalPurchase = computed(() => isDaily.value || productId.value.startsWith('signal:'))
+const productLabel = computed(() => isDaily.value ? 'Daily Signals — monthly subscription' : productId.value.startsWith('signal:') ? 'News Signal — selected signal only' : 'Course payment')
 
 const paid = computed(() => order.value?.status === 'paid')
 const unlocked = computed(() => paid.value && order.value?.accessGranted === true)
@@ -64,7 +69,7 @@ const cooldown = computed(() => Math.max(0, Math.ceil((nextCheckAt.value - now.v
 const buttonLabel = computed(() => {
   if (generating.value) return 'Generating QR…'
   if (checking.value) return 'Checking payment…'
-  if (unlocked.value) return productId.value.startsWith('signal:') ? 'Continue to signals' : 'Continue to dashboard'
+  if (unlocked.value) return isSignalPurchase.value ? 'Continue to signals' : 'Continue to dashboard'
   if (order.value?.signalDeleted) return 'Contact admin'
   if (verificationBlocked.value) return 'Verification unavailable'
   if (!order.value) return creationUncertain.value ? 'Order status uncertain' : 'Generate QR'
@@ -148,7 +153,7 @@ function updatePaymentMessage() {
     stopPolling()
     message.value = order.value.signalDeleted
       ? 'Payment verified. This signal is unavailable; contact admin.'
-      : unlocked.value ? 'Payment verified. Your signal is unlocked.'
+      : unlocked.value ? (isDaily.value ? 'Payment verified. Your Daily Signal subscription is active.' : 'Payment verified. Your access is unlocked.')
         : 'Payment verified. Access is pending; use Retry access unlock or contact admin.'
   }
 }
@@ -243,7 +248,7 @@ async function handlePayment() {
     const prefix = route.params.lang === 'km' ? '/km' : ''
     try {
       await router.replace({
-        path: `${prefix}${productId.value.startsWith('signal:') ? '/signal' : '/dashboard'}`,
+        path: `${prefix}${isSignalPurchase.value ? '/signal' : '/dashboard'}`,
         query: { paymentReturn: String(Date.now()) },
       })
     } catch { error.value = 'Unable to return. Please try again.' }
@@ -281,8 +286,10 @@ onUnmounted(() => {
   <main class="flex min-h-[70vh] items-center justify-center px-4 py-8 text-(--text-color)">
     <section class="w-full max-w-sm rounded-2xl border border-(--border-color) bg-(--surface-bg) p-5 text-center sm:p-6">
       <h1 class="text-xl font-bold">Bakong QR Payment</h1>
+      <p v-if="productId" class="mt-2 text-sm font-semibold">{{ productLabel }}</p>
+      <p v-else role="alert" class="mt-3 text-sm text-red-600 dark:text-red-400">Please select a signal or course before generating a QR.</p>
       <template v-if="order">
-        <p class="mt-4 text-3xl font-bold">{{ price }}</p>
+        <p class="mt-4 text-3xl font-bold">{{ price }}<span v-if="isDaily" class="text-base"> / month</span></p>
         <p class="mt-2 break-words text-sm text-(--muted-color)">Receiver: {{ order.merchantName || 'Merchant' }}</p>
         <div v-if="paid" role="status" aria-live="polite" class="mt-6 rounded-xl bg-emerald-500/10 p-5 text-emerald-600 dark:text-emerald-400">
           <svg class="mx-auto h-20 w-20" viewBox="0 0 80 80" fill="none" aria-hidden="true">
