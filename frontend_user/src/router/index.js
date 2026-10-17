@@ -16,8 +16,8 @@ import SignalViews from '../views/SignalViews.vue'
 
 import DashboardLayout from '../layouts/DashbordLayout.vue'
 import DashboardHome from '../views/user/DashboardHome.vue'
-import MyCourses from '../views/user/Mycourse.vue'
-import MyNewsSignals from '../views/user/MyNewsSignal.vue'
+import MyCourses from '../views/user/MyCourse.vue'
+import MySignal from '../views/user/MySignal.vue'
 import MyChallenges from '../views/user/MyChallenges.vue'
 import MySupport from '../views/user/MySupport.vue'
 
@@ -105,12 +105,18 @@ const pages = [
     name: 'verify-email',
     component: () => import('../views/VeryfyEmailViews.vue'),
   },
+
+  // Redirect old profile links into the dashboard.
   {
     path: '/profile',
-    name: 'profile',
-    component: ProfileViews,
-    meta: { requiresAuth: true },
+    redirect: to => ({
+      name: 'profile',
+      params: to.params.lang === 'km' ? { lang: 'km' } : {},
+      query: to.query,
+      hash: to.hash,
+    }),
   },
+
   {
     path: '/payment',
     name: 'payment',
@@ -129,6 +135,8 @@ const pages = [
     component: CourseLessons,
     meta: { requiresAuth: true },
   },
+
+  // Dashboard pages.
   {
     path: '/dashboard',
     component: DashboardLayout,
@@ -143,14 +151,19 @@ const pages = [
         component: DashboardHome,
       },
       {
+        path: 'profile',
+        name: 'profile',
+        component: ProfileViews,
+      },
+      {
         path: 'courses',
         name: 'my-courses',
         component: MyCourses,
       },
       {
-        path: 'news-signals',
-        name: 'my-news-signals',
-        component: MyNewsSignals,
+        path: 'signals',
+        name: 'my-signals',
+        component: MySignal,
       },
       {
         path: 'challenges',
@@ -190,7 +203,6 @@ router.beforeEach(async to => {
   } catch (error) {
     console.error('Session check failed:', error)
 
-    // Stay on the current page if a protected session check fails.
     if (to.meta.requiresAuth) {
       return false
     }

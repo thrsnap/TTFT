@@ -8,59 +8,67 @@ const auth = useAuthStore()
 const route = useRoute()
 
 const loading = ref(true)
-const message = ref('')
 const error = ref('')
+let requestPending = false
 
-const username = computed(() => auth.user?.username || 'Member')
+const username = computed(
+  () => auth.user?.username || 'Member',
+)
 
 function localizedPath(path) {
-  return route.params.lang === 'km' ? `/km${path}` : path
+  if (route.params.lang !== 'km') return path
+
+  return path === '/' ? '/km' : `/km${path}`
 }
 
-const sections = [
+const services = [
   {
     title: 'My Courses',
-    description:
-      'Access your purchased courses and continue learning.',
+    subtitle: 'Learn at your own pace',
+    description: 'Access your purchased courses and continue learning.',
     path: '/dashboard/courses',
     button: 'View my courses',
-    icon: '📚',
-    color: 'bg-indigo-500/10',
+    icon: 'M3 5h6a3 3 0 0 1 3 3v13a5 5 0 0 0-5-2H3z M21 5h-6a3 3 0 0 0-3 3v13a5 5 0 0 1 5-2h4z',
+    color:
+      'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300',
   },
   {
-    title: 'My News Signals',
-    description:
-      'Manage your subscription and access premium News Signals.',
-    path: '/dashboard/news-signals',
-    button: 'View my news signals',
-    icon: '📊',
-    color: 'bg-amber-500/10',
+    title: 'My Signal',
+    subtitle: 'Your trading access',
+    description: 'Access your News Signals and Daily Signals.',
+    path: '/dashboard/signals',
+    button: 'View my signals',
+    icon: 'M3 17l6-6 4 4 8-10 M15 5h6v6',
+    color:
+      'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
   },
   {
     title: 'My Challenges',
-    description:
-      'View your enrolled challenges and track their status.',
+    subtitle: 'Keep moving forward',
+    description: 'Review your enrolled challenges and check their status.',
     path: '/dashboard/challenges',
     button: 'View my challenges',
-    icon: '🏆',
-    color: 'bg-emerald-500/10',
+    icon: 'M8 3h8v6a4 4 0 0 1-8 0z M8 5H4v3a4 4 0 0 0 4 4 M16 5h4v3a4 4 0 0 1-4 4 M12 13v7 M8 21h8',
+    color:
+      'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
   },
 ]
 
 async function loadDashboard() {
-  if (loading.value && message.value) return
+  if (requestPending) return
 
+  requestPending = true
   loading.value = true
   error.value = ''
-  message.value = ''
 
   try {
-    const data = await api('/dashboard')
-    message.value = data?.message || ''
+    await api('/dashboard')
   } catch (failure) {
-    error.value = failure.message || 'Unable to load your dashboard.'
+    error.value =
+      failure?.message || 'Unable to refresh your dashboard.'
   } finally {
     loading.value = false
+    requestPending = false
   }
 }
 
@@ -69,146 +77,245 @@ onMounted(loadDashboard)
 
 <template>
   <main
-    class="mx-auto min-h-[70vh] max-w-7xl px-6 py-12
-           text-(--text-color)
-           max-[768px]:px-5 max-[768px]:py-10
-           max-[600px]:px-4
-           max-[480px]:py-8
-           max-[414px]:px-3
-           max-[320px]:px-2"
+    class="w-full min-w-0 space-y-6 p-4
+           text-slate-900 sm:p-6 lg:p-8 dark:text-slate-100"
   >
-    <header
-      class="flex flex-wrap items-center justify-between gap-4"
+    <!-- Welcome -->
+    <section
+      class="relative isolate overflow-hidden rounded-2xl
+             border border-emerald-800 bg-[#123d35]
+             p-5 text-white sm:p-7"
     >
-      <div class="min-w-0">
-        <h1
-          class="text-3xl font-bold max-[768px]:text-2xl"
-        >
-          My Dashboard
-        </h1>
+      <div
+        aria-hidden="true"
+        class="pointer-events-none absolute -top-16 -right-16
+               -z-10 size-64 rounded-full border-[30px] border-white/5"
+      />
 
-        <p class="mt-3 break-words text-sm opacity-70">
-          Welcome back, {{ username }}.
-        </p>
-      </div>
+      <p
+        class="text-[11px] font-semibold uppercase
+               tracking-[0.15em] text-emerald-200"
+      >
+        Your member space
+      </p>
+
+      <h2
+        class="mt-3 break-words text-2xl font-semibold
+               leading-tight text-white sm:text-3xl"
+      >
+        Welcome back, {{ username }}.
+      </h2>
+
+      <p class="mt-3 max-w-xl text-sm leading-6 text-emerald-100">
+        Manage your learning, News Signals, Daily Signals, and challenges
+        in one place.
+      </p>
 
       <RouterLink
-        :to="localizedPath('/profile')"
-        class="inline-flex items-center justify-center rounded-xl
-               border border-(--border-color)
-               bg-(--surface-bg) px-4 py-3
-               text-sm font-semibold transition
-               hover:border-indigo-500
-               focus-visible:outline-2
+        :to="localizedPath('/dashboard/courses')"
+        class="mt-5 inline-flex items-center justify-center gap-3
+               rounded-xl bg-white px-4 py-2.5 text-sm
+               font-semibold text-emerald-950 transition
+               hover:bg-emerald-50 focus-visible:outline-2
                focus-visible:outline-offset-2
-               focus-visible:outline-indigo-500"
+               focus-visible:outline-white"
       >
-        My profile
+        Go to my courses
+        <span aria-hidden="true">→</span>
       </RouterLink>
-    </header>
+    </section>
 
-    <div class="mt-6" aria-live="polite">
-      <p v-if="loading" role="status" class="text-sm opacity-70">
-        Loading dashboard…
+    <!-- Request status -->
+    <div v-if="loading || error" aria-live="polite">
+      <p
+        v-if="loading"
+        role="status"
+        class="text-sm text-slate-600 dark:text-slate-300"
+      >
+        Refreshing your workspace…
       </p>
 
       <div
         v-else-if="error"
         role="alert"
-        class="rounded-xl border border-red-500/20
-               bg-red-500/10 p-4 text-sm text-red-500"
+        class="flex flex-wrap items-center justify-between
+               gap-3 rounded-xl border border-red-200
+               bg-red-50 p-4 text-sm text-red-700
+               dark:border-red-500/20 dark:bg-red-500/10
+               dark:text-red-300"
       >
         <p>{{ error }}</p>
 
         <button
           type="button"
+          class="cursor-pointer font-semibold underline
+                 underline-offset-4"
           @click="loadDashboard"
-          class="mt-3 cursor-pointer font-semibold underline"
         >
           Try again
         </button>
       </div>
-
-      <p v-else-if="message" class="text-sm opacity-70">
-        {{ message }}
-      </p>
     </div>
 
-    <section
-      v-if="!loading && !error"
-      aria-label="My courses, subscriptions, and challenges"
-      class="mt-8 grid grid-cols-3 gap-6
-             max-[1024px]:grid-cols-2
-             max-[768px]:grid-cols-1
-             max-[600px]:gap-5
-             max-[480px]:gap-4"
-    >
-      <article
-        v-for="section in sections"
-        :key="section.path"
-        class="flex min-w-0 flex-col rounded-2xl
-               border border-(--border-color)
-               bg-(--surface-bg) p-6
-               max-[480px]:p-5
-               max-[320px]:p-4"
-      >
-        <span
-          aria-hidden="true"
-          :class="section.color"
-          class="flex h-14 w-14 items-center justify-center
-                 rounded-2xl text-2xl"
+    <!-- Services -->
+    <section aria-labelledby="dashboard-services-title">
+      <div class="mb-4 flex items-center justify-between gap-3">
+        <h2
+          id="dashboard-services-title"
+          class="text-base font-semibold text-slate-900 dark:text-white"
         >
-          {{ section.icon }}
-        </span>
-
-        <h2 class="mt-5 text-xl font-bold">
-          {{ section.title }}
+          Your services
         </h2>
 
-        <p class="mt-3 text-sm leading-6 opacity-70">
-          {{ section.description }}
+        <span class="text-xs text-slate-500 dark:text-slate-400">
+          Quick access
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <article
+          v-for="service in services"
+          :key="service.path"
+          class="flex min-w-0 flex-col rounded-2xl
+                 border border-slate-200 bg-white p-5 shadow-sm
+                 transition hover:border-emerald-400
+                 dark:border-slate-700 dark:bg-[#111c2d]
+                 dark:hover:border-emerald-500/50"
+        >
+          <span
+            :class="service.color"
+            class="flex size-11 items-center justify-center rounded-xl"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="size-5"
+            >
+              <path :d="service.icon" />
+            </svg>
+          </span>
+
+          <h3
+            class="mt-4 text-lg font-semibold
+                   text-slate-900 dark:text-white"
+          >
+            {{ service.title }}
+          </h3>
+
+          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {{ service.subtitle }}
+          </p>
+
+          <p
+            class="mt-3 text-sm leading-6
+                   text-slate-600 dark:text-slate-300"
+          >
+            {{ service.description }}
+          </p>
+
+          <div class="mt-auto pt-5">
+            <RouterLink
+              :to="localizedPath(service.path)"
+              class="flex items-center justify-between gap-3
+                     rounded-xl bg-slate-100 px-4 py-3
+                     text-sm font-semibold text-emerald-800
+                     transition hover:bg-emerald-100
+                     focus-visible:outline-2
+                     focus-visible:outline-emerald-500
+                     dark:bg-white/5 dark:text-emerald-300
+                     dark:hover:bg-emerald-500/15"
+            >
+              <span>{{ service.button }}</span>
+              <span aria-hidden="true">→</span>
+            </RouterLink>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Account and support -->
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section
+        class="min-w-0 rounded-2xl border border-slate-200
+               bg-white p-5 dark:border-slate-700 dark:bg-[#111c2d]"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2
+            class="text-base font-semibold
+                   text-slate-900 dark:text-white"
+          >
+            Account status
+          </h2>
+
+          <span
+            class="inline-flex items-center gap-2 rounded-full
+                   px-3 py-1 text-xs font-semibold"
+            :class="
+              auth.user?.emailVerified
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300'
+                : 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'
+            "
+          >
+            <span
+              aria-hidden="true"
+              class="size-1.5 rounded-full bg-current"
+            />
+            {{ auth.user?.emailVerified ? 'Verified' : 'Unverified' }}
+          </span>
+        </div>
+
+        <p
+          class="mt-4 break-all text-sm font-medium
+                 text-slate-700 dark:text-slate-200"
+        >
+          {{ auth.user?.email || '—' }}
         </p>
 
-        <div class="mt-auto pt-6">
-          <RouterLink
-            :to="localizedPath(section.path)"
-            class="inline-flex w-full items-center justify-center
-                   rounded-xl bg-gray-600 px-4 py-3
-                   text-center text-sm font-semibold text-white
-                   transition hover:bg-red-300
-                   focus-visible:outline-2
-                   focus-visible:outline-offset-2
-                   focus-visible:outline-indigo-500"
-          >
-            {{ section.button }}
-          </RouterLink>
-        </div>
-      </article>
-    </section>
+        <RouterLink
+          :to="localizedPath('/dashboard/profile')"
+          class="mt-4 inline-flex items-center gap-2 text-sm
+                 font-semibold text-emerald-700 hover:underline
+                 dark:text-emerald-300"
+        >
+          My information
+          <span aria-hidden="true">→</span>
+        </RouterLink>
+      </section>
 
-    <section
-      v-if="!loading && !error"
-      aria-label="Account status"
-      class="mt-8 rounded-2xl border border-(--border-color)
-             bg-(--surface-bg) p-6
-             max-[480px]:p-5 max-[320px]:p-4"
-    >
-      <h2 class="text-lg font-semibold">Account status</h2>
-
-      <p
-        class="mt-3 text-sm font-medium"
-        :class="
-          auth.user?.emailVerified
-            ? 'text-emerald-500'
-            : 'text-amber-500'
-        "
+      <section
+        class="min-w-0 rounded-2xl border border-slate-200
+               bg-white p-5 dark:border-slate-700 dark:bg-[#111c2d]"
       >
-        {{
-          auth.user?.emailVerified
-            ? 'Email verified'
-            : 'Email not verified'
-        }}
-      </p>
-    </section>
+        <h2
+          class="text-base font-semibold
+                 text-slate-900 dark:text-white"
+        >
+          We’re here to help
+        </h2>
+
+        <p
+          class="mt-3 text-sm leading-6
+                 text-slate-600 dark:text-slate-300"
+        >
+          Questions about your account, courses, or access?
+          Visit your support inbox.
+        </p>
+
+        <RouterLink
+          :to="localizedPath('/dashboard/support')"
+          class="mt-4 inline-flex items-center gap-2 text-sm
+                 font-semibold text-emerald-700 hover:underline
+                 dark:text-emerald-300"
+        >
+          Open support
+          <span aria-hidden="true">→</span>
+        </RouterLink>
+      </section>
+    </div>
   </main>
 </template>
