@@ -412,8 +412,7 @@ onUnmounted(() => {
           class="mt-3 max-w-2xl text-sm leading-6
                  text-(--muted-color) "
         >
-          Technical chart analysis and trading setups around
-          economic news, including CPI, NFP, and FOMC.
+         Only CPI, NFP,FOMC and PPI release overhere.
         </p>
       </div>
 
