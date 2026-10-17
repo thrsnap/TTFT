@@ -581,7 +581,7 @@ onUnmounted(() => {
                   {{
                     isSignalReleased(signal)
                       ? 'Signal Released'
-                      : 'Coming soon'
+                      : 'Signal Coming Soon'
                   }}
                 </span>
               </span>
@@ -825,7 +825,7 @@ onUnmounted(() => {
                     checkingPurchase &&
                     purchasingSignalId === signal._id
                       ? 'Please wait…'
-                      : 'Subscribe — $25 / month'
+                      : 'Buy this Signal '
                   }}
                 </button>
               </div>
