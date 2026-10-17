@@ -26,7 +26,6 @@ import { connectRedis } from './config/redis.js'
 import {
   createApiLimiter,
   createLoginLimiter,
-  createRegisterLimiter,
 } from './middleware/rateLimiter.js'
 import dailySignalRoutes from './routes/dailySignal.routes.js'
 const app = express()
