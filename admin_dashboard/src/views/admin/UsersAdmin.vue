@@ -66,6 +66,9 @@ const availableSignals = ref([])
 const grantedSignals = ref([])
 const selectedSignalId = ref('')
 const signalGrantCounts = ref({})
+const dailySubscription = ref({ active: false, expiresAt: null })
+const dailyExpiry = ref('')
+const dailyAccessStates = ref({})
 const signalChoices = computed(() => {
   const grantedIds = new Set(grantedSignals.value.map(signal => String(signal.id)))
   return availableSignals.value.filter(signal => !grantedIds.has(String(signal.id)))
@@ -110,6 +113,55 @@ function revokeSignalAccess(userId, signalId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId, signalId }),
   })
+}
+
+const ADMIN_PATH = (import.meta.env.VITE_ADMIN_API_PATH || '/api/admin').trim().replace(/\/+$/, '')
+
+async function dailyRequest(userId, options = {}) {
+  const headers = new Headers(options.headers)
+  if (options.method && options.method !== 'GET') headers.set('X-CMM-Request', '1')
+  const response = await fetch(`${SIGNAL_BASE}${ADMIN_PATH}/users/${encodeURIComponent(userId)}/daily-access`, {
+    ...options, headers, credentials: 'include', cache: 'no-store',
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) {
+    const failure = new Error(data?.message || `Daily access request failed (${response.status}).`)
+    failure.status = response.status
+    throw failure
+  }
+  return data
+}
+function localDateInput(value) {
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+function setDailyMonth() {
+  const date = new Date()
+  const day = date.getUTCDate()
+  date.setUTCDate(1)
+  date.setUTCMonth(date.getUTCMonth() + 1)
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate()
+  date.setUTCDate(Math.min(day, lastDay))
+  dailyExpiry.value = localDateInput(date)
+}
+async function saveDaily() {
+  if (panelType.value !== 'daily' || !accessUser.value || locked.value) return
+  const expiresAt = new Date(dailyExpiry.value)
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+    accessError.value = 'Choose a future expiry date and time.'
+    return
+  }
+  const userId = accessUser.value.id
+  await changeAccess(() => dailyRequest(userId, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expiresAt: expiresAt.toISOString() }),
+  }), 'Daily Signal access saved.')
+}
+async function removeDaily() {
+  if (panelType.value !== 'daily' || !accessUser.value || locked.value || !accessReady.value) return
+  if (!window.confirm(`Remove all Daily Signal access for ${accessUser.value.email}?`)) return
+  const userId = accessUser.value.id
+  await changeAccess(() => dailyRequest(userId, { method: 'DELETE' }), 'Daily Signal access removed.')
 }
 
 const locked = computed(() =>
@@ -258,6 +310,8 @@ function clearPanel() {
   availableSignals.value = []
   grantedSignals.value = []
   selectedSignalId.value = ''
+  dailySubscription.value = { active: false, expiresAt: null }
+  dailyExpiry.value = ''
 }
 
 function closePanel() {
@@ -336,6 +390,14 @@ async function loadPanel() {
       ) {
         selectedCourseId.value = ''
       }
+    } else if (panelType.value === 'daily') {
+      const data = await dailyRequest(accessUser.value.id)
+      if (typeof data?.dailySubscription?.active !== 'boolean') throw new Error('Invalid Daily access response.')
+      dailySubscription.value = data.dailySubscription
+      dailyAccessStates.value = { ...dailyAccessStates.value, [accessUser.value.id]: data.dailySubscription }
+      if (data.dailySubscription.active && data.dailySubscription.expiresAt) {
+        dailyExpiry.value = localDateInput(data.dailySubscription.expiresAt)
+      } else setDailyMonth()
     } else {
       const data = await getSignalUserAccess(accessUser.value.id)
       if (!Array.isArray(data.availableSignals) || !Array.isArray(data.signals)) {
@@ -686,7 +748,7 @@ onMounted(() => {
               {{
                 panelType === 'course'
                   ? 'Course Access'
-                  : 'Signal Access'
+                  : panelType === 'daily' ? 'Daily Signal Access' : 'News Signal Access'
               }}
               · {{ accessUser.username }}
             </h2>
@@ -753,7 +815,7 @@ onMounted(() => {
           {{
             panelType === 'course'
               ? 'Loading course access…'
-              : 'Loading signal access…'
+              : panelType === 'daily' ? 'Loading Daily access…' : 'Loading News Signal access…'
           }}
         </p>
 
@@ -846,6 +908,26 @@ onMounted(() => {
               </button>
             </li>
           </ul>
+        </div>
+
+        <div v-if="accessReady && !accessLoading && panelType === 'daily'" class="max-w-xl">
+          <p class="mb-4 text-sm text-(--muted-color)">Grant access to all Daily Signals until the selected expiry. News Signals and courses are managed separately.</p>
+          <div class="mb-5 rounded-lg border border-(--border-color) p-4">
+            <p class="font-semibold">{{ dailySubscription.active ? 'Active' : 'No active Daily subscription' }}</p>
+            <p v-if="dailySubscription.expiresAt" class="mt-1 text-sm text-(--muted-color)">Access until {{ dateTime(dailySubscription.expiresAt) }}</p>
+          </div>
+          <form @submit.prevent="saveDaily">
+            <fieldset :disabled="locked" class="space-y-3">
+              <label for="daily-expiry" class="block text-sm font-semibold">Daily access expires (your local time)</label>
+              <input id="daily-expiry" v-model="dailyExpiry" type="datetime-local" required class="min-h-11 w-full min-w-0 rounded-lg border border-(--border-color) bg-(--input-bg) px-3 py-2" />
+              <div class="flex flex-wrap gap-3">
+                <button type="button" @click="setDailyMonth" class="min-h-11 rounded-lg border border-(--border-color) px-4 py-2 text-sm">One month from now</button>
+                <button type="submit" :disabled="locked || !dailyExpiry" class="min-h-11 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">{{ busy ? 'Please wait…' : 'Save Daily Signal Access' }}</button>
+              </div>
+            </fieldset>
+          </form>
+          <p class="mt-3 text-xs text-(--muted-color)">Manual approval does not create a paid receipt. If paid access lasts longer, that later expiry still applies.</p>
+          <button v-if="dailySubscription.active" type="button" :disabled="locked" @click="removeDaily" class="mt-5 min-h-11 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-500 disabled:opacity-50">Remove Daily Signal Access</button>
         </div>
 
         <!-- Access is granted separately for each signal. -->
@@ -1072,6 +1154,14 @@ onMounted(() => {
                 class="mt-3 min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 max-[480px]:w-full">
                 Signal Access
               </button>
+            </section>
+
+            <section class="mt-4 border-t border-(--border-color) pt-4" :aria-label="`Daily Signal access for ${user.username}`">
+              <h4 class="text-sm font-semibold">Daily Signal Access</h4>
+              <p class="mt-2 text-xs text-(--muted-color)">
+                {{ dailyAccessStates[user.id] ? (dailyAccessStates[user.id].active ? 'Active until ' + dateTime(dailyAccessStates[user.id].expiresAt) : 'No active Daily access') : 'Manage monthly access to all Daily Signals.' }}
+              </p>
+              <button type="button" :disabled="locked" @click="openPanel(user, 'daily')" class="mt-3 min-h-11 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-40 max-[480px]:w-full">Daily Signal Access</button>
             </section>
 
             <div

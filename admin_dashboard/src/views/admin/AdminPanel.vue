@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch, nextTick, onUnmounted } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import { adminApi as api, fileUrl, externalUrl } from "../../api/adminApi.js";
 import CourseAdmin from "./CourseAdmin.vue";
+import DailySignalAdmin from "./DailySignalAdmin.vue";
 import {
   getAnalysisRecords,
   createAnalysisPost,
@@ -147,11 +148,13 @@ const paymentsAdminApiPath = (
 ).trim().replace(/\/+$/, "");
 const paymentStatusFilter = ref("paid");
 const paymentUserIdFilter = ref("");
+const paymentProductFilter = ref("all");
 
 const paidCards = computed(() => [
   { label: "Total paid users", value: paidSummary.value?.totalPaidUsers },
   { label: "Course buyers", value: paidSummary.value?.courseBuyers },
-  { label: "Signal buyers", value: paidSummary.value?.signalBuyers },
+  { label: "News signal buyers", value: paidSummary.value?.signalBuyers },
+  { label: "Daily signal buyers", value: paidSummary.value?.dailySignalBuyers },
   { label: "Successful payments", value: paidSummary.value?.successfulPayments },
   {
     label: "Total collected (USD)",
@@ -173,6 +176,7 @@ async function fetchPaidPayments(requestedPage = 1) {
     const query = new URLSearchParams({
       page: String(requestedPage),
       status: paymentStatusFilter.value,
+      productType: paymentProductFilter.value,
     });
     if (userId) query.set("userId", userId);
     const response = await fetch(
@@ -190,7 +194,7 @@ async function fetchPaidPayments(requestedPage = 1) {
     if (!data?.success || !Array.isArray(data.payments) || !data.summary || !data.pagination) {
       throw new Error("Invalid paid payments response.");
     }
-    const summaryFields = ["totalPaidUsers", "courseBuyers", "signalBuyers", "successfulPayments"];
+    const summaryFields = ["totalPaidUsers", "courseBuyers", "signalBuyers", "dailySignalBuyers", "successfulPayments"];
     if (summaryFields.some(field => !Number.isInteger(data.summary[field]) || data.summary[field] < 0)
       || !Number.isFinite(Number(data.summary.totalAmount))
       || !Number.isInteger(data.pagination.page) || data.pagination.page < 1
@@ -209,12 +213,22 @@ async function fetchPaidPayments(requestedPage = 1) {
 }
 
 function paidProductLabel(payment) {
-  if (payment.productType === "course") return "Course";
-  if (payment.productType === "news-signal") return "News signal";
-  return "Other product";
+  if (payment.productId === 'daily-signal-monthly') return 'Daily Signals · monthly';
+  if (payment.productId?.startsWith('signal:') || payment.productType === 'news-signal') return 'News Signal';
+  if (payment.productId?.startsWith('course:') || payment.productType === 'course') return 'Course';
+  return 'Other product';
+}
+function dailyAccessLabel(payment) {
+  if (payment.status !== 'paid') return 'Not activated';
+  if (!payment.dailySubscription) return 'Subscription record missing';
+  return payment.dailySubscription.active ? 'Active' : 'Expired';
+}
+function dailyExpiryLabel(payment) {
+  const expiry = payment.dailySubscription?.expiresAt;
+  return expiry ? date(expiry) + ' ' + time(expiry) : '—';
 }
 
-watch([paymentStatusFilter, paymentUserIdFilter], () => {
+watch([paymentStatusFilter, paymentUserIdFilter, paymentProductFilter], () => {
   paidRequestController?.abort();
   paidPayments.value = [];
   paidPagination.value = { page: 1, totalPages: 0, total: 0 };
@@ -1413,7 +1427,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               {{
                 {
                   Dashboard: "A clear view of your community and content.",
-                  News: "Manage economic events and individually purchased news signals.",
+                  News: "Manage economic events, News Signals, and monthly Daily Signals.",
                   Academy: "Build your course library and manage pricing.",
                   Analysis:
                     "Share your technical outlook and downloadable resources.",
@@ -1451,7 +1465,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               <Plus :size="17" />Add reference document
             </button>
             <button
-              v-if="currentKind && page !== 'Academy'"
+              v-if="currentKind && page !== 'Academy' && !(page === 'News' && tab === 'Daily')"
               class="btn-primary inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-wait disabled:opacity-50 bg-emerald-700 text-white hover:bg-emerald-800 max-[768px]:min-h-11 max-[414px]:px-3"
               @click="open(currentKind)"
             >
@@ -1479,13 +1493,13 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             <div class="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <h2 id="paid-users-heading" class="text-lg font-semibold">Payment history</h2>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">View orders by user ID and status. Summary cards show all-time verified payments.</p>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Separate News and Daily Signal payments by product, user ID and status. Daily expiry comes from the saved subscription. Summary cards show all-time verified payments.</p>
               </div>
               <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="min-h-11 w-full shrink-0 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium disabled:opacity-50 sm:w-auto dark:border-slate-700">
                 {{ paidLoading ? "Loading…" : "Refresh payments" }}
               </button>
             </div>
-            <form @submit.prevent="fetchPaidPayments(1)" class="mb-5 grid min-w-0 grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(110px,150px)] xl:grid-cols-[minmax(0,1fr)_minmax(110px,150px)_auto_auto]">
+            <form @submit.prevent="fetchPaidPayments(1)" class="mb-5 grid min-w-0 grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(110px,150px)] xl:grid-cols-[minmax(0,1fr)_minmax(110px,150px)_minmax(150px,180px)_auto_auto]">
               <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
                 <span class="mb-1 block">User ID (optional)</span>
                 <input v-model="paymentUserIdFilter" :disabled="paidLoading" maxlength="24" placeholder="Paste user ID" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 text-base sm:text-sm dark:border-slate-600" />
@@ -1499,16 +1513,25 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                   <option value="all">All orders</option>
                 </select>
               </label>
+              <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
+                <span class="mb-1 block">Product</span>
+                <select v-model="paymentProductFilter" :disabled="paidLoading" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-base sm:text-sm dark:border-slate-600 dark:bg-slate-900">
+                  <option value="all">All products</option>
+                  <option value="news-signal">News Signals</option>
+                  <option value="daily-signal">Daily Signals</option>
+                  <option value="course">Courses</option>
+                </select>
+              </label>
               <button type="submit" :disabled="paidLoading" class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white">Apply filters</button>
-              <button type="button" :disabled="paidLoading" @click="paymentUserIdFilter = ''; paymentStatusFilter = 'paid'; fetchPaidPayments(1)" class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-600">Reset</button>
+              <button type="button" :disabled="paidLoading" @click="paymentUserIdFilter = ''; paymentStatusFilter = 'paid'; paymentProductFilter = 'all'; fetchPaidPayments(1)" class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-600">Reset</button>
             </form>
-            <div class="mb-5 grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-5">
+            <div class="mb-5 grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-6">
               <article v-for="card in paidCards" :key="card.label" class="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">{{ card.label }}</p>
                 <p class="mt-2 break-words text-xl font-semibold sm:text-2xl">{{ card.value ?? '—' }}</p>
               </article>
             </div>
-            <p class="mb-4 text-xs text-slate-500 dark:text-slate-400">Course and signal buyer counts can overlap. Manually granted access is excluded unless a paid receipt exists.</p>
+            <p class="mb-4 text-xs text-slate-500 dark:text-slate-400">Course, News and Daily buyer counts can overlap. Manually granted access is excluded unless a paid receipt exists.</p>
             <div v-if="paidError" role="alert" class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
               {{ paidError }}
               <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="ml-2 min-h-11 underline disabled:opacity-50">Try again</button>
@@ -1540,6 +1563,11 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                         <dt class="text-xs text-slate-500 dark:text-slate-400">Paid at (local time)</dt>
                         <dd class="mt-1 break-words">{{ payment.paidAt ? date(payment.paidAt) + ' ' + time(payment.paidAt) : '—' }}</dd>
                       </div>
+                      <div v-if="payment.productId === 'daily-signal-monthly'" class="min-w-0 min-[400px]:col-span-2">
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">Daily subscription</dt>
+                        <dd class="mt-1 font-medium">{{ dailyAccessLabel(payment) }}</dd>
+                        <dd class="mt-1 break-words text-sm">Expires: {{ dailyExpiryLabel(payment) }}</dd>
+                      </div>
                       <div v-for="field in [{ label: 'User ID', value: payment.userId }, { label: 'Product ID', value: payment.productId }, { label: 'Order ID', value: payment.orderId }]" :key="field.label" class="min-w-0 min-[400px]:col-span-2">
                         <dt class="text-xs text-slate-500 dark:text-slate-400">{{ field.label }}</dt>
                         <dd class="mt-1 break-all text-xs leading-5">{{ field.value }}</dd>
@@ -1549,13 +1577,14 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 </div>
                 <!-- Tablet and desktop: keep the table's scrolling inside this panel. -->
                 <div class="hidden max-w-full overflow-x-auto rounded-lg border border-slate-200 md:block dark:border-slate-700" tabindex="0" role="region" aria-label="Payment history table">
-                <table class="w-full min-w-[760px] text-left text-sm">
+                <table class="w-full min-w-[980px] text-left text-sm">
                   <thead class="bg-slate-50 dark:bg-slate-800">
                     <tr>
                       <th scope="col" class="px-4 py-3">Buyer</th>
                       <th scope="col" class="px-4 py-3">Product</th>
                       <th scope="col" class="px-4 py-3">Amount</th>
                       <th scope="col" class="px-4 py-3">Paid at (local time)</th>
+                      <th scope="col" class="px-4 py-3">Daily subscription / expiry</th>
                       <th scope="col" class="px-4 py-3">Status</th>
                     </tr>
                   </thead>
@@ -1573,6 +1602,13 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                       </td>
                       <td class="whitespace-nowrap px-4 py-3 font-medium">{{ money(payment.amount) }} {{ payment.currency }}</td>
                       <td class="whitespace-nowrap px-4 py-3">{{ date(payment.paidAt) }} {{ payment.paidAt ? time(payment.paidAt) : '' }}</td>
+                      <td class="px-4 py-3">
+                        <template v-if="payment.productId === 'daily-signal-monthly'">
+                          <p class="font-medium">{{ dailyAccessLabel(payment) }}</p>
+                          <p class="mt-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">{{ dailyExpiryLabel(payment) }}</p>
+                        </template>
+                        <span v-else>—</span>
+                      </td>
                       <td class="px-4 py-3"><span class="rounded-full px-2.5 py-1 text-xs font-medium capitalize" :class="payment.status === 'paid' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : payment.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'">{{ payment.status }}</span></td>
                     </tr>
                   </tbody>
@@ -1901,7 +1937,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
         <template v-else-if="currentKind">
           <div
             v-if="page === 'News'"
-            class="tabs mb-6 flex gap-6 border-b border-slate-200 dark:border-slate-700 [&_button]:flex [&_button]:items-center [&_button]:gap-2 [&_button]:border-b-2 [&_button]:border-transparent [&_button]:pb-4 [&_button]:text-slate-500 [&_button.selected]:border-emerald-600 [&_button.selected]:text-emerald-700 dark:[&_button.selected]:text-emerald-300 [&_span]:rounded [&_span]:bg-emerald-50 [&_span]:px-1.5 [&_span]:text-xs dark:[&_span]:bg-emerald-900/40 max-[414px]:gap-3 max-[414px]:[&_button]:text-xs min-w-0 max-[600px]:gap-4 max-[480px]:flex-col max-[480px]:gap-0 max-[480px]:[&_button]:w-full max-[480px]:[&_button]:min-h-11 max-[480px]:[&_button]:py-3"
+            class="tabs mb-6 flex min-w-0 max-w-full flex-nowrap gap-4 overflow-x-auto whitespace-nowrap border-b border-slate-200 sm:gap-6 dark:border-slate-700 [&_button]:flex [&_button]:min-h-11 [&_button]:shrink-0 [&_button]:items-center [&_button]:gap-2 [&_button]:border-b-2 [&_button]:border-transparent [&_button]:pb-3 [&_button]:text-sm [&_button]:text-slate-500 [&_button.selected]:border-emerald-600 [&_button.selected]:text-emerald-700 dark:[&_button]:text-slate-400 dark:[&_button.selected]:text-emerald-300 [&_span]:rounded [&_span]:bg-emerald-50 [&_span]:px-1.5 [&_span]:text-xs dark:[&_span]:bg-emerald-900/40"
           >
             <button
               :class="{ selected: tab === 'Calendar' }"
@@ -1925,8 +1961,18 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 list("signals").length
               }}</span>
             </button>
+            <button
+              type="button"
+              :class="{ selected: tab === 'Daily' }"
+              :aria-pressed="tab === 'Daily'"
+              @click="tab = 'Daily'; filter = 'All'"
+            >
+              <TrendingUp :size="17" />Daily signals
+            </button>
           </div>
 
+          <DailySignalAdmin v-if="page === 'News' && tab === 'Daily'" />
+          <template v-else>
           <!-- Only economic calendar records are filtered by this selected day. -->
           <section
             v-if="isCalendar"
@@ -2335,6 +2381,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             <ShieldCheck :size="15" />Use Manage signals to unlock a specific signal for the registered account with this email.
             Each new signal needs its own purchase or admin approval.
           </p>
+          </template>
         </template>
         <template v-else-if="page === 'Support'">
           <div
