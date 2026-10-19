@@ -4,6 +4,7 @@ import { useRouter, useRoute } from "vue-router";
 import { adminApi as api, fileUrl, externalUrl } from "../../api/adminApi.js";
 import CourseAdmin from "./CourseAdmin.vue";
 import DailySignalAdmin from "./DailySignalAdmin.vue";
+import SignalHistoryAdmin from "./SignalHistoryAdmin.vue";
 import {
   getAnalysisRecords,
   createAnalysisPost,
@@ -54,8 +55,6 @@ import {
 } from "lucide-vue-next";
 
 const userSignalModal = ref(null);
-const availableUserSignals = ref([]);
-const selectedUserSignalId = ref("");
 const userSignalsLoading = ref(false);
 const userSignalSaving = ref(false);
 const userSignalError = ref("");
@@ -86,24 +85,10 @@ async function openUserSignalAccess(user) {
     notify("This member needs the email used by their registered website account.");
     return;
   }
-  const current = ++userSignalRequestVersion;
+  userSignalRequestVersion++;
   userSignalModal.value = { name: user.name || user.username || email, email };
-  availableUserSignals.value = [];
-  selectedUserSignalId.value = "";
   userSignalError.value = "";
-  userSignalsLoading.value = true;
-  try {
-    const data = await signalAccessRequest("/admin");
-    if (current !== userSignalRequestVersion) return;
-    if (!Array.isArray(data.signals)) throw new Error("Invalid signal list response.");
-    availableUserSignals.value = data.signals.filter(signal =>
-      /^[a-fA-F0-9]{24}$/.test(String(signal?._id || "")),
-    );
-  } catch (e) {
-    if (current === userSignalRequestVersion) userSignalError.value = e.message;
-  } finally {
-    if (current === userSignalRequestVersion) userSignalsLoading.value = false;
-  }
+  userSignalsLoading.value = false;
 }
 
 function closeUserSignalAccess() {
@@ -115,21 +100,16 @@ function closeUserSignalAccess() {
 
 async function approveUserSignalAccess() {
   if (!userSignalModal.value || userSignalSaving.value || userSignalsLoading.value) return;
-  const signalId = selectedUserSignalId.value;
-  if (!availableUserSignals.value.some(signal => String(signal._id) === signalId)) {
-    userSignalError.value = "Select the signal to unlock.";
-    return;
-  }
   userSignalSaving.value = true;
   userSignalError.value = "";
   try {
-    const result = await signalAccessRequest("/access", {
+    const result = await signalAccessRequest("/subscription", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: userSignalModal.value.email, signalId }),
+      body: JSON.stringify({ email: userSignalModal.value.email }),
     });
     userSignalModal.value = null;
-    notify(result.message || "This signal is unlocked for the registered user.");
+    notify(result.message || "All News Signals are unlocked for one month.");
   } catch (e) {
     userSignalError.value = e.message || "Could not approve access.";
   } finally {
@@ -214,17 +194,26 @@ async function fetchPaidPayments(requestedPage = 1) {
 
 function paidProductLabel(payment) {
   if (payment.productId === 'daily-signal-monthly') return 'Daily Signals · monthly';
-  if (payment.productId?.startsWith('signal:') || payment.productType === 'news-signal') return 'News Signal';
+  if (payment.productId === 'news-signal-monthly' || payment.productId?.startsWith('signal:') || payment.productType === 'news-signal') return 'News Signals · monthly';
   if (payment.productId?.startsWith('course:') || payment.productType === 'course') return 'Course';
   return 'Other product';
 }
-function dailyAccessLabel(payment) {
-  if (payment.status !== 'paid') return 'Not activated';
-  if (!payment.dailySubscription) return 'Subscription record missing';
-  return payment.dailySubscription.active ? 'Active' : 'Expired';
+function isMonthlySignalPayment(payment) {
+  return ['news-signal', 'daily-signal'].includes(payment.productType) ||
+    ['news-signal-monthly', 'daily-signal-monthly'].includes(payment.productId) || payment.productId?.startsWith('signal:');
 }
-function dailyExpiryLabel(payment) {
-  const expiry = payment.dailySubscription?.expiresAt;
+function paymentPeriod(payment) {
+  return payment.subscription || payment.newsSubscription || payment.dailySubscription;
+}
+function subscriptionAccessLabel(payment) {
+  if (payment.status !== 'paid') return 'Not activated';
+  const period = paymentPeriod(payment);
+  if (!period) return 'Expiry unavailable';
+  if (period.status === 'scheduled') return 'Starts later';
+  return period.active ? 'Active' : 'Expired';
+}
+function subscriptionExpiryLabel(payment) {
+  const expiry = paymentPeriod(payment)?.expiresAt;
   return expiry ? date(expiry) + ' ' + time(expiry) : '—';
 }
 
@@ -1083,10 +1072,11 @@ async function remove() {
   if (["events", "signals"].includes(deleteTarget.value?.kind)) {
     saving.value = true;
     try {
+      const isNewsSignal = deleteTarget.value.kind === "signals";
       await deleteNewsRecord(deleteTarget.value);
       deleteTarget.value = null;
       await loadRecords();
-      notify("News deleted successfully");
+      notify(isNewsSignal ? "News Signal archived. Subscriptions stay active." : "News deleted successfully");
     } catch (error) {
       notify(error.message);
     } finally {
@@ -1563,10 +1553,10 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                         <dt class="text-xs text-slate-500 dark:text-slate-400">Paid at (local time)</dt>
                         <dd class="mt-1 break-words">{{ payment.paidAt ? date(payment.paidAt) + ' ' + time(payment.paidAt) : '—' }}</dd>
                       </div>
-                      <div v-if="payment.productId === 'daily-signal-monthly'" class="min-w-0 min-[400px]:col-span-2">
-                        <dt class="text-xs text-slate-500 dark:text-slate-400">Daily subscription</dt>
-                        <dd class="mt-1 font-medium">{{ dailyAccessLabel(payment) }}</dd>
-                        <dd class="mt-1 break-words text-sm">Expires: {{ dailyExpiryLabel(payment) }}</dd>
+                      <div v-if="isMonthlySignalPayment(payment)" class="min-w-0 min-[400px]:col-span-2">
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">Access from this payment</dt>
+                        <dd class="mt-1 font-medium">{{ subscriptionAccessLabel(payment) }}</dd>
+                        <dd class="mt-1 break-words text-sm">Expires: {{ subscriptionExpiryLabel(payment) }}</dd>
                       </div>
                       <div v-for="field in [{ label: 'User ID', value: payment.userId }, { label: 'Product ID', value: payment.productId }, { label: 'Order ID', value: payment.orderId }]" :key="field.label" class="min-w-0 min-[400px]:col-span-2">
                         <dt class="text-xs text-slate-500 dark:text-slate-400">{{ field.label }}</dt>
@@ -1584,7 +1574,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                       <th scope="col" class="px-4 py-3">Product</th>
                       <th scope="col" class="px-4 py-3">Amount</th>
                       <th scope="col" class="px-4 py-3">Paid at (local time)</th>
-                      <th scope="col" class="px-4 py-3">Daily subscription / expiry</th>
+                      <th scope="col" class="px-4 py-3">Access status / expires (local time)</th>
                       <th scope="col" class="px-4 py-3">Status</th>
                     </tr>
                   </thead>
@@ -1603,9 +1593,9 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                       <td class="whitespace-nowrap px-4 py-3 font-medium">{{ money(payment.amount) }} {{ payment.currency }}</td>
                       <td class="whitespace-nowrap px-4 py-3">{{ date(payment.paidAt) }} {{ payment.paidAt ? time(payment.paidAt) : '' }}</td>
                       <td class="px-4 py-3">
-                        <template v-if="payment.productId === 'daily-signal-monthly'">
-                          <p class="font-medium">{{ dailyAccessLabel(payment) }}</p>
-                          <p class="mt-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">{{ dailyExpiryLabel(payment) }}</p>
+                        <template v-if="isMonthlySignalPayment(payment)">
+                          <p class="font-medium">{{ subscriptionAccessLabel(payment) }}</p>
+                          <p class="mt-1 whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">{{ subscriptionExpiryLabel(payment) }}</p>
                         </template>
                         <span v-else>—</span>
                       </td>
@@ -1971,6 +1961,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
             </button>
           </div>
 
+          <SignalHistoryAdmin v-if="page === 'News'" class="mb-6" />
           <DailySignalAdmin v-if="page === 'News' && tab === 'Daily'" />
           <template v-else>
           <!-- Only economic calendar records are filtered by this selected day. -->
@@ -2986,39 +2977,26 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
       <section role="dialog" aria-modal="true" aria-labelledby="user-signal-title"
         class="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
         <div class="flex items-center justify-between gap-3">
-          <h2 id="user-signal-title" class="text-lg font-semibold">Manage signal access</h2>
+          <h2 id="user-signal-title" class="text-lg font-semibold">Monthly News Signal access</h2>
           <button type="button" aria-label="Close" :disabled="userSignalSaving" @click="closeUserSignalAccess"
             class="inline-flex size-11 shrink-0 items-center justify-center rounded-lg disabled:opacity-50"><X :size="20" /></button>
         </div>
         <p class="mt-3 break-words font-medium">{{ userSignalModal.name }}</p>
         <p class="mt-1 break-all text-sm text-slate-500 dark:text-slate-400">{{ userSignalModal.email }}</p>
         <p class="mt-3 text-sm text-slate-500 dark:text-slate-400">
-          Choose the news signal to unlock. This approval applies only to that signal until it is deleted.
+          Grant all News Signals for one calendar month from now. New cards are included. Daily Signal access is separate. Repeating approval resets the manual period from now; a later paid expiry still applies.
         </p>
         <p v-if="userSignalsLoading" role="status" class="mt-4 text-sm">Loading signals…</p>
         <form v-else class="mt-5 space-y-4" @submit.prevent="approveUserSignalAccess">
-          <label class="block text-sm">
-            <span class="mb-2 block">News signal</span>
-            <select v-model="selectedUserSignalId" required :disabled="userSignalSaving || !availableUserSignals.length"
-              class="w-full min-w-0 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-              <option disabled value="">Select a signal</option>
-              <option v-for="signal in availableUserSignals" :key="signal._id" :value="String(signal._id)">
-                {{ signal.pair }} — {{ signal.title }} — {{ date(signal.scheduledAt) }} {{ time(signal.scheduledAt) }}
-              </option>
-            </select>
-          </label>
-          <p v-if="!availableUserSignals.length && !userSignalError" class="text-sm text-slate-500 dark:text-slate-400">
-            No signals available. Create a signal in News first.
-          </p>
           <p v-if="userSignalError" role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{{ userSignalError }}</p>
           <button v-if="userSignalError" type="button" :disabled="userSignalSaving"
-            @click="openUserSignalAccess(userSignalModal)" class="text-sm font-semibold underline">Reload signals</button>
+            @click="openUserSignalAccess(userSignalModal)" class="text-sm font-semibold underline">Try again</button>
           <div class="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
             <button type="button" :disabled="userSignalSaving" @click="closeUserSignalAccess"
               class="min-h-11 rounded-lg border border-slate-200 px-4 py-2 disabled:opacity-50 dark:border-slate-700">Cancel</button>
-            <button type="submit" :disabled="userSignalSaving || !selectedUserSignalId || !availableUserSignals.length"
+            <button type="submit" :disabled="userSignalSaving"
               class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 text-white disabled:opacity-50">
-              {{ userSignalSaving ? "Approving…" : "Approve selected signal" }}
+              {{ userSignalSaving ? "Approving…" : "Grant 1 Month of News Access" }}
             </button>
           </div>
         </form>

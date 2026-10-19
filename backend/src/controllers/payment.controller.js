@@ -9,7 +9,8 @@ import {
 
 import Payment from '../models/payment.model.js'
 import Signal from '../models/signal.model.js'
-import SignalAccess from '../models/signalAccess.model.js'
+import { NEWS_PRODUCT_ID, NEWS_AMOUNT_CENTS } from '../services/newsSignalTerms.js'
+import { getNewsSubscription, fulfillNewsPayment } from '../services/newsSignalAccess.service.js'
 import { DAILY_PRODUCT_ID, DAILY_AMOUNT_CENTS } from '../services/dailySignalTerms.js'
 import { getDailySubscription, fulfillDailyPayment } from '../services/dailySignalAccess.service.js'
 const DAILY_LIMIT_MESSAGE = 'Bakong’s daily verification request limit has been reached. Please try again after the quota resets. If you already paid, do not pay again.'
@@ -21,14 +22,7 @@ import {
 } from '../services/signalAccess.service.js'
 
 const PRODUCTS = {
-  // Edit the signal price here.
-  // 1 = $0.01
-  // 100 = $1.00
-  // 500 = $5.00
-  'news-signal': {
-    amountCents: 2500,
-  },
-
+  // News price is configured in services/newsSignalTerms.js.
   'course:6ac7c7c328016c1f9ed6927a': {
     amountCents: 10,
   },
@@ -53,64 +47,10 @@ function signalIdFromProduct(productId) {
   return mongoose.isObjectIdOrHexString(id) ? id : null
 }
 
-function signalPriceCents() {
-  return PRODUCTS['news-signal'].amountCents
-}
-
 function configurationError(message) {
   const error = new Error(message)
   error.code = 'PAYMENT_CONFIG_ERROR'
   return error
-}
-
-// A verified payment unlocks only its specific signal.
-// Repeated checks safely retry an earlier failed access grant.
-async function fulfillSignalPayment(payment) {
-  const signalId = signalIdFromProduct(payment.productId)
-
-  if (!signalId || payment.status !== 'paid') {
-    return {}
-  }
-
-  if (!(await Signal.exists({ _id: signalId }))) {
-    return {
-      signalId,
-      accessGranted: false,
-      signalDeleted: true,
-    }
-  }
-
-  const filter = {
-    userId: payment.userId,
-    signalId,
-  }
-
-  try {
-    await SignalAccess.updateOne(
-      filter,
-      {
-        $setOnInsert: filter,
-      },
-      {
-        upsert: true,
-        runValidators: true,
-      },
-    )
-  } catch (error) {
-    // Concurrent checks may create the same access record.
-    if (
-      error.code !== 11000 ||
-      !(await SignalAccess.exists(filter))
-    ) {
-      throw error
-    }
-  }
-
-  return {
-    signalId,
-    accessGranted: true,
-    signalDeleted: false,
-  }
 }
 
 function paymentResult(payment) {
@@ -129,7 +69,7 @@ function paymentResult(payment) {
 async function completedPaymentResult(payment) {
   return {
     ...paymentResult(payment),
-    ...await fulfillSignalPayment(payment),
+    ...await fulfillNewsPayment(payment),
     ...await fulfillDailyPayment(payment),
   }
 }
@@ -317,57 +257,43 @@ export async function createPayment(req, res) {
 
     productId = productId.trim()
 
-    // Accept a selected signal and save its ID in productId.
-    if (productId === 'news-signal') {
-      const selectedId = req.body?.signalId
-
-      if (!mongoose.isObjectIdOrHexString(selectedId)) {
-        return res.status(400).json({
-          message: 'A valid signal ID is required',
-        })
+    // Accept old frontend links but create the monthly News product.
+    const legacySignalId = signalIdFromProduct(productId)
+    if (legacySignalId) {
+      if (!(await Signal.exists({ _id: legacySignalId, archivedAt: null }))) {
+        return res.status(404).json({ message: 'This signal is no longer active. Open the News subscription plan.' })
       }
-
-      productId = `signal:${String(selectedId).toLowerCase()}`
+      productId = NEWS_PRODUCT_ID
+    } else if (productId === 'news-signal') {
+      productId = NEWS_PRODUCT_ID
     }
 
-    const signalId = signalIdFromProduct(productId)
     let product
-
-    if (signalId) {
-      productId = `signal:${signalId.toLowerCase()}`
-
-      if (!(await Signal.exists({ _id: signalId }))) {
-        return res.status(404).json({
-          message: 'This signal is no longer available',
-        })
+    if (productId === NEWS_PRODUCT_ID) {
+      // Repair a paid receipt before offering another QR; never reset paidAt.
+      const paidOrder = await Payment.findOne({
+        userId, status: 'paid', paidAt: { $ne: null },
+        $or: [
+          { productId: NEWS_PRODUCT_ID },
+          { productId: { $regex: '^signal:[a-fA-F0-9]{24}$' } },
+        ],
+      }).sort({ paidAt: -1 })
+      if (paidOrder) await fulfillNewsPayment(paidOrder)
+      const subscription = await getNewsSubscription(userId)
+      if (subscription.active) {
+        return res.status(409).json({ message: 'Your News Signal subscription is already active.', subscription })
       }
-
-      if (await SignalAccess.exists({ userId, signalId })) {
-        return res.status(409).json({
-          message:
-            'You already have access to this signal. Return to News Signals.',
-        })
-      }
-
-      product = {
-        amountCents: signalPriceCents(),
-      }
+      product = { amountCents: NEWS_AMOUNT_CENTS }
     } else if (productId === DAILY_PRODUCT_ID) {
       const subscription = await getDailySubscription(userId)
       if (subscription.active) {
         return res.status(409).json({ message: 'Your Daily Signal subscription is already active.' })
       }
       product = { amountCents: DAILY_AMOUNT_CENTS }
-    } else if (
-      productId.startsWith('course:') &&
-      Object.hasOwn(PRODUCTS, productId)
-    ) {
+    } else if (productId.startsWith('course:') && Object.hasOwn(PRODUCTS, productId)) {
       product = PRODUCTS[productId]
     } else {
-      return res.status(400).json({
-        message:
-          'Invalid product. Select a specific signal or course.',
-      })
+      return res.status(400).json({ message: 'Invalid product. Select a subscription or course.' })
     }
 
     if (
@@ -381,53 +307,18 @@ export async function createPayment(req, res) {
 
     const config = bakongConfig()
 
-    if (signalId) {
-      // Repair access from an existing paid receipt.
-      const paidOrder = await Payment.findOne({
-        userId,
-        productId,
-        status: 'paid',
-      })
-
-      if (paidOrder) {
-        return res.json({
-          success: true,
-          data: {
-            ...await completedPaymentResult(paidOrder),
-            merchantName: config.name,
-            qrCode: paidOrder.qrCode,
-            verificationAvailable: Boolean(config.token),
-          },
-        })
-      }
-
-      // Reuse an existing unexpired order after a page refresh.
+    if (productId === NEWS_PRODUCT_ID || productId === DAILY_PRODUCT_ID) {
       const pendingOrder = await Payment.findOne({
         userId,
-        productId,
-        status: 'pending',
-        recipientAccount: config.account,
-        expiresAt: { $gt: new Date() },
-      })
-
-      if (pendingOrder) {
-        return res.json({
-          success: true,
-          data: {
-            ...paymentResult(pendingOrder),
-            merchantName: config.name,
-            qrCode: pendingOrder.qrCode,
-            verificationAvailable: Boolean(config.token),
-          },
-        })
-      }
-    }
-
-    if (productId === DAILY_PRODUCT_ID) {
-      const pendingOrder = await Payment.findOne({
-        userId, productId, status: 'pending', recipientAccount: config.account,
+        ...(productId === NEWS_PRODUCT_ID ? {
+          $or: [
+            { productId: NEWS_PRODUCT_ID },
+            { productId: { $regex: '^signal:[a-fA-F0-9]{24}$' } },
+          ],
+        } : { productId }),
+        status: 'pending', recipientAccount: config.account,
         amountCents: product.amountCents, expiresAt: { $gt: new Date() },
-      })
+      }).sort({ createdAt: -1 })
       if (pendingOrder) {
         return res.json({ success: true, data: {
           ...paymentResult(pendingOrder), merchantName: config.name,
@@ -435,6 +326,7 @@ export async function createPayment(req, res) {
         } })
       }
     }
+
     const orderId = new mongoose.Types.ObjectId()
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 

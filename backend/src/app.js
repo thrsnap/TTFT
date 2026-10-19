@@ -7,6 +7,7 @@ import session from 'express-session'
 import MongoStore from 'connect-mongo'
 
 import signalRoutes from './routes/signal.routes.js'
+import signalHistoryRoutes from './routes/signalHistory.routes.js'
 import economicEventRoutes from './routes/calendar.route.js'
 import authRoutes from './routes/auth.routes.js'
 import adminRouter from './routes/admin.routes.js'
@@ -26,6 +27,7 @@ import { requireUser } from './controllers/auth.controller.js'
 import requireAdmin from './middleware/requireAdmin.js'
 
 import { connectRedis } from './config/redis.js'
+
 import {
   createApiLimiter,
   createLoginLimiter,
@@ -149,6 +151,7 @@ app.use(session({
   },
 }))
 
+// Existing Daily Signal mount.
 app.use('/api/daily-signals', dailySignalRoutes)
 
 await connectRedis()
@@ -316,11 +319,19 @@ app.use('/api/admin', mediaRoutes)
 // This router checks the session and admin role itself.
 app.use('/api/admin', adminRouter)
 
-// Signals.
+// News Signals.
 app.use(
   '/api/signals',
   protectNewsMutations,
   signalRoutes,
+)
+
+// News and Daily Signal history.
+// Public reads; the history router checks admin access for result updates.
+app.use(
+  '/api/signal-history',
+  protectJsonMutations,
+  signalHistoryRoutes,
 )
 
 // Economic calendar.
@@ -382,7 +393,8 @@ app.use((error, req, res, next) => {
     })
   }
 
-  console.error('Server error:', error.name)
+  // Log the full error in the backend terminal.
+  console.error('Server error:', error.stack || error)
 
   return res.status(500).json({
     message: 'Internal server error',

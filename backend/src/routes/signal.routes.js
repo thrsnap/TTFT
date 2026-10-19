@@ -4,8 +4,9 @@ import sharp from 'sharp'
 import mongoose from 'mongoose'
 
 import Signal from '../models/signal.model.js'
-import SignalAccess from '../models/signalAccess.model.js'
+import NewsSignalGrant from '../models/newsSignalGrant.model.js'
 import User from '../models/user.model.js'
+
 import requireAdmin from '../middleware/requireAdmin.js'
 import { requireUser } from '../controllers/auth.controller.js'
 
@@ -14,7 +15,34 @@ import {
   hasSignalAccess,
 } from '../services/signalAccess.service.js'
 
+import {
+  getNewsSubscription,
+} from '../services/newsSignalAccess.service.js'
+
+import {
+  NEWS_PRODUCT_ID,
+  NEWS_AMOUNT_CENTS,
+  addNewsCalendarMonth,
+} from '../services/newsSignalTerms.js'
+
+import {
+  archiveSignal,
+  parseResultFields,
+} from '../services/signalHistory.service.js'
+
+import {
+  signalLifecycleMiddleware,
+  startSignalLifecycle,
+} from '../services/signalLifecycle.service.js'
+
 const router = Router()
+
+// Start the periodic rollover check.
+// Repeated calls from other routers do not create duplicate timers.
+startSignalLifecycle()
+
+// Archive overdue cards before returning active signals.
+router.use(signalLifecycleMiddleware)
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -22,7 +50,7 @@ const upload = multer({
   limits: {
     fileSize: 2 * 1024 * 1024,
     files: 1,
-    fields: 12,
+    fields: 15,
     fieldSize: 20000,
   },
 
@@ -34,7 +62,10 @@ const upload = multer({
     ]
 
     if (!allowed.includes(file.mimetype)) {
-      const error = new Error('Use a JPG, PNG, or WebP image.')
+      const error = new Error(
+        'Use a JPG, PNG, or WebP image.',
+      )
+
       error.status = 400
       return callback(error)
     }
@@ -58,7 +89,9 @@ function parseConfirmed(value) {
 
 function parseDate(value) {
   if (typeof value !== 'string' || !value.trim()) {
-    throw badRequest('A valid date and time are required.')
+    throw badRequest(
+      'A valid date and time are required.',
+    )
   }
 
   const date = new Date(value)
@@ -81,6 +114,9 @@ function parseFields(body = {}) {
     'details',
     'news',
     'previewText',
+    'outcome',
+    'closedAt',
+    'resultNotes',
   ]
 
   const unknown = Object.keys(body).filter(
@@ -88,7 +124,9 @@ function parseFields(body = {}) {
   )
 
   if (unknown.length) {
-    throw badRequest(`Unknown fields: ${unknown.join(', ')}`)
+    throw badRequest(
+      `Unknown fields: ${unknown.join(', ')}`,
+    )
   }
 
   const fields = {}
@@ -96,7 +134,14 @@ function parseFields(body = {}) {
   for (const key of allowed) {
     if (!Object.hasOwn(body, key)) continue
 
-    if (key === 'confirmed') {
+    if (
+      ['outcome', 'closedAt', 'resultNotes'].includes(key)
+    ) {
+      Object.assign(
+        fields,
+        parseResultFields({ [key]: body[key] }),
+      )
+    } else if (key === 'confirmed') {
       fields.confirmed = parseConfirmed(body[key])
     } else if (key === 'scheduledAt') {
       fields.scheduledAt = parseDate(body[key])
@@ -117,14 +162,17 @@ function parseFields(body = {}) {
 }
 
 function validateConfirmation(direction, confirmed) {
-  if (confirmed && !['buy', 'sell'].includes(direction)) {
+  if (
+    confirmed &&
+    !['buy', 'sell'].includes(direction)
+  ) {
     throw badRequest(
       'A confirmed signal must have direction buy or sell.',
     )
   }
 }
 
-// Handles Mongoose Buffers and BSON Binary from lean queries.
+// Supports Mongoose Buffers and BSON Binary from lean queries.
 function imageByteLength(value) {
   if (!value) return 0
 
@@ -195,7 +243,9 @@ async function processSignalImage(file) {
 
     return { image, preview }
   } catch {
-    throw badRequest('Invalid or unsupported image file.')
+    throw badRequest(
+      'Invalid or unsupported image file.',
+    )
   }
 }
 
@@ -204,7 +254,7 @@ router.use((req, res, next) => {
   next()
 })
 
-// Create a signal. Image and details are optional.
+// Create an upcoming or released News Signal.
 router.post(
   '/',
   requireUser,
@@ -239,56 +289,98 @@ router.post(
   },
 )
 
-// Approve access for a registered user to one specific signal.
-// Accept an account ID or resolve an exact registered account email.
+// Public subscription status and monthly price.
+router.get('/subscription', async (req, res, next) => {
+  try {
+    const userId = await getSessionUserId(req)
+    const subscription = await getNewsSubscription(userId)
+
+    res.json({
+      subscription,
+      plan: {
+        productId: NEWS_PRODUCT_ID,
+        amount: NEWS_AMOUNT_CENTS / 100,
+        currency: 'USD',
+        interval: 'month',
+      },
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
+async function registeredUser(body = {}) {
+  let user
+
+  if (body.userId != null && body.userId !== '') {
+    if (!mongoose.isObjectIdOrHexString(body.userId)) {
+      throw badRequest('Invalid registered user ID.')
+    }
+
+    user = await User.findById(body.userId)
+      .select('_id email')
+      .lean()
+  } else {
+    const email = typeof body.email === 'string'
+      ? body.email.trim().toLowerCase()
+      : ''
+
+    if (!email) {
+      throw badRequest(
+        'A registered user email is required.',
+      )
+    }
+
+    user = await User.findOne({ email })
+      .select('_id email')
+      .lean()
+  }
+
+  if (!user) {
+    throw badRequest('No matching registered account.')
+  }
+
+  return user
+}
+
+// Admin: grant one calendar month of access to all News Signals.
 router.post(
-  '/access',
+  '/subscription',
   requireUser,
   requireAdmin,
   async (req, res, next) => {
     try {
-      const { userId, email, signalId } = req.body || {}
-      if (!mongoose.isObjectIdOrHexString(signalId)) {
-        throw badRequest('Select a valid signal.')
+      if (req.get('X-CMM-Request') !== '1') {
+        return res.status(403).json({
+          message: 'Request not allowed.',
+        })
       }
 
-      let user
-      if (userId != null && userId !== '') {
-        if (!mongoose.isObjectIdOrHexString(userId)) {
-          throw badRequest('Invalid registered user ID.')
-        }
-        user = await User.findById(userId).select('_id email').lean()
-      } else {
-        const accountEmail = typeof email === 'string'
-          ? email.trim().toLowerCase()
-          : ''
-        if (!accountEmail) throw badRequest('A registered user email is required.')
-        user = await User.findOne({ email: accountEmail }).select('_id email').lean()
-      }
+      const user = await registeredUser(req.body)
+      const startsAt = new Date()
 
-      if (!user) {
-        throw badRequest('No registered website account matches this user. Check the email in Manage Users.')
-      }
-      if (!(await Signal.exists({ _id: signalId }))) {
-        throw badRequest('This signal no longer exists. Reload the signal list.')
-      }
-
-      const filter = { userId: user._id, signalId }
-      try {
-        await SignalAccess.updateOne(
-          filter,
-          { $setOnInsert: filter },
-          { upsert: true, runValidators: true },
-        )
-      } catch (error) {
-        if (error.code !== 11000 || !(await SignalAccess.exists(filter))) throw error
-      }
+      await NewsSignalGrant.updateOne(
+        { userId: user._id },
+        {
+          $set: {
+            userId: user._id,
+            grantedBy:
+              req.user?._id ?? req.session?.userId,
+            startsAt,
+            expiresAt: addNewsCalendarMonth(startsAt),
+          },
+        },
+        {
+          upsert: true,
+          runValidators: true,
+        },
+      )
 
       res.json({
-        message: 'The selected signal is unlocked for this registered user.',
+        message:
+          'One month of access to all News Signals granted.',
         userId: user._id,
-        signalId,
-        hasAccess: true,
+        subscription: await getNewsSubscription(user._id),
       })
     } catch (error) {
       next(error)
@@ -296,95 +388,171 @@ router.post(
   },
 )
 
-// Read a registered user's individual signal grants for the admin panel.
+// Admin: revoke manual and legacy access.
+// Existing paid monthly periods remain unchanged.
+router.delete(
+  '/subscription',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      if (req.get('X-CMM-Request') !== '1') {
+        return res.status(403).json({
+          message: 'Request not allowed.',
+        })
+      }
+
+      const user = await registeredUser(req.body)
+      const now = new Date()
+
+      await NewsSignalGrant.updateOne(
+        { userId: user._id },
+        {
+          $set: {
+            userId: user._id,
+            grantedBy:
+              req.user?._id ?? req.session?.userId,
+            startsAt: now,
+            expiresAt: now,
+            legacyRevokedAt: now,
+          },
+        },
+        {
+          upsert: true,
+          runValidators: true,
+        },
+      )
+
+      res.json({
+        message:
+          'Manual and legacy News access revoked. Paid monthly periods are unchanged.',
+        userId: user._id,
+        subscription: await getNewsSubscription(user._id),
+      })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+// Admin: inspect a registered user's News subscription.
+router.get(
+  '/subscription/:userId',
+  requireUser,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      if (
+        !mongoose.isObjectIdOrHexString(req.params.userId)
+      ) {
+        throw badRequest('Invalid user ID.')
+      }
+
+      const exists = await User.exists({
+        _id: req.params.userId,
+      })
+
+      if (!exists) {
+        throw badRequest(
+          'Registered user does not exist.',
+        )
+      }
+
+      res.json({
+        userId: req.params.userId,
+        subscription: await getNewsSubscription(
+          req.params.userId,
+        ),
+      })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
+// Old per-card grant endpoints are replaced by monthly access.
+router.post(
+  '/access',
+  requireUser,
+  requireAdmin,
+  (req, res) => {
+    res.status(409).json({
+      message:
+        'Individual News grants have been replaced. Use POST /api/signals/subscription.',
+    })
+  },
+)
+
+router.delete(
+  '/access',
+  requireUser,
+  requireAdmin,
+  (req, res) => {
+    res.status(409).json({
+      message:
+        'Use DELETE /api/signals/subscription to revoke manual monthly News access.',
+    })
+  },
+)
+
+// Compatibility response for existing admin access lookups.
 router.get(
   '/access/:userId',
   requireUser,
   requireAdmin,
   async (req, res, next) => {
     try {
-      const { userId } = req.params
-      if (!mongoose.isObjectIdOrHexString(userId)) {
-        throw badRequest('Invalid registered user ID.')
-      }
-      if (!(await User.exists({ _id: userId }))) {
-        throw badRequest('Registered user does not exist.')
-      }
-      const records = await Signal.find()
+      const user = await registeredUser({
+        userId: req.params.userId,
+      })
+
+      const subscription = await getNewsSubscription(
+        user._id,
+      )
+
+      const records = await Signal.find({
+        archivedAt: null,
+      })
         .select('_id title pair scheduledAt newsType')
         .sort({ scheduledAt: -1 })
         .lean()
-      const grants = await SignalAccess.find({
-        userId,
-        signalId: { $in: records.map(record => record._id) },
-      }).select('signalId createdAt').lean()
-      const grantsById = new Map(grants.map(grant => [String(grant.signalId), grant]))
+
       const availableSignals = records.map(record => ({
+        ...record,
         id: String(record._id),
-        title: record.title,
-        pair: record.pair,
-        scheduledAt: record.scheduledAt,
-        newsType: record.newsType,
       }))
-      const signals = availableSignals
-        .filter(signal => grantsById.has(signal.id))
-        .map(signal => ({
-          ...signal,
-          grantedAt: grantsById.get(signal.id).createdAt,
-        }))
-      res.json({ availableSignals, signals })
+
+      res.json({
+        subscription,
+        availableSignals,
+        signals: subscription.active
+          ? availableSignals
+          : [],
+      })
     } catch (error) {
       next(error)
     }
   },
 )
 
-// Revoke only the selected user's access to the selected signal.
-router.delete(
-  '/access',
-  requireUser,
-  requireAdmin,
-  async (req, res, next) => {
-    try {
-      const { userId, signalId } = req.body || {}
-      if (!mongoose.isObjectIdOrHexString(userId) || !mongoose.isObjectIdOrHexString(signalId)) {
-        throw badRequest('Valid user and signal IDs are required.')
-      }
-      if (!(await User.exists({ _id: userId }))) {
-        throw badRequest('Registered user does not exist.')
-      }
-      await SignalAccess.deleteMany({ userId, signalId })
-      res.json({ message: 'Access removed for this signal only.', userId, signalId })
-    } catch (error) {
-      next(error)
-    }
-  },
-)
-
-// Public listing with protected details.
+// Active public cards.
+// Direction and full details are only returned with active access.
 router.get('/', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
 
-    const records = await Signal.find()
+    const records = await Signal.find({
+      archivedAt: null,
+    })
       .select('+image +details')
       .sort({ scheduledAt: -1 })
       .limit(50)
       .lean()
 
-    const grants = userId
-      ? await SignalAccess.find({
-          userId,
-          signalId: { $in: records.map(record => record._id) },
-        }).select('signalId').lean()
-      : []
-
-    const purchasedIds = new Set(
-      grants.map(grant => String(grant.signalId)),
-    )
+    const subscription = await getNewsSubscription(userId)
 
     const signals = records.map(record => {
-      const hasAccess = purchasedIds.has(String(record._id))
+      const hasAccess = subscription.active
 
       const result = {
         _id: record._id,
@@ -396,6 +564,9 @@ router.get('/', async (req, res, next) => {
         hasAccess,
         hasImage: imageByteLength(record.image) > 0,
         isReleased: isSignalReleased(record),
+        updatedAt: record.updatedAt,
+        releasedAt: record.releasedAt || null,
+        autoArchiveAt: record.autoArchiveAt || null,
       }
 
       if (hasAccess) {
@@ -408,20 +579,31 @@ router.get('/', async (req, res, next) => {
       return result
     })
 
-    res.json({ signals })
+    res.json({
+      signals,
+      subscription,
+      plan: {
+        productId: NEWS_PRODUCT_ID,
+        amount: NEWS_AMOUNT_CENTS / 100,
+        currency: 'USD',
+        interval: 'month',
+      },
+    })
   } catch (error) {
     next(error)
   }
 })
 
-// Admin listing; image bytes are not included in the response.
+// Admin active-card list.
 router.get(
   '/admin',
   requireUser,
   requireAdmin,
   async (req, res, next) => {
     try {
-      const records = await Signal.find()
+      const records = await Signal.find({
+        archivedAt: null,
+      })
         .select('+image +details')
         .sort({ scheduledAt: -1 })
         .limit(200)
@@ -447,40 +629,54 @@ router.get(
     }
   },
 )
-// News Signals unlocked for the logged-in user.
-router.get('/my', requireUser, async (req, res, next) => {
-  try {
-    const signalIds = await SignalAccess.distinct('signalId', {
-      userId: req.user._id,
-    })
 
-    const records = await Signal.find({
-      _id: { $in: signalIds },
-    })
-      .select('+image +details')
-      .sort({ scheduledAt: -1, _id: -1 })
+// Subscriber dashboard: all active News cards.
+router.get(
+  '/my',
+  requireUser,
+  async (req, res, next) => {
+    try {
+      const userId = await getSessionUserId(req)
+      const subscription = await getNewsSubscription(userId)
 
-    res.json({
-      signals: records.map(signal => ({
-        _id: String(signal._id),
-        pair: signal.pair,
-        title: signal.title,
-        scheduledAt: signal.scheduledAt,
-        newsType: signal.newsType,
-        direction: signal.direction,
-        confirmed: signal.confirmed,
-        details: signal.details || '',
-        news: signal.news || '',
-        hasAccess: true,
-        hasImage: imageByteLength(signal.image) > 0,
-        isReleased: isSignalReleased(signal),
-        updatedAt: signal.updatedAt,
-      })),
-    })
-  } catch (error) {
-    next(error)
-  }
-})
+      if (!subscription.active) {
+        return res.json({
+          signals: [],
+          subscription,
+        })
+      }
+
+      const records = await Signal.find({
+        archivedAt: null,
+      })
+        .select('+image +details')
+        .sort({ scheduledAt: -1, _id: -1 })
+        .limit(200)
+
+      res.json({
+        subscription,
+        signals: records.map(signal => ({
+          _id: String(signal._id),
+          pair: signal.pair,
+          title: signal.title,
+          scheduledAt: signal.scheduledAt,
+          newsType: signal.newsType,
+          direction: signal.direction,
+          confirmed: signal.confirmed,
+          details: signal.details || '',
+          news: signal.news || '',
+          hasAccess: true,
+          hasImage: imageByteLength(signal.image) > 0,
+          isReleased: isSignalReleased(signal),
+          updatedAt: signal.updatedAt,
+        })),
+      })
+    } catch (error) {
+      next(error)
+    }
+  },
+)
+
 // Validate individual signal IDs.
 router.use('/:id', (req, res, next) => {
   if (!mongoose.isObjectIdOrHexString(req.params.id)) {
@@ -492,7 +688,7 @@ router.use('/:id', (req, res, next) => {
   next()
 })
 
-// Public blurred preview.
+// Public blurred preview, including archived cards.
 router.get('/:id/preview', async (req, res, next) => {
   try {
     const signal = await Signal.findById(req.params.id)
@@ -517,7 +713,7 @@ router.get('/:id/preview', async (req, res, next) => {
   }
 })
 
-// Full image requires access to this specific signal.
+// Full charts, including archived cards, require monthly access.
 router.get('/:id/image', async (req, res, next) => {
   try {
     const userId = await getSessionUserId(req)
@@ -535,7 +731,8 @@ router.get('/:id/image', async (req, res, next) => {
 
     if (!allowed) {
       return res.status(403).json({
-        message: 'Purchase this signal to unlock the chart.',
+        message:
+          'An active News Signal subscription is required.',
       })
     }
 
@@ -561,8 +758,7 @@ router.get('/:id/image', async (req, res, next) => {
   }
 })
 
-// Edit details and optionally upload or replace an image.
-// Accepts JSON for text-only edits and multipart for image uploads.
+// Edit an active signal and optionally replace its chart.
 router.patch(
   '/:id',
   requireUser,
@@ -576,8 +772,10 @@ router.patch(
         throw badRequest('No update fields provided.')
       }
 
-      const signal = await Signal.findById(req.params.id)
-        .select('+image')
+      const signal = await Signal.findOne({
+        _id: req.params.id,
+        archivedAt: null,
+      }).select('+image')
 
       if (!signal) {
         return res.status(404).json({
@@ -609,29 +807,25 @@ router.patch(
   },
 )
 
-// Delete a signal and its access records.
+// Archive instead of permanently deleting.
 router.delete(
   '/:id',
   requireUser,
   requireAdmin,
   async (req, res, next) => {
     try {
-      const signal = await Signal.findByIdAndDelete(
+      const signal = await archiveSignal(
+        Signal,
         req.params.id,
+        req.user?._id ?? req.session?.userId,
       )
 
-      if (!signal) {
-        return res.status(404).json({
-          message: 'Signal not found.',
-        })
-      }
-
-      await SignalAccess.deleteMany({
-        signalId: req.params.id,
-      })
-
       res.json({
-        message: 'Signal deleted successfully.',
+        message:
+          'Signal moved to history. Existing access records were preserved.',
+        signalId: String(signal._id),
+        archivedAt: signal.archivedAt,
+        outcome: signal.outcome || 'pending',
       })
     } catch (error) {
       next(error)
@@ -651,7 +845,10 @@ router.use((error, req, res, next) => {
       : error.status || 500
 
   if (status === 500) {
-    console.error('Signal API failed:', error.message)
+    console.error(
+      'Signal API failed:',
+      error.stack || error,
+    )
   }
 
   res.status(status).json({

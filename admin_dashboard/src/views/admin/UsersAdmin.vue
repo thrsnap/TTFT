@@ -62,17 +62,11 @@ const availableCourses = ref([])
 const grantedCourses = ref([])
 const selectedCourseId = ref('')
 
-const availableSignals = ref([])
-const grantedSignals = ref([])
-const selectedSignalId = ref('')
-const signalGrantCounts = ref({})
+const newsSubscription = ref({ active: false, expiresAt: null })
+const newsAccessStates = ref({})
 const dailySubscription = ref({ active: false, expiresAt: null })
 const dailyExpiry = ref('')
 const dailyAccessStates = ref({})
-const signalChoices = computed(() => {
-  const grantedIds = new Set(grantedSignals.value.map(signal => String(signal.id)))
-  return availableSignals.value.filter(signal => !grantedIds.has(String(signal.id)))
-})
 
 const SIGNAL_BASE = (
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
@@ -96,22 +90,22 @@ async function signalRequest(path, options = {}) {
 }
 
 function getSignalUserAccess(userId) {
-  return signalRequest(`/access/${encodeURIComponent(userId)}`)
+  return signalRequest(`/subscription/${encodeURIComponent(userId)}`)
 }
 
-function grantSignalAccess(userId, signalId) {
-  return signalRequest('/access', {
+function grantSignalAccess(userId) {
+  return signalRequest('/subscription', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, signalId }),
+    body: JSON.stringify({ userId }),
   })
 }
 
-function revokeSignalAccess(userId, signalId) {
-  return signalRequest('/access', {
+function revokeSignalAccess(userId) {
+  return signalRequest('/subscription', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, signalId }),
+    body: JSON.stringify({ userId }),
   })
 }
 
@@ -307,9 +301,7 @@ function clearPanel() {
   availableCourses.value = []
   grantedCourses.value = []
   selectedCourseId.value = ''
-  availableSignals.value = []
-  grantedSignals.value = []
-  selectedSignalId.value = ''
+  newsSubscription.value = { active: false, expiresAt: null }
   dailySubscription.value = { active: false, expiresAt: null }
   dailyExpiry.value = ''
 }
@@ -400,18 +392,9 @@ async function loadPanel() {
       } else setDailyMonth()
     } else {
       const data = await getSignalUserAccess(accessUser.value.id)
-      if (!Array.isArray(data.availableSignals) || !Array.isArray(data.signals)) {
-        throw new Error('Invalid per-signal access response.')
-      }
-      availableSignals.value = data.availableSignals
-      grantedSignals.value = data.signals
-      signalGrantCounts.value = {
-        ...signalGrantCounts.value,
-        [accessUser.value.id]: data.signals.length,
-      }
-      if (!signalChoices.value.some(signal => String(signal.id) === selectedSignalId.value)) {
-        selectedSignalId.value = ''
-      }
+      if (typeof data.subscription?.active !== 'boolean') throw new Error('Invalid News subscription response.')
+      newsSubscription.value = data.subscription
+      newsAccessStates.value = { ...newsAccessStates.value, [accessUser.value.id]: data.subscription }
     }
 
     accessReady.value = true
@@ -520,28 +503,15 @@ async function removeCourse(course) {
 }
 
 async function saveSignals() {
-  if (panelType.value !== 'signal' || !accessUser.value || locked.value) return
-  if (!signalChoices.value.some(signal => String(signal.id) === selectedSignalId.value)) {
-    accessError.value = 'Select a signal first.'
-    return
-  }
-  const userId = accessUser.value.id
-  const signalId = selectedSignalId.value
-  await changeAccess(
-    () => grantSignalAccess(userId, signalId),
-    'Access granted for this signal only.',
-  )
+  if (panelType.value !== 'signal' || !accessUser.value || locked.value || !accessReady.value) return
+  if (!window.confirm(`Grant all News Signals for one calendar month from now to ${accessUser.value.email}?`)) return
+  await changeAccess(() => grantSignalAccess(accessUser.value.id), 'One month of News Signal access granted.')
 }
 
-async function removeSignals(signal) {
+async function removeSignals() {
   if (panelType.value !== 'signal' || !accessUser.value || locked.value || !accessReady.value) return
-  if (!grantedSignals.value.some(item => String(item.id) === String(signal?.id))) return
-  if (!window.confirm(`Remove "${signal.title}" access for ${accessUser.value.email}?`)) return
-  const userId = accessUser.value.id
-  await changeAccess(
-    () => revokeSignalAccess(userId, signal.id),
-    'Access removed for this signal only.',
-  )
+  if (!window.confirm(`Revoke manual and legacy News access for ${accessUser.value.email}? Paid monthly periods remain active until expiry.`)) return
+  await changeAccess(() => revokeSignalAccess(accessUser.value.id), 'Manual News access revoked. Paid periods are unchanged.')
 }
 
 onMounted(() => {
@@ -930,46 +900,18 @@ onMounted(() => {
           <button v-if="dailySubscription.active" type="button" :disabled="locked" @click="removeDaily" class="mt-5 min-h-11 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-500 disabled:opacity-50">Remove Daily Signal Access</button>
         </div>
 
-        <!-- Access is granted separately for each signal. -->
         <div v-if="accessReady && !accessLoading && panelType === 'signal'" class="max-w-xl">
-          <p class="mb-4 text-sm text-(--muted-color)">
-            Choose one news signal to unlock. Access lasts until that signal is deleted.
-            Each new signal requires a separate purchase or approval.
-          </p>
-          <form @submit.prevent="saveSignals">
-            <fieldset :disabled="locked">
-              <label for="selected-signal" class="mb-2 block text-sm font-semibold">News signal</label>
-              <select id="selected-signal" v-model="selectedSignalId" required
-                class="min-h-11 w-full min-w-0 rounded-lg border border-(--border-color) bg-(--input-bg) px-3 py-2">
-                <option disabled value="">Select a signal</option>
-                <option v-for="signal in signalChoices" :key="signal.id" :value="String(signal.id)">
-                  {{ signal.pair }} — {{ signal.title }} — {{ dateTime(signal.scheduledAt) }}
-                </option>
-              </select>
-              <button type="submit" :disabled="locked || !selectedSignalId"
-                class="mt-4 min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 max-[480px]:w-full">
-                {{ busy ? 'Please wait…' : 'Grant Selected Signal Access' }}
-              </button>
-            </fieldset>
-          </form>
-          <p v-if="!signalChoices.length" class="mt-2 text-xs text-(--muted-color)">
-            No additional signals are available to grant.
-          </p>
-          <h3 class="mt-6 font-semibold">Approved signals</h3>
-          <p v-if="!grantedSignals.length" class="mt-2 text-sm text-(--muted-color)">No signal access granted.</p>
-          <ul v-else class="mt-3 space-y-3">
-            <li v-for="signal in grantedSignals" :key="signal.id"
-              class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-(--border-color) p-4">
-              <div class="min-w-0">
-                <p class="break-words text-sm font-semibold">{{ signal.pair }} — {{ signal.title }}</p>
-                <p class="mt-1 text-xs text-(--muted-color)">Granted {{ dateTime(signal.grantedAt) }}</p>
-              </div>
-              <button type="button" :disabled="locked" @click="removeSignals(signal)"
-                class="min-h-11 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-500 disabled:opacity-50">
-                Remove This Signal Access
-              </button>
-            </li>
-          </ul>
+          <p class="mb-4 text-sm text-(--muted-color)">One subscription unlocks every News Signal for one calendar month, including new cards. Daily Signals and courses have separate access.</p>
+          <div class="mb-4 rounded-xl border border-(--border-color) p-4">
+            <p class="font-semibold">{{ newsSubscription.active ? 'News subscription active' : 'No active News subscription' }}</p>
+            <p v-if="newsSubscription.expiresAt" class="mt-2 text-sm text-(--muted-color)">Access until {{ dateTime(newsSubscription.expiresAt) }}</p>
+          </div>
+          <button type="button" :disabled="locked" @click="saveSignals" class="min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 max-[480px]:w-full">
+            {{ busy ? 'Please wait…' : 'Grant 1 Month of News Access' }}
+          </button>
+          <p class="mt-3 text-xs text-(--muted-color)">Manual approval starts one calendar month from now. Repeating approval resets the manual period from now; a later paid expiry still applies.</p>
+          <button type="button" :disabled="locked" @click="removeSignals" class="mt-5 min-h-11 rounded-lg bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-500 disabled:opacity-50">Revoke Manual News Access</button>
+          <p class="mt-3 text-xs text-(--muted-color)">Revoking manual access also removes legacy grants. Paid monthly subscriptions remain active until their expiry.</p>
         </div>
 
         <p class="mt-5 text-xs text-(--muted-color)">
@@ -1146,9 +1088,9 @@ onMounted(() => {
               :aria-label="`Signal access for ${user.username}`">
               <h4 class="text-sm font-semibold">Signal Access</h4>
               <p class="mt-2 text-xs text-(--muted-color)">
-                {{ signalGrantCounts[user.id] !== undefined
-                  ? `${signalGrantCounts[user.id]} signal(s) approved`
-                  : 'Open Signal Access to manage individual news signals.' }}
+                {{ newsAccessStates[user.id]
+                  ? (newsAccessStates[user.id].active ? 'Active until ' + dateTime(newsAccessStates[user.id].expiresAt) : 'No active News subscription')
+                  : 'Manage monthly access to all News Signals.' }}
               </p>
               <button type="button" :disabled="locked" @click="openPanel(user, 'signal')"
                 class="mt-3 min-h-11 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 max-[480px]:w-full">
