@@ -330,7 +330,7 @@ import { useI18n } from 'vue-i18n'
 const { t, locale: language } = useI18n({
   useScope: 'global',
 })
-const contactEmail = import.meta.env.VITE_CONTACT_EMAIL || 'your-email@example.com'
+const contactEmail = import.meta.env.VITE_CONTACT_EMAIL || 'cmmft.devsupport@gmail.com'
 const channels = [
   { name: 'Facebook', description: 'Chat with us on Facebook.', href: 'https://www.facebook.com/thuntulaofficial01', icon: faFacebook, iconClass: 'bg-blue-500/10 text-blue-500', external: true },
   { name: 'Telegram', description: 'Chat with us directly on Telegram.', href: 'https://t.me/ThunTulaFT', icon: faTelegram, iconClass: 'bg-sky-500/10 text-sky-500', external: true },
