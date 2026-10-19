@@ -144,8 +144,6 @@ function scrollToTop() {
 onMounted(async () => {
   startPageLoading()
 
-  document.getElementById('initial-loading')?.remove()
-
   try {
     await router.isReady()
 

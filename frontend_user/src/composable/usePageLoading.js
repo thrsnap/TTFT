@@ -14,7 +14,10 @@ export function startPageLoading() {
 export function stopPageLoading() {
   clearTimeout(timer)
 
-  const remaining = Math.max(0, 800 - (Date.now() - startedAt))
+  const remaining = Math.max(
+    0,
+    800 - (Date.now() - startedAt),
+  )
 
   timer = setTimeout(() => {
     isPageLoading.value = false
