@@ -313,7 +313,7 @@ onUnmounted(() => {
       <p v-if="error" role="alert" class="mt-4 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
       <p v-if="message" role="status" aria-live="polite" class="mt-4 text-sm">{{ message }}</p>
       <button type="button" :disabled="buttonDisabled" @click="handlePayment" class="mt-5 min-h-11 w-full rounded-xl bg-sky-600 px-4 py-3 font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50">{{ buttonLabel }}</button>
-      <a v-if="verificationBlocked || order?.signalDeleted || (paid && !unlocked)" href="https://t.me/ThunTulaFT" target="_blank" rel="noopener noreferrer" class="mt-3 inline-block py-2 text-sm font-semibold text-sky-600 underline dark:text-sky-400">Contact admin on Telegram</a>
+      <a v-if="verificationBlocked || order?.signalDeleted || (paid && !unlocked)" href="https://t.me/makara_baya" target="_blank" rel="noopener noreferrer" class="mt-3 inline-block py-2 text-sm font-semibold text-sky-600 underline dark:text-sky-400">Contact admin on Telegram</a>
       <p v-if="order?.orderId" class="mt-4 break-all text-xs text-(--muted-color)">Order: {{ order.orderId }}</p>
     </section>
   </main>
