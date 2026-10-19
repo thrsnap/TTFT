@@ -51,7 +51,7 @@ function handleError(event) {
       role="status"
       aria-label="Loading image"
       class="absolute inset-0 animate-pulse
-             bg-slate-400/30 motion-reduce:animate-none"
+             bg-slate-400/50 motion-reduce:animate-none"
     ></div>
 
     <img

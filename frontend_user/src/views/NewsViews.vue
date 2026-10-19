@@ -1,3 +1,513 @@
+<script setup>
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+
+import impactnews from '../components/impactnew.vue'
+import LoadingImage from '../components/LoadingImage.vue'
+
+const route = useRoute()
+
+const BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+)
+  .trim()
+  .replace(/\/+$/, '')
+
+const REFRESH_INTERVAL = 5 * 60 * 1000
+const RELATIVE_TIME_INTERVAL = 10 * 1000
+
+const ALL_CATEGORIES = [
+  'economy',
+  'markets',
+  'forex',
+  'crypto',
+]
+
+const categories = [
+  { value: 'all', label: 'All' },
+  { value: 'economy', label: 'Economy' },
+  { value: 'markets', label: 'Markets' },
+  { value: 'insider', label: 'Insider Trading' },
+  { value: 'forex', label: 'Forex' },
+  { value: 'crypto', label: 'Crypto' },
+]
+
+const feedDefinitions = [
+  {
+    key: 'economy',
+    label: 'economy',
+    endpoint: '/api/investing-news',
+  },
+  {
+    key: 'markets',
+    label: 'stock market',
+    endpoint: '/api/investing-news/markets',
+  },
+  {
+    key: 'insider',
+    label: 'insider trading',
+    endpoint: '/api/investing-news/insider',
+  },
+  {
+    key: 'forex',
+    label: 'forex',
+    endpoint: '/api/investing-news/forex',
+  },
+  {
+    key: 'crypto',
+    label: 'crypto',
+    endpoint: '/api/investing-news/crypto',
+  },
+]
+
+const newsScroll = ref(null)
+const selectedArticle = ref(null)
+const articleDialog = ref(null)
+const news = ref([])
+const brokenImages = reactive(new Set())
+const relativeNow = ref(Date.now())
+
+const activeRequests = new Set()
+const pendingFeeds = new Set()
+
+let newsRefreshTimer = null
+let relativeTimeTimer = null
+let disposed = false
+
+// Start with loading=true so the first render shows skeleton cards.
+const feedState = reactive(
+  Object.fromEntries(
+    feedDefinitions.map(feed => [
+      feed.key,
+      {
+        loading: true,
+        error: '',
+        stale: false,
+      },
+    ]),
+  ),
+)
+
+const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', {
+  numeric: 'always',
+})
+
+const relativeUnits = [
+  { name: 'year', seconds: 365 * 24 * 60 * 60 },
+  { name: 'month', seconds: 30 * 24 * 60 * 60 },
+  { name: 'week', seconds: 7 * 24 * 60 * 60 },
+  { name: 'day', seconds: 24 * 60 * 60 },
+  { name: 'hour', seconds: 60 * 60 },
+  { name: 'minute', seconds: 60 },
+]
+
+const selectedCategory = computed(() => {
+  const category = route.params.category
+
+  return categories.some(item => item.value === category)
+    ? category
+    : 'all'
+})
+
+function categoryLocation(category) {
+  const prefix = route.params.lang === 'km' ? '/km' : ''
+
+  return {
+    path: category === 'all'
+      ? `${prefix}/news`
+      : `${prefix}/news/${category}`,
+    query: route.query,
+  }
+}
+
+function belongsToSelectedCategory(category) {
+  return selectedCategory.value === 'all'
+    ? ALL_CATEGORIES.includes(category)
+    : category === selectedCategory.value
+}
+
+const feedStatuses = computed(() =>
+  feedDefinitions
+    .filter(feed => belongsToSelectedCategory(feed.key))
+    .map(feed => ({
+      key: feed.key,
+      label: feed.label,
+      ...feedState[feed.key],
+      retry: () => loadInvestingFeed(feed.key, feed.endpoint),
+    })),
+)
+
+const selectedFeedLoading = computed(() =>
+  feedStatuses.value.some(feed => feed.loading),
+)
+
+const selectedFeedHasError = computed(() =>
+  feedStatuses.value.some(feed => Boolean(feed.error)),
+)
+
+// Show skeleton cards during every selected-feed fetch.
+const showNewsSkeleton = computed(() =>
+  selectedFeedLoading.value,
+)
+
+const latestNews = computed(() =>
+  [...news.value].sort(
+    (a, b) =>
+      articleTimestamp(b.publishedAt) -
+        articleTimestamp(a.publishedAt) ||
+      articleTimestamp(b.addedAt) -
+        articleTimestamp(a.addedAt),
+  ),
+)
+
+const filteredNews = computed(() =>
+  latestNews.value.filter(article =>
+    belongsToSelectedCategory(article.category),
+  ),
+)
+
+const breakingNews = computed(() =>
+  latestNews.value.find(article =>
+    ALL_CATEGORIES.includes(article.category),
+  ),
+)
+
+function safeUrl(value) {
+  if (typeof value !== 'string' || !value.trim()) return ''
+
+  try {
+    const url = new URL(value.trim())
+
+    return ['https:', 'http:'].includes(url.protocol)
+      ? url.href
+      : ''
+  } catch {
+    return ''
+  }
+}
+
+function normalizeDate(value) {
+  if (!value) return null
+
+  const date = new Date(value)
+
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toISOString()
+}
+
+function articleTimestamp(value) {
+  if (!value) return 0
+
+  const timestamp = new Date(value).getTime()
+
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function updateRelativeTime() {
+  relativeNow.value = Date.now()
+}
+
+function formatAddedTime(value) {
+  if (!value) return 'Added time unavailable'
+
+  const timestamp = new Date(value).getTime()
+
+  if (!Number.isFinite(timestamp)) {
+    return 'Added time unavailable'
+  }
+
+  const difference = timestamp - relativeNow.value
+
+  if (difference >= 60000) {
+    return 'Added time unavailable'
+  }
+
+  const seconds = Math.floor(
+    Math.max(0, -difference) / 1000,
+  )
+
+  if (seconds < 60) {
+    return 'Added just now'
+  }
+
+  const unit = relativeUnits.find(
+    item => seconds >= item.seconds,
+  )
+
+  const amount = Math.floor(seconds / unit.seconds)
+
+  return `Added ${relativeTimeFormatter.format(-amount, unit.name)}`
+}
+
+function formatFullDate(value) {
+  if (!value) return 'Time unavailable'
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Time unavailable'
+  }
+
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short',
+  }).format(date)
+}
+
+function addedTimeTitle(article) {
+  return `First added to this website: ${formatFullDate(article.addedAt)}`
+}
+
+function hasUsableImage(article) {
+  return Boolean(
+    article?.image && !brokenImages.has(article.image),
+  )
+}
+
+function handleImageError(article) {
+  if (article?.image) {
+    brokenImages.add(article.image)
+  }
+}
+
+watch(
+  () => route.params.category,
+  async () => {
+    closeArticle()
+
+    await nextTick()
+
+    if (newsScroll.value) {
+      newsScroll.value.scrollTop = 0
+    }
+  },
+)
+
+async function openArticle(article) {
+  if (!article || disposed) return
+
+  updateRelativeTime()
+  selectedArticle.value = article
+
+  await nextTick()
+
+  if (disposed) return
+
+  const dialog = articleDialog.value
+
+  if (dialog && !dialog.open) {
+    dialog.showModal()
+    dialog.scrollTop = 0
+  }
+}
+
+function closeArticle() {
+  articleDialog.value?.close()
+}
+
+function closeOnBackdrop(event) {
+  const dialog = articleDialog.value
+
+  if (!dialog || event.target !== dialog) return
+
+  const rect = dialog.getBoundingClientRect()
+
+  const outside =
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+
+  if (outside) closeArticle()
+}
+
+function replaceProviderArticles(provider, articles) {
+  const otherNews = news.value.filter(
+    article => article.provider !== provider,
+  )
+
+  const uniqueArticles = [
+    ...new Map(
+      articles.map(article => [article.id, article]),
+    ).values(),
+  ]
+
+  news.value = [...otherNews, ...uniqueArticles]
+
+  if (selectedArticle.value?.provider === provider) {
+    const selectedId = selectedArticle.value.id
+
+    const updatedArticle = uniqueArticles.find(
+      article => article.id === selectedId,
+    )
+
+    if (updatedArticle) {
+      selectedArticle.value = updatedArticle
+    }
+  }
+}
+
+async function loadInvestingFeed(category, endpoint) {
+  const state = feedState[category]
+  const provider = `investing-${category}`
+
+  // Use pendingFeeds rather than state.loading because the initial
+  // display starts with loading=true before requests begin.
+  if (disposed || pendingFeeds.has(category)) return
+
+  pendingFeeds.add(category)
+
+  state.loading = true
+  state.error = ''
+
+  const controller = new AbortController()
+  activeRequests.add(controller)
+
+  const requestTimeout = window.setTimeout(() => {
+    controller.abort()
+  }, 20000)
+
+  try {
+    const response = await fetch(`${BASE_URL}${endpoint}`, {
+      signal: controller.signal,
+      cache: 'no-store',
+    })
+
+    const data = await response.json().catch(() => null)
+
+    if (!response.ok || !data?.success) {
+      throw new Error(
+        data?.message ||
+          `Unable to load ${category} news (HTTP ${response.status}).`,
+      )
+    }
+
+    if (!Array.isArray(data.news)) {
+      throw new Error(`Invalid ${category} news response.`)
+    }
+
+    const articles = data.news
+      .filter(
+        item =>
+          item &&
+          typeof item === 'object' &&
+          !(
+            category === 'crypto' &&
+            /ETH\s+Gas\s*:/i.test(item.title || '')
+          ),
+      )
+      .map((item, index) => ({
+        id: `${provider}-${item.id || item.link || index}`,
+        provider,
+        category,
+        title: item.title || 'Latest News',
+        addedAt: normalizeDate(item.addedAt),
+        publishedAt: normalizeDate(item.publishedAt),
+        author: item.source || 'Investing.com',
+        image: safeUrl(item.image),
+        description: item.description || '',
+        content:
+          item.description ||
+          'Read the full article at Investing.com.',
+        link: safeUrl(item.link),
+      }))
+
+    if (disposed) return
+
+    replaceProviderArticles(provider, articles)
+
+    state.stale = Boolean(data.stale)
+    updateRelativeTime()
+  } catch (failure) {
+    if (disposed) return
+
+    console.error(`${category} news error:`, failure)
+
+    state.error =
+      failure.name === 'AbortError'
+        ? `${category.charAt(0).toUpperCase() + category.slice(1)} news request timed out. Please retry.`
+        : failure.message || `Unable to load ${category} news.`
+  } finally {
+    window.clearTimeout(requestTimeout)
+
+    activeRequests.delete(controller)
+    pendingFeeds.delete(category)
+
+    state.loading = false
+  }
+}
+
+function refreshAllFeeds() {
+  return Promise.allSettled(
+    feedDefinitions.map(feed =>
+      loadInvestingFeed(feed.key, feed.endpoint),
+    ),
+  )
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    updateRelativeTime()
+    refreshAllFeeds()
+  }
+}
+
+onMounted(() => {
+  updateRelativeTime()
+  refreshAllFeeds()
+
+  relativeTimeTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      updateRelativeTime()
+    }
+  }, RELATIVE_TIME_INTERVAL)
+
+  newsRefreshTimer = window.setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      refreshAllFeeds()
+    }
+  }, REFRESH_INTERVAL)
+
+  document.addEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+})
+
+onUnmounted(() => {
+  disposed = true
+
+  window.clearInterval(relativeTimeTimer)
+  window.clearInterval(newsRefreshTimer)
+
+  document.removeEventListener(
+    'visibilitychange',
+    handleVisibilityChange,
+  )
+
+  for (const controller of activeRequests) {
+    controller.abort()
+  }
+
+  activeRequests.clear()
+  pendingFeeds.clear()
+})
+</script>
+
 <template>
   <main
     class="min-h-screen bg-(--page-bg) px-4 py-10
@@ -31,6 +541,7 @@
         </p>
       </header>
 
+      <!-- Breaking news -->
       <section
         v-if="breakingNews"
         aria-label="Latest news headline"
@@ -100,11 +611,14 @@
               </time>
             </div>
 
-            <span aria-hidden="true" class="shrink-0 text-xl">→</span>
+            <span aria-hidden="true" class="shrink-0 text-xl">
+              →
+            </span>
           </button>
         </div>
       </section>
 
+      <!-- Latest news -->
       <section aria-labelledby="latest-news" class="min-w-0">
         <div
           class="mb-6 flex flex-wrap items-end justify-between gap-3
@@ -121,6 +635,7 @@
           </h2>
 
           <span
+            v-if="!showNewsSkeleton"
             aria-live="polite"
             class="text-sm text-(--muted-color) max-[480px]:text-xs"
           >
@@ -128,6 +643,7 @@
           </span>
         </div>
 
+        <!-- Categories -->
         <nav
           aria-label="News categories"
           class="mb-6 flex flex-wrap gap-2 max-[600px]:mb-5
@@ -157,16 +673,9 @@
           </RouterLink>
         </nav>
 
+        <!-- Errors and retry buttons -->
         <div class="mb-3 space-y-2">
           <template v-for="feed in feedStatuses" :key="feed.key">
-            <p
-              v-if="feed.loading"
-              role="status"
-              class="text-sm text-(--muted-color)"
-            >
-              Loading {{ feed.label }} news…
-            </p>
-
             <div
               v-if="feed.error"
               class="flex flex-wrap items-center gap-3"
@@ -179,7 +688,7 @@
                 type="button"
                 :disabled="feed.loading"
                 class="cursor-pointer text-sm text-indigo-500 underline
-                       disabled:opacity-50"
+                       disabled:cursor-wait disabled:opacity-50"
                 @click="feed.retry()"
               >
                 Retry {{ feed.label }} news
@@ -205,6 +714,7 @@
           role="region"
           aria-label="Latest news cards"
           aria-describedby="scroll-instructions"
+          :aria-busy="showNewsSkeleton"
           class="max-h-[75vh] min-w-0 overflow-y-auto rounded-xl
                  [scrollbar-gutter:stable]
                  [scrollbar-color:#6366f1_var(--surface-bg)]
@@ -228,20 +738,75 @@
                    max-[414px]:gap-1.5
                    max-[320px]:gap-1 max-[320px]:pr-1"
           >
+            <!-- Loading cards -->
+            <template v-if="showNewsSkeleton">
+              <div
+                v-for="item in 6"
+                :key="`news-skeleton-${item}`"
+                aria-hidden="true"
+                class="overflow-hidden rounded-2xl
+                       border border-slate-400/40 bg-(--surface-bg)
+                       max-[768px]:rounded-xl max-[414px]:rounded-lg"
+              >
+                <div
+                  class="animate-pulse motion-reduce:animate-none"
+                >
+                  <div
+                    class="aspect-[16/10] bg-slate-400/50"
+                  ></div>
+
+                  <div
+                    class="space-y-3 p-5
+                           max-[768px]:p-3
+                           max-[480px]:p-2.5"
+                  >
+                    <div
+                      class="h-3 w-2/3 rounded bg-slate-400/50"
+                    ></div>
+
+                    <div
+                      class="h-4 w-full rounded bg-slate-400/50"
+                    ></div>
+
+                    <div
+                      class="h-4 w-4/5 rounded bg-slate-400/50"
+                    ></div>
+
+                    <div
+                      class="h-3 w-full rounded bg-slate-400/50"
+                    ></div>
+
+                    <div
+                      class="h-3 w-3/4 rounded bg-slate-400/50"
+                    ></div>
+
+                    <div class="pt-3">
+                      <div
+                        class="h-4 w-1/3 rounded bg-slate-400/50"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Empty state -->
             <p
-              v-if="filteredNews.length === 0"
+              v-else-if="filteredNews.length === 0"
               class="col-span-full py-12 text-center text-(--muted-color)
                      max-[480px]:py-8 max-[480px]:text-sm"
             >
               {{
-                selectedFeedLoading
-                  ? 'Loading articles…'
+                selectedFeedHasError
+                  ? 'Unable to load articles. Use the Retry button above.'
                   : 'No articles in this category yet.'
               }}
             </p>
 
+            <!-- Keep cards mounted but hide them during API fetching -->
             <article
               v-for="article in filteredNews"
+              v-show="!showNewsSkeleton"
               :key="article.id"
               class="group flex h-full min-w-0 flex-col
                      overflow-hidden rounded-2xl
@@ -260,12 +825,12 @@
                        focus-visible:outline-indigo-500"
                 @click="openArticle(article)"
               >
-                <img
+                <LoadingImage
                   :key="article.image"
                   :src="article.image"
                   alt=""
+                  aspect-ratio="16 / 10"
                   loading="lazy"
-                  class="h-full w-full object-cover"
                   @error="handleImageError(article)"
                 />
               </button>
@@ -349,6 +914,7 @@
       </section>
     </div>
 
+    <!-- Read More popup -->
     <dialog
       ref="articleDialog"
       aria-labelledby="article-title"
@@ -402,23 +968,23 @@
           class="p-5 sm:p-8 max-[768px]:p-6 max-[600px]:p-5
                  max-[480px]:p-4 max-[414px]:p-3.5 max-[320px]:p-3"
         >
-          <!-- Full dates and times appear inside Read More. -->
           <div
-  class="mb-4 space-y-2 text-sm text-(--muted-color)
-         [overflow-wrap:anywhere]
-         max-[480px]:mb-3 max-[480px]:text-xs"
->
-  <p class="font-semibold">
-    {{ selectedArticle.author }}
-  </p>
+            class="mb-4 space-y-2 text-sm text-(--muted-color)
+                   [overflow-wrap:anywhere]
+                   max-[480px]:mb-3 max-[480px]:text-xs"
+          >
+            <p class="font-semibold">
+              {{ selectedArticle.author }}
+            </p>
 
-  <p>
-    added at
-    <time :datetime="selectedArticle.addedAt || undefined">
-      {{ formatFullDate(selectedArticle.addedAt) }}
-    </time>
-  </p>
-</div>
+            <p>
+              added at
+              <time :datetime="selectedArticle.addedAt || undefined">
+                {{ formatFullDate(selectedArticle.addedAt) }}
+              </time>
+            </p>
+          </div>
+
           <h2
             id="article-title"
             class="text-2xl font-bold leading-tight sm:text-3xl
@@ -430,14 +996,17 @@
             {{ selectedArticle.title }}
           </h2>
 
-          <img
+          <LoadingImage
             v-if="hasUsableImage(selectedArticle)"
             :key="`${selectedArticle.id}-${selectedArticle.image}`"
             :src="selectedArticle.image"
             alt=""
-            class="mt-6 aspect-video w-full rounded-xl
-                   bg-(--input-bg) object-cover
-                   max-[600px]:mt-5 max-[480px]:mt-4 max-[320px]:mt-3"
+            aspect-ratio="16 / 9"
+            loading="eager"
+            class="mt-6 rounded-xl
+                   max-[600px]:mt-5
+                   max-[480px]:mt-4
+                   max-[320px]:mt-3"
             @error="handleImageError(selectedArticle)"
           />
 
@@ -484,501 +1053,3 @@
     <impactnews />
   </main>
 </template>
-
-<script setup>
-import {
-  computed,
-  nextTick,
-  onMounted,
-  onUnmounted,
-  reactive,
-  ref,
-  watch,
-} from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-
-import impactnews from '../components/impactnew.vue'
-
-
-const route = useRoute()
-const emit = defineEmits(['subscribe'])
-
-function forwardSubscription(...args) {
-  emit('subscribe', ...args)
-}
-
-const BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
-)
-  .trim()
-  .replace(/\/+$/, '')
-
-const REFRESH_INTERVAL = 5 * 60 * 1000
-const RELATIVE_TIME_INTERVAL = 10 * 1000
-
-const ALL_CATEGORIES = [
-  'economy',
-  'markets',
-  'forex',
-  'crypto',
-]
-
-let newsRefreshTimer = null
-let relativeTimeTimer = null
-let disposed = false
-
-const activeRequests = new Set()
-const relativeNow = ref(Date.now())
-
-const relativeTimeFormatter = new Intl.RelativeTimeFormat('en', {
-  numeric: 'always',
-})
-
-const relativeUnits = [
-  { name: 'year', seconds: 365 * 24 * 60 * 60 },
-  { name: 'month', seconds: 30 * 24 * 60 * 60 },
-  { name: 'week', seconds: 7 * 24 * 60 * 60 },
-  { name: 'day', seconds: 24 * 60 * 60 },
-  { name: 'hour', seconds: 60 * 60 },
-  { name: 'minute', seconds: 60 },
-]
-
-const categories = [
-  { value: 'all', label: 'All' },
-  { value: 'economy', label: 'Economy' },
-  { value: 'markets', label: 'Markets' },
-  { value: 'insider', label: 'Insider Trading' },
-  { value: 'forex', label: 'Forex' },
-  { value: 'crypto', label: 'Crypto' },
-]
-
-const feedDefinitions = [
-  {
-    key: 'economy',
-    label: 'economy',
-    endpoint: '/api/investing-news',
-  },
-  {
-    key: 'markets',
-    label: 'stock market',
-    endpoint: '/api/investing-news/markets',
-  },
-  {
-    key: 'insider',
-    label: 'insider trading',
-    endpoint: '/api/investing-news/insider',
-  },
-  {
-    key: 'forex',
-    label: 'forex',
-    endpoint: '/api/investing-news/forex',
-  },
-  {
-    key: 'crypto',
-    label: 'crypto',
-    endpoint: '/api/investing-news/crypto',
-  },
-]
-
-const newsScroll = ref(null)
-const selectedArticle = ref(null)
-const articleDialog = ref(null)
-const news = ref([])
-const brokenImages = reactive(new Set())
-
-const feedState = reactive(
-  Object.fromEntries(
-    feedDefinitions.map((feed) => [
-      feed.key,
-      {
-        loading: false,
-        error: '',
-        stale: false,
-      },
-    ]),
-  ),
-)
-
-const selectedCategory = computed(() => {
-  const category = route.params.category
-
-  return categories.some((item) => item.value === category)
-    ? category
-    : 'all'
-})
-
-function categoryLocation(category) {
-  const prefix = route.params.lang === 'km' ? '/km' : ''
-
-  return {
-    path:
-      category === 'all'
-        ? `${prefix}/news`
-        : `${prefix}/news/${category}`,
-    query: route.query,
-  }
-}
-
-function belongsToSelectedCategory(category) {
-  return selectedCategory.value === 'all'
-    ? ALL_CATEGORIES.includes(category)
-    : category === selectedCategory.value
-}
-
-const feedStatuses = computed(() =>
-  feedDefinitions
-    .filter((feed) => belongsToSelectedCategory(feed.key))
-    .map((feed) => ({
-      key: feed.key,
-      label: feed.label,
-      ...feedState[feed.key],
-      retry: () => loadInvestingFeed(feed.key, feed.endpoint),
-    })),
-)
-
-const selectedFeedLoading = computed(() =>
-  feedStatuses.value.some((feed) => feed.loading),
-)
-
-function safeUrl(value) {
-  if (typeof value !== 'string' || !value.trim()) return ''
-
-  try {
-    const url = new URL(value.trim())
-
-    return ['https:', 'http:'].includes(url.protocol)
-      ? url.href
-      : ''
-  } catch {
-    return ''
-  }
-}
-
-function normalizeDate(value) {
-  if (!value) return null
-
-  const date = new Date(value)
-
-  return Number.isNaN(date.getTime())
-    ? null
-    : date.toISOString()
-}
-
-function articleTimestamp(value) {
-  if (!value) return 0
-
-  const timestamp = new Date(value).getTime()
-
-  return Number.isFinite(timestamp) ? timestamp : 0
-}
-
-function updateRelativeTime() {
-  relativeNow.value = Date.now()
-}
-
-function formatAddedTime(value) {
-  if (!value) return 'Added time unavailable'
-
-  const timestamp = new Date(value).getTime()
-
-  if (!Number.isFinite(timestamp)) {
-    return 'Added time unavailable'
-  }
-
-  const difference = timestamp - relativeNow.value
-
-  if (difference >= 60000) {
-    return 'Added time unavailable'
-  }
-
-  const seconds = Math.floor(
-    Math.max(0, -difference) / 1000,
-  )
-
-  if (seconds < 60) {
-    return 'Added just now'
-  }
-
-  const unit = relativeUnits.find(
-    (item) => seconds >= item.seconds,
-  )
-
-  const amount = Math.floor(seconds / unit.seconds)
-
-  return `Added ${relativeTimeFormatter.format(-amount, unit.name)}`
-}
-
-// Full date and time in the visitor's device timezone.
-function formatFullDate(value) {
-  if (!value) return 'Time unavailable'
-
-  const date = new Date(value)
-
-  if (Number.isNaN(date.getTime())) {
-    return 'Time unavailable'
-  }
-
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-    timeZoneName: 'short',
-  }).format(date)
-}
-
-function addedTimeTitle(article) {
-  return `First added to this website: ${formatFullDate(article.addedAt)}`
-}
-
-function hasUsableImage(article) {
-  return Boolean(
-    article?.image && !brokenImages.has(article.image),
-  )
-}
-
-function handleImageError(article) {
-  if (article?.image) {
-    brokenImages.add(article.image)
-  }
-}
-
-const latestNews = computed(() =>
-  [...news.value].sort(
-    (a, b) =>
-      articleTimestamp(b.publishedAt) -
-        articleTimestamp(a.publishedAt) ||
-      articleTimestamp(b.addedAt) -
-        articleTimestamp(a.addedAt),
-  ),
-)
-
-const filteredNews = computed(() =>
-  latestNews.value.filter((article) =>
-    belongsToSelectedCategory(article.category),
-  ),
-)
-
-const breakingNews = computed(() =>
-  latestNews.value.find((article) =>
-    ALL_CATEGORIES.includes(article.category),
-  ),
-)
-
-watch(
-  () => route.params.category,
-  async () => {
-    closeArticle()
-    await nextTick()
-
-    if (newsScroll.value) {
-      newsScroll.value.scrollTop = 0
-    }
-  },
-)
-
-async function openArticle(article) {
-  if (!article || disposed) return
-
-  updateRelativeTime()
-  selectedArticle.value = article
-
-  await nextTick()
-
-  if (disposed) return
-
-  const dialog = articleDialog.value
-
-  if (dialog && !dialog.open) {
-    dialog.showModal()
-    dialog.scrollTop = 0
-  }
-}
-
-function closeArticle() {
-  articleDialog.value?.close()
-}
-
-function closeOnBackdrop(event) {
-  const dialog = articleDialog.value
-
-  if (!dialog || event.target !== dialog) return
-
-  const rect = dialog.getBoundingClientRect()
-
-  const outside =
-    event.clientX < rect.left ||
-    event.clientX > rect.right ||
-    event.clientY < rect.top ||
-    event.clientY > rect.bottom
-
-  if (outside) closeArticle()
-}
-
-function replaceProviderArticles(provider, articles) {
-  const otherNews = news.value.filter(
-    (article) => article.provider !== provider,
-  )
-
-  const uniqueArticles = [
-    ...new Map(
-      articles.map((article) => [article.id, article]),
-    ).values(),
-  ]
-
-  news.value = [...otherNews, ...uniqueArticles]
-
-  if (selectedArticle.value?.provider === provider) {
-    const selectedId = selectedArticle.value.id
-
-    const updatedArticle = uniqueArticles.find(
-      (article) => article.id === selectedId,
-    )
-
-    if (updatedArticle) {
-      selectedArticle.value = updatedArticle
-    }
-  }
-}
-
-async function loadInvestingFeed(category, endpoint) {
-  const state = feedState[category]
-  const provider = `investing-${category}`
-
-  if (disposed || state.loading) return
-
-  state.loading = true
-  state.error = ''
-
-  const controller = new AbortController()
-  activeRequests.add(controller)
-
-  const requestTimeout = window.setTimeout(() => {
-    controller.abort()
-  }, 20000)
-
-  try {
-    const response = await fetch(`${BASE_URL}${endpoint}`, {
-      signal: controller.signal,
-      cache: 'no-store',
-    })
-
-    const data = await response.json().catch(() => null)
-
-    if (!response.ok || !data?.success) {
-      throw new Error(
-        data?.message ||
-          `Unable to load ${category} news (HTTP ${response.status}).`,
-      )
-    }
-
-    if (!Array.isArray(data.news)) {
-      throw new Error(`Invalid ${category} news response.`)
-    }
-
-    const articles = data.news
-      .filter(
-        (item) =>
-          item &&
-          typeof item === 'object' &&
-          !(
-            category === 'crypto' &&
-            /ETH\s+Gas\s*:/i.test(item.title || '')
-          ),
-      )
-      .map((item, index) => ({
-        id: `${provider}-${item.id || item.link || index}`,
-        provider,
-        category,
-        title: item.title || 'Latest News',
-
-        addedAt: normalizeDate(item.addedAt),
-        publishedAt: normalizeDate(item.publishedAt),
-
-        author: item.source || 'Investing.com',
-        image: safeUrl(item.image),
-        description: item.description || '',
-        content:
-          item.description ||
-          'Read the full article at Investing.com.',
-        link: safeUrl(item.link),
-      }))
-
-    if (disposed) return
-
-    replaceProviderArticles(provider, articles)
-    state.stale = Boolean(data.stale)
-    updateRelativeTime()
-  } catch (error) {
-    if (disposed) return
-
-    console.error(`${category} news error:`, error)
-
-    state.error =
-      error.name === 'AbortError'
-        ? `${category.charAt(0).toUpperCase() + category.slice(1)} news request timed out. Please retry.`
-        : error.message || `Unable to load ${category} news.`
-  } finally {
-    window.clearTimeout(requestTimeout)
-    activeRequests.delete(controller)
-    state.loading = false
-  }
-}
-
-function refreshAllFeeds() {
-  return Promise.allSettled(
-    feedDefinitions.map((feed) =>
-      loadInvestingFeed(feed.key, feed.endpoint),
-    ),
-  )
-}
-
-function handleVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    updateRelativeTime()
-    refreshAllFeeds()
-  }
-}
-
-onMounted(() => {
-  updateRelativeTime()
-  refreshAllFeeds()
-
-  relativeTimeTimer = window.setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      updateRelativeTime()
-    }
-  }, RELATIVE_TIME_INTERVAL)
-
-  newsRefreshTimer = window.setInterval(() => {
-    if (document.visibilityState === 'visible') {
-      refreshAllFeeds()
-    }
-  }, REFRESH_INTERVAL)
-
-  document.addEventListener(
-    'visibilitychange',
-    handleVisibilityChange,
-  )
-})
-
-onUnmounted(() => {
-  disposed = true
-
-  window.clearInterval(relativeTimeTimer)
-  window.clearInterval(newsRefreshTimer)
-
-  document.removeEventListener(
-    'visibilitychange',
-    handleVisibilityChange,
-  )
-
-  for (const controller of activeRequests) {
-    controller.abort()
-  }
-
-  activeRequests.clear()
-})
-</script>
