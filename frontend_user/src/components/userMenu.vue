@@ -7,11 +7,24 @@ import {
   watch,
 } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
+import {
+  faHouse,
+  faNewspaper,
+  faBook,
+  faSquarePollVertical,
+  faMagnifyingGlassChart,
+  faHandshake,
+  faHeadset,
+  faCircleUser,
+} from '@fortawesome/free-solid-svg-icons'
 import { useAuthStore } from '../store/user/authStore.js'
 
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n({ useScope: 'global' })
 
 const root = ref(null)
 const trigger = ref(null)
@@ -35,6 +48,39 @@ const dashboardLink = computed(() => ({
   name: 'dashboard',
   params: route.params.lang === 'km' ? { lang: 'km' } : {},
 }))
+
+const navLinks = [
+  { to: '/', label: 'nav.home', icon: faHouse },
+  { to: '/news', label: 'nav.news', icon: faNewspaper },
+  { to: '/academy', label: 'nav.academy', icon: faBook },
+  {
+    to: '/signal',
+    label: 'nav.signal',
+    icon: faSquarePollVertical,
+  },
+  {
+    to: '/analysis',
+    label: 'nav.analysis',
+    icon: faMagnifyingGlassChart,
+  },
+  {
+    to: '/collaborate',
+    label: 'nav.collaborate',
+    icon: faHandshake,
+  },
+  {
+    to: '/getsupport',
+    label: 'nav.support',
+    icon: faHeadset,
+  },
+  { to: '/about', label: 'nav.about', icon: faCircleUser },
+]
+
+function localizedPath(path) {
+  if (route.params.lang !== 'km') return path
+
+  return path === '/' ? '/km' : `/km${path}`
+}
 
 function close() {
   open.value = false
@@ -95,14 +141,20 @@ async function logout() {
 watch(() => route.fullPath, close)
 watch(() => auth.isAuthenticated, close)
 
+let desktopQuery
+
 onMounted(() => {
   document.addEventListener('pointerdown', outside)
   document.addEventListener('keydown', escape)
+
+  desktopQuery = window.matchMedia('(min-width: 1024px)')
+  desktopQuery.addEventListener('change', close)
 })
 
 onUnmounted(() => {
   document.removeEventListener('pointerdown', outside)
   document.removeEventListener('keydown', escape)
+  desktopQuery?.removeEventListener('change', close)
 })
 </script>
 
@@ -111,6 +163,7 @@ onUnmounted(() => {
     v-if="auth.isAuthenticated"
     ref="root"
     class="relative shrink-0 text-white"
+    :class="{ 'font-khmer': route.params.lang === 'km' }"
   >
     <button
       ref="trigger"
@@ -144,7 +197,9 @@ onUnmounted(() => {
         v-if="open"
         id="user-account-dropdown"
         class="absolute right-0 top-full z-[70] mt-3 w-64
-               max-w-[calc(100vw-24px)] overflow-hidden
+               max-h-[calc(100dvh-100px)]
+               max-w-[calc(100vw-24px)]
+               overflow-y-auto overscroll-contain
                rounded-2xl border border-white/10
                bg-slate-900 text-white shadow-2xl"
       >
@@ -159,27 +214,73 @@ onUnmounted(() => {
           </p>
         </div>
 
+        <!-- Navbar links: mobile and tablet only -->
+        <nav
+          aria-label="Mobile navigation"
+          class="border-b border-white/10 p-2 min-[1024px]:hidden"
+        >
+          <RouterLink
+            v-for="link in navLinks"
+            :key="link.to"
+            :to="localizedPath(link.to)"
+            class="flex min-h-11 items-center gap-3
+                   rounded-lg px-3 py-2.5
+                   text-sm font-medium text-white
+                   no-underline transition-colors
+                   hover:bg-white/10
+                   focus-visible:outline-2
+                   focus-visible:outline-emerald-400"
+            exact-active-class="bg-white/10 text-emerald-300"
+            @click="close"
+          >
+            <FontAwesomeIcon
+              :icon="link.icon"
+              class="w-5 shrink-0"
+            />
+
+            {{ t(link.label) }}
+          </RouterLink>
+        </nav>
+
         <!-- Dashboard -->
         <nav aria-label="Your account" class="p-2">
           <RouterLink
             :to="dashboardLink"
-            class="block rounded-lg px-3 py-2.5
-                   text-sm font-medium transition-colors
+            class="flex min-h-11 items-center gap-3
+                   rounded-lg px-3 py-2.5
+                   text-sm font-medium text-white
+                   no-underline transition-colors
                    hover:bg-white/10
                    focus-visible:outline-2
                    focus-visible:outline-emerald-400"
+            exact-active-class="bg-white/10 text-emerald-300"
             @click="close"
           >
+            <svg
+              class="size-5 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="7" height="7" rx="1.5" />
+              <rect x="14" y="3" width="7" height="7" rx="1.5" />
+              <rect x="3" y="14" width="7" height="7" rx="1.5" />
+              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+            </svg>
+
             My Dashboard
           </RouterLink>
         </nav>
 
-        <!-- Logout -->
+        <!-- Log out: always last -->
         <div class="border-t border-white/10 p-2">
           <button
             type="button"
             :disabled="busy"
-            class="w-full cursor-pointer rounded-lg px-3 py-2.5
+            class="flex min-h-11 w-full cursor-pointer
+                   items-center gap-3 rounded-lg px-3 py-2.5
                    text-left text-sm font-medium text-red-300
                    transition-colors hover:bg-red-500/10
                    focus-visible:outline-2
@@ -187,7 +288,22 @@ onUnmounted(() => {
                    disabled:cursor-wait disabled:opacity-50"
             @click="logout"
           >
-            {{ busy ? 'Logging out…' : 'Logout' }}
+            <svg
+              class="size-5 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 5H5v14h4" />
+              <path d="M9 12h12" />
+              <path d="m17 8 4 4-4 4" />
+            </svg>
+
+            {{ busy ? 'Logging out…' : 'Log out' }}
           </button>
 
           <p

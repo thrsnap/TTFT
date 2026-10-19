@@ -214,12 +214,14 @@
         </div>
 
         <!-- Hamburger -->
-        <button
-          type="button"
-          @click="toggleMenu"
-          :aria-expanded="isMenuOpen"
-          :aria-label="isMenuOpen ? 'Close menu' : 'Open menu'"
-          aria-controls="mobile-navigation"
+        <!-- Hamburger: guests only -->
+<button
+  v-if="!auth.isAuthenticated"
+  type="button"
+  @click="toggleMenu"
+  :aria-expanded="isMenuOpen"
+  :aria-label="isMenuOpen ? 'Close menu' : 'Open menu'"
+  aria-controls="mobile-navigation"
           class="flex h-10 w-10 shrink-0 cursor-pointer flex-col
             items-center justify-center gap-1.5 rounded-lg
             bg-white/10 transition-colors hover:bg-white/20
@@ -258,8 +260,8 @@
       leave-to-class="-translate-y-2 opacity-0"
     >
       <div
-        v-if="isMenuOpen"
-        id="mobile-navigation"
+  v-if="isMenuOpen && !auth.isAuthenticated"
+  id="mobile-navigation"
         class="absolute left-0 top-full z-50
           max-h-[calc(100dvh-80px)] w-full overflow-y-auto
           overscroll-contain bg-[rgba(30,41,59,0.98)]
