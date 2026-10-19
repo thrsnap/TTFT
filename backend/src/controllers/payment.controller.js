@@ -570,7 +570,13 @@ export async function checkPayment(req, res) {
     const result = response.data
     const transaction = result?.data
     if (isDailyLimit(result)) {
-      console.warn('Bakong daily verification limit reached:', { orderId: String(payment._id), errorCode: result.errorCode })
+      console.warn('Bakong verification rejected:', {
+  orderId: String(payment._id),
+  httpStatus: response.status,
+  responseCode: result?.responseCode,
+  errorCode: result?.errorCode,
+  responseMessage: safeText(result?.responseMessage),
+})
       return res.status(429).json({ code: 'BAKONG_DAILY_LIMIT', message: DAILY_LIMIT_MESSAGE })
     }
 
