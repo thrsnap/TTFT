@@ -1,4 +1,10 @@
-import { getWeeklyHistory, publicHistoryFilter } from '../services/signalHistoryWeeks.service.js'
+import {
+  getWeeklyHistory, publicHistoryFilter, getHistorySubscriptions,
+  historyContentProjection,
+} from '../services/signalHistoryWeeks.service.js'
+import { getSessionUserId } from '../services/signalAccess.service.js'
+import { getNewsSubscription } from '../services/newsSignalAccess.service.js'
+import { getDailySubscription } from '../services/dailySignalAccess.service.js'
 import { Router } from 'express'
 import mongoose from 'mongoose'
 import Signal from '../models/signal.model.js'
@@ -15,15 +21,15 @@ startSignalLifecycle()
 router.use((req, res, next) => { res.set('Cache-Control', 'private, no-store'); next() })
 router.use(signalLifecycleMiddleware)
 
-function pipeline(type, admin) {
+function pipeline(type, admin, subscriptions) {
   return [
     { $match: { archivedAt: { $type: 'date' }, ...(type === 'daily' ? { status: 'published' } : {}),
       ...(admin ? {} : { $or: [{ releasedAt: { $lte: new Date() } }, { releasedAt: null, scheduledAt: { $lte: new Date() } }] }),
     } },
     { $project: {
       _id: 1, pair: 1, title: 1, scheduledAt: 1, newsType: 1,
-      direction: 1, confirmed: 1, details: 1, news: 1, previewText: 1,
-      publicHistory: { $literal: true }, closedAt: 1, archivedAt: 1, releasedAt: 1,
+      ...historyContentProjection(type, subscriptions, admin), previewText: 1,
+      closedAt: 1, archivedAt: 1, releasedAt: 1,
       archiveReason: 1, type: { $literal: type },
       outcome: { $ifNull: ['$outcome', 'pending'] },
       hasImage: { $cond: [{ $eq: [{ $type: '$image' }, 'binData'] }, { $gt: [{ $binarySize: '$image' }, 0] }, false] },
@@ -40,8 +46,9 @@ async function list(req, res, admin = false) {
   if (!Number.isSafeInteger(page) || page < 1 || page > 10000) throw historyError('Invalid page.')
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) throw historyError('Invalid page limit.')
   const Model = type === 'daily' ? DailySignal : Signal
-  const stages = pipeline(type === 'daily' ? 'daily' : 'news', admin)
-  if (type === 'all') stages.push({ $unionWith: { coll: DailySignal.collection.name, pipeline: pipeline('daily', admin) } })
+  const subscriptions = admin ? null : await getHistorySubscriptions(req)
+  const stages = pipeline(type === 'daily' ? 'daily' : 'news', admin, subscriptions)
+  if (type === 'all') stages.push({ $unionWith: { coll: DailySignal.collection.name, pipeline: pipeline('daily', admin, subscriptions) } })
   stages.push({ $facet: {
     items: [{ $sort: { archivedAt: -1, _id: -1, type: 1 } }, { $skip: (page - 1) * limit }, { $limit: limit }],
     counts: [{ $group: { _id: '$outcome', count: { $sum: 1 } } }],
@@ -52,8 +59,8 @@ async function list(req, res, admin = false) {
   const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
   const decided = counts.win + counts.loss
   res.json({
-    publicHistory: true,
-    history: (data?.items || []).map(item => ({ ...item, hasAccess: true })),
+    publicHistory: false, subscriptionRequired: true, subscriptions,
+    history: data?.items || [],
     pagination: { page, limit, total, hasMore: page * limit < total },
     stats: { total, wins: counts.win, losses: counts.loss, pending: counts.pending,
       breakeven: counts.breakeven, cancelled: counts.cancelled,
@@ -62,14 +69,20 @@ async function list(req, res, admin = false) {
   })
 }
 
-// Archived history is public; active signal routes retain subscription checks.
+// Dates, outcomes and statistics are public; analysis needs its matching plan.
 router.get('/weekly', run(getWeeklyHistory))
 router.get('/', run((req, res) => list(req, res)))
 router.get('/admin', requireUser, requireAdmin, run((req, res) => list(req, res, true)))
-// Only past, archived, published history can be served without a subscription.
+// Direct image URLs enforce the same subscription as the JSON endpoints.
 router.get('/:type/:id/image', run(async (req, res) => {
   const Model = req.params.type === 'news' ? Signal : req.params.type === 'daily' ? DailySignal : null
   if (!Model || !mongoose.isObjectIdOrHexString(req.params.id)) throw historyError('Invalid history signal.')
+  const userId = await getSessionUserId(req)
+  if (!userId) throw historyError('Please log in to view historical charts.', 401)
+  const subscription = req.params.type === 'news'
+    ? await getNewsSubscription(userId)
+    : await getDailySubscription(userId)
+  if (!subscription.active) throw historyError(`An active ${req.params.type === 'news' ? 'News' : 'Daily'} Signal subscription is required.`, 403)
   const record = await Model.findOne(publicHistoryFilter(req.params.type, req.params.id)).select('+image')
   if (!record || !record.image?.length) throw historyError('Historical chart unavailable.', 404)
   res.set('X-Content-Type-Options', 'nosniff').type('image/webp').send(record.image)

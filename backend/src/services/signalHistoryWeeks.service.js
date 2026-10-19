@@ -2,6 +2,30 @@ import Signal from '../models/signal.model.js'
 import DailySignal from '../models/dailySignal.model.js'
 import { historyError } from './signalHistory.service.js'
 import { signalTimeZone } from './signalReleaseTime.js'
+import { getSessionUserId } from './signalAccess.service.js'
+import { getNewsSubscription } from './newsSignalAccess.service.js'
+import { getDailySubscription } from './dailySignalAccess.service.js'
+
+// Existing subscription services also include valid manual admin grants.
+export async function getHistorySubscriptions(req) {
+  const userId = await getSessionUserId(req)
+  const [news, daily] = await Promise.all([
+    getNewsSubscription(userId),
+    getDailySubscription(userId),
+  ])
+  return { news, daily }
+}
+
+// Build the projection on the server. Locked content is never sent to Vue.
+export function historyContentProjection(type, subscriptions, admin = false) {
+  const hasAccess = admin || subscriptions?.[type]?.active === true
+  return {
+    hasAccess: { $literal: hasAccess },
+    publicHistory: { $literal: false },
+    subscriptionHistory: { $literal: true },
+    ...(hasAccess ? { details: 1, news: 1, direction: 1, confirmed: 1 } : {}),
+  }
+}
 
 // Convert a calendar date to the start of that day in the website timezone.
 export function historyDateStart(value, zone) {
@@ -69,10 +93,9 @@ function weekPipeline(type, zone, now, content = false, options = {}) {
       previewText: 1, outcome: { $ifNull: ['$outcome', 'pending'] }, closedAt: 1,
       historyDate: { $ifNull: ['$releasedAt', '$scheduledAt'] },
       ...(content ? {
-        hasAccess: { $literal: true }, publicHistory: { $literal: true },
+        ...historyContentProjection(type, options.subscriptions),
         hasImage: { $cond: [{ $eq: [{ $type: '$image' }, 'binData'] }, { $gt: [{ $binarySize: '$image' }, 0] }, false] },
-        // These are archived public records. Internal admin notes stay excluded.
-        details: 1, news: 1, direction: 1, confirmed: 1,
+        // Chart bytes and internal admin notes stay excluded for everyone.
       } : {}),
     } },
     { $match: { historyDate: { $type: 'date', ...(options.range?.start ? { $gte: options.range.start } : {}), ...(options.range?.end ? { $lt: options.range.end } : {}) } } },
@@ -96,7 +119,8 @@ export async function getWeeklyHistory(req, res) {
   if (!['week', 'day'].includes(groupBy)) throw historyError('Choose day or week grouping.')
   const zone = signalTimeZone()
   const range = historyDateRange(req.query.from, req.query.to, zone)
-  const options = { groupBy, range }
+  const subscriptions = await getHistorySubscriptions(req)
+  const options = { groupBy, range, subscriptions }
   const page = req.query.page === undefined ? 1 : Number(req.query.page)
   const requestedCardPage = req.query.cardPage === undefined ? 1 : Number(req.query.cardPage)
   if (!['all', 'news', 'daily'].includes(type)) throw historyError('Invalid signal type.')
@@ -135,7 +159,8 @@ export async function getWeeklyHistory(req, res) {
     })
   }
   res.json({
-    weeks, stats: historyStats(data?.counts), publicHistory: true, timeZone: zone,
+    weeks, stats: historyStats(data?.counts), publicHistory: false,
+    subscriptionRequired: true, subscriptions, timeZone: zone,
     groupBy, range: { from: range.from, to: range.to },
     pagination: { page, limit: 1, total: totalWeeks, hasMore: page < totalWeeks },
   })
