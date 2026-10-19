@@ -158,7 +158,7 @@ function hasConfirmedDirection(signal) {
 }
 
 function formatSignalPrice(signal) {
-  const amount = IS_DAILY ? Number(monthlyAmount.value) : 25
+  const amount = Number(monthlyAmount.value)
   if (!Number.isFinite(amount) || amount < 0) return 'Price not available'
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -171,19 +171,17 @@ function formatSignalPrice(signal) {
 async function goToPurchase(signal = {}) {
   if (checkingPurchase.value || abortController.signal.aborted) return
   purchaseError.value = ''
-  const signalId = String(signal?._id || (IS_DAILY ? 'daily-plan' : ''))
-  if (!IS_DAILY && !/^[a-fA-F0-9]{24}$/.test(signalId)) {
-    purchaseError.value = 'This signal is unavailable. Please refresh the page.'
+  if (subscription.value.active) {
+    await loadSignals(true)
     return
   }
+  const signalId = String(signal?._id || 'news-plan')
   checkingPurchase.value = true
   purchasingSignalId.value = signalId
-  // Preserve the payment query format from your existing components.
+  // One News plan covers every News Signal, including new cards.
   const paymentLocation = {
     path: localizedPath('/payment'),
-    query: IS_DAILY
-      ? { productId: 'daily-signal-monthly' }
-      : { product: 'news-signal', signalId },
+    query: { productId: 'news-signal-monthly' },
   }
   const paymentDestination = router.resolve(paymentLocation).fullPath
   try {
@@ -354,7 +352,7 @@ function syncSignals(incoming) {
 
 function scheduleExpiryCheck() {
   window.clearTimeout(expiryTimer)
-  if (!IS_DAILY || !subscription.value.active) return
+  if (!subscription.value.active) return
   const expiry = validDate(subscription.value.expiresAt)
   if (!expiry) return
   const remaining = expiry.getTime() - Date.now()
@@ -369,6 +367,9 @@ function scheduleExpiryCheck() {
       signal.confirmed = false
       signal.imageSrc = ''
       signal.imageLoading = false
+      signal.imageError = false
+      signal.imageErrorMessage = ''
+      if (signal.hasImage !== false) loadImage(signal)
     })
     closeChart()
     return
@@ -401,7 +402,7 @@ async function loadSignals(background = false) {
     if (!Array.isArray(data.signals)) throw new Error('Invalid signal response.')
     if (abortController.signal.aborted) return
 
-    if (IS_DAILY) {
+    {
       subscription.value = {
         active: data.subscription?.active === true,
         expiresAt: data.subscription?.expiresAt || null,
@@ -506,11 +507,16 @@ onUnmounted(() => {
         </span>
         <h2 class="mt-3 text-xl font-bold sm:text-2xl">News Signals</h2>
         <p class="mt-2 max-w-full break-words text-sm leading-6 text-(--muted-color)">
-          CPI, NFP, FOMC, PPI and other USD news releases appear here.
+          One monthly subscription covers all CPI, NFP, FOMC, PPI and other News Signals.
         </p>
       </div>
 
-      
+
+
+      <div v-if="subscription.active && showSubscriptionNotice" role="status" class="mb-6 rounded-xl border border-emerald-300 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
+        <p class="font-bold">News Signal subscription active</p>
+        <p class="mt-1">Access to all News Signals until {{ formatDate(subscription.expiresAt) }}.</p>
+      </div>
 
       <p v-if="purchaseError" role="alert" class="mb-6 rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
         {{ purchaseError }}
@@ -552,8 +558,13 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <div v-else-if="signals.length === 0" class="rounded-2xl border border-dashed border-(--border-color) py-12 text-center text-(--muted-color)">
-        No signals published yet.
+      <div v-else-if="signals.length === 0" class="rounded-2xl border border-(--border-color) bg-(--surface-bg) p-6 text-center">
+        <h3 class="text-xl font-bold">Next News Signal — Coming soon</h3>
+        <p class="mt-3 text-2xl font-bold text-amber-600 dark:text-amber-300">{{ formatSignalPrice() }} / month</p>
+        <p class="mt-3 text-sm leading-6 text-(--muted-color)">Previous released signals are in history below. Admin will publish the next chart here. Your active News subscription includes new cards.</p>
+        <button v-if="!subscription.active" type="button" :disabled="checkingPurchase" class="mt-5 min-h-11 w-full rounded-xl bg-amber-400 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60" @click="goToPurchase()">
+          {{ checkingPurchase ? 'Please wait…' : 'Subscribe to News Signals' }}
+        </button>
       </div>
 
       <div v-else class="grid w-full min-w-0 grid-cols-1 gap-5">
@@ -648,7 +659,7 @@ onUnmounted(() => {
                     <path d="M12 14v3" />
                   </svg>
                   <h4 class="mt-2 text-xl font-bold text-amber-600 dark:text-amber-300">{{ formatSignalPrice(signal) }} /month</h4>
-                  <p class="mt-2 min-h-20 flex-1 text-xs leading-5 text-(--muted-color)">Pay once to unlock this signal’s chart, confirmed direction, and full technical analysis. This signal can be used for the whole month and will be updated before news releases during that month.</p>
+                  <p class="mt-2 min-h-20 flex-1 text-xs leading-5 text-(--muted-color)">Pay once to unlock every News Signal’s chart, confirmed direction, and full analysis for one calendar month. New cards are included until your subscription expires.</p>
                   <button type="button" :disabled="checkingPurchase" :aria-busy="checkingPurchase && purchasingSignalId === signal._id" class="mt-3 min-h-11 w-full cursor-pointer rounded-xl bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-amber-300 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500" @click="goToPurchase(signal)">
                     {{ checkingPurchase && purchasingSignalId === signal._id ? 'Please wait…' : 'Buy News Signal' }}
                   </button>

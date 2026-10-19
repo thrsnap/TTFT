@@ -556,9 +556,9 @@ onUnmounted(() => {
       </div>
 
       <div v-else-if="signals.length === 0" class="max-w-sm rounded-2xl border border-(--border-color) bg-(--surface-bg) p-6 text-center">
-        <h3 class="text-xl font-bold">Daily Signals</h3>
+        <h3 class="text-xl font-bold">Next Daily Signal — Coming soon</h3>
         <p class="mt-3 text-2xl font-bold text-amber-600 dark:text-amber-300">{{ formatSignalPrice() }} / month</p>
-        <p class="mt-3 text-sm leading-6 text-(--muted-color)">No Daily Signals published yet. Admin updates will appear here.</p>
+        <p class="mt-3 text-sm leading-6 text-(--muted-color)">Previous released signals are in history below. Admin will publish the next Daily chart here.</p>
         <button v-if="!subscription.active" type="button" :disabled="checkingPurchase" class="mt-5 min-h-11 w-full rounded-xl bg-amber-400 px-5 py-3 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-60" @click="goToPurchase()">
           {{ checkingPurchase ? 'Please wait…' : 'Subscribe to Daily Signals' }}
         </button>

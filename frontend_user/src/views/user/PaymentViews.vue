@@ -31,22 +31,27 @@ let activeRequest
 
 const productId = computed(() => {
   const courseId = route.params.courseId
-  if (typeof courseId === 'string' && /^[a-f0-9]{24}$/i.test(courseId)) {
-    return `course:${courseId}`
-  }
-  const signalId = route.query.signalId
-  if (typeof signalId === 'string' && /^[a-f0-9]{24}$/i.test(signalId)) {
-    return `signal:${signalId}`
-  }
+  if (typeof courseId === 'string' && /^[a-f0-9]{24}$/i.test(courseId)) return `course:${courseId}`
   const value = route.params.productId || route.query.productId || route.query.product
   if (value === 'daily-signal-monthly') return value
-  return typeof value === 'string' && /^(signal|course):[a-f0-9]{24}$/i.test(value)
-    ? value : ''
+  if (value === 'news-signal-monthly' || value === 'news-signal') return 'news-signal-monthly'
+  // Existing bookmarks now open the all-News monthly plan.
+  if (typeof value === 'string' && /^signal:[a-f0-9]{24}$/i.test(value)) return 'news-signal-monthly'
+  if (typeof route.query.signalId === 'string' && /^[a-f0-9]{24}$/i.test(route.query.signalId)) return 'news-signal-monthly'
+  return typeof value === 'string' && /^course:[a-f0-9]{24}$/i.test(value) ? value : ''
 })
 
 const isDaily = computed(() => productId.value === 'daily-signal-monthly')
-const isSignalPurchase = computed(() => isDaily.value || productId.value.startsWith('signal:'))
-const productLabel = computed(() => isDaily.value ? 'Daily Signals — monthly subscription' : productId.value.startsWith('signal:') ? 'News Signal — selected signal only' : 'Course payment')
+const isNews = computed(() => productId.value === 'news-signal-monthly')
+const isSignalPurchase = computed(() => isDaily.value || isNews.value)
+const existingSubscription = ref(null)
+const alreadyActive = computed(() => existingSubscription.value?.active === true)
+const productLabel = computed(() => isDaily.value ? 'Daily Signals — monthly subscription' : isNews.value ? 'All News Signals — monthly subscription' : 'Course payment')
+
+function formatExpiry(value) {
+  const date = new Date(value)
+  return value && Number.isFinite(date.getTime()) ? date.toLocaleString() : '—'
+}
 
 const paid = computed(() => order.value?.status === 'paid')
 const unlocked = computed(() => paid.value && order.value?.accessGranted === true)
@@ -69,7 +74,7 @@ const cooldown = computed(() => Math.max(0, Math.ceil((nextCheckAt.value - now.v
 const buttonLabel = computed(() => {
   if (generating.value) return 'Generating QR…'
   if (checking.value) return 'Checking payment…'
-  if (unlocked.value) return isSignalPurchase.value ? 'Continue to signals' : 'Continue to dashboard'
+  if (alreadyActive.value || unlocked.value) return isSignalPurchase.value ? 'Continue to signals' : 'Continue to dashboard'
   if (order.value?.signalDeleted) return 'Contact admin'
   if (verificationBlocked.value) return 'Verification unavailable'
   if (!order.value) return creationUncertain.value ? 'Order status uncertain' : 'Generate QR'
@@ -78,6 +83,7 @@ const buttonLabel = computed(() => {
 })
 const buttonDisabled = computed(() => {
   if (generating.value || checking.value) return true
+  if (alreadyActive.value) return false
   if (!order.value) return !productId.value || creationUncertain.value
   if (unlocked.value) return false
   return verificationBlocked.value || order.value.verificationAvailable === false ||
@@ -128,6 +134,7 @@ async function request(path, body = {}) {
       const failure = new Error(result?.message || `Payment request failed (${response.status}).`)
       failure.status = response.status
       failure.code = result?.code
+      failure.subscription = result?.subscription
       failure.uncertain = response.status >= 500
       throw failure
     }
@@ -153,7 +160,7 @@ function updatePaymentMessage() {
     stopPolling()
     message.value = order.value.signalDeleted
       ? 'Payment verified. This signal is unavailable; contact admin.'
-      : unlocked.value ? (isDaily.value ? 'Payment verified. Your Daily Signal subscription is active.' : 'Payment verified. Your access is unlocked.')
+      : unlocked.value ? (isDaily.value ? 'Payment verified. Your Daily Signal subscription is active.' : isNews.value ? 'Payment verified. All News Signals are unlocked for your monthly subscription.' : 'Payment verified. Your access is unlocked.')
         : 'Payment verified. Access is pending; use Retry access unlock or contact admin.'
   }
 }
@@ -189,6 +196,11 @@ async function generateQR() {
     scheduleCheck()
   } catch (cause) {
     if (disposed || current !== version) return
+    if (cause.status === 409 && isSignalPurchase.value && (cause.subscription?.active === true || /subscription is already active/i.test(cause.message))) {
+      existingSubscription.value = cause.subscription || { active: true, expiresAt: null }
+      message.value = 'Your subscription is already active. Continue to signals.'
+      return
+    }
     error.value = cause.message
     if (cause.uncertain) creationUncertain.value = true
   } finally {
@@ -244,7 +256,7 @@ async function checkPayment(automatic = false) {
 
 async function handlePayment() {
   if (buttonDisabled.value) return
-  if (unlocked.value) {
+  if (alreadyActive.value || unlocked.value) {
     const prefix = route.params.lang === 'km' ? '/km' : ''
     try {
       await router.replace({
@@ -261,6 +273,7 @@ watch(productId, () => {
   stopPolling()
   activeRequest?.abort()
   order.value = null
+  existingSubscription.value = null
   qrImage.value = ''
   generating.value = false
   checking.value = false
@@ -288,8 +301,12 @@ onUnmounted(() => {
       <h1 class="text-xl font-bold">Bakong QR Payment</h1>
       <p v-if="productId" class="mt-2 text-sm font-semibold">{{ productLabel }}</p>
       <p v-else role="alert" class="mt-3 text-sm text-red-600 dark:text-red-400">Please select a signal or course before generating a QR.</p>
-      <template v-if="order">
-        <p class="mt-4 text-3xl font-bold">{{ price }}<span v-if="isDaily" class="text-base"> / month</span></p>
+      <div v-if="alreadyActive" role="status" class="mt-4 rounded-xl bg-emerald-500/10 p-4 text-sm text-emerald-600 dark:text-emerald-400">
+        Your {{ isNews ? 'News' : 'Daily' }} Signal subscription is active.
+        <p v-if="existingSubscription.expiresAt" class="mt-2">Access until {{ formatExpiry(existingSubscription.expiresAt) }}.</p>
+      </div>
+      <template v-else-if="order">
+        <p class="mt-4 text-3xl font-bold">{{ price }}<span v-if="isSignalPurchase" class="text-base"> / month</span></p>
         <p class="mt-2 break-words text-sm text-(--muted-color)">Receiver: {{ order.merchantName || 'Merchant' }}</p>
         <div v-if="paid" role="status" aria-live="polite" class="mt-6 rounded-xl bg-emerald-500/10 p-5 text-emerald-600 dark:text-emerald-400">
           <svg class="mx-auto h-20 w-20" viewBox="0 0 80 80" fill="none" aria-hidden="true">
@@ -298,6 +315,7 @@ onUnmounted(() => {
           </svg>
           <h2 class="mt-3 text-xl font-bold">Payment verified</h2>
           <p class="mt-2 text-sm">Your payment has been confirmed.</p>
+          <p v-if="order.subscriptionExpiresAt" class="mt-2 text-sm">Access until {{ formatExpiry(order.subscriptionExpiresAt) }}.</p>
         </div>
         <div v-else-if="qrImage && !expired" class="mx-auto mt-5 max-w-[280px] rounded-xl bg-white p-2">
           <img :src="qrImage" alt="Scan to pay with Bakong" width="420" height="420" class="block h-auto w-full" />
