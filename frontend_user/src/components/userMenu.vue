@@ -166,25 +166,46 @@ onUnmounted(() => {
     :class="{ 'font-khmer': route.params.lang === 'km' }"
   >
     <button
-      ref="trigger"
-      type="button"
-      :aria-expanded="open"
-      :aria-label="open ? 'Close account menu' : 'Open account menu'"
-      aria-controls="user-account-dropdown"
-      class="flex size-10 shrink-0 cursor-pointer
-             items-center justify-center rounded-full
-             border border-emerald-700 bg-emerald-950
-             text-base font-semibold text-emerald-400
-             transition-colors hover:border-emerald-500
-             focus-visible:outline-2
-             focus-visible:outline-offset-2
-             focus-visible:outline-emerald-400
-             max-[768px]:size-8 max-[768px]:text-sm
-             max-[320px]:size-7 max-[320px]:text-xs"
-      @click="toggle"
-    >
-      {{ initial }}
-    </button>
+  ref="trigger"
+  type="button"
+  :aria-expanded="open"
+  :aria-label="open ? 'Close account menu' : 'Open account menu'"
+  aria-controls="user-account-dropdown"
+  class="flex shrink-0 cursor-pointer items-center gap-1.5
+         rounded-full p-1 transition-colors hover:bg-white/10
+         focus-visible:outline-2
+         focus-visible:outline-offset-2
+         focus-visible:outline-emerald-400"
+  @click="toggle"
+>
+  <!-- Profile circle -->
+  <span
+    class="flex size-10 items-center justify-center
+           rounded-full border border-emerald-700
+           bg-emerald-950 text-base font-semibold
+           text-emerald-400
+           max-[768px]:size-8 max-[768px]:text-sm
+           max-[320px]:size-7 max-[320px]:text-xs"
+  >
+    {{ initial }}
+  </span>
+
+  <!-- Dropdown arrow -->
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+    class="size-3.5 shrink-0 text-slate-300
+           transition-transform duration-200"
+    :class="{ 'rotate-180': open }"
+  >
+    <path d="m6 9 6 6 6-6" />
+  </svg>
+</button>
 
     <Transition
       enter-active-class="transition duration-150"
