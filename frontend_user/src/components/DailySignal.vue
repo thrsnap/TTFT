@@ -270,8 +270,9 @@ async function loadSignals(background = false) {
 
   loadingRequest = true
 
+  loading.value = true
+
   if (!background) {
-    loading.value = true
     error.value = ''
   }
 
@@ -484,14 +485,41 @@ onUnmounted(() => {
         {{ purchaseError }}
       </p>
 
+      <!-- Signal skeleton card -->
       <div
         v-if="loading"
         role="status"
-        class="rounded-2xl border border-(--border-color)
-               py-12 text-center text-(--muted-color)
-                "
+        aria-label="Loading signals"
+        class="grid w-full min-w-0 grid-cols-1 gap-5"
       >
-        Loading signals…
+        <span class="sr-only">Loading signals…</span>
+        <div
+          aria-hidden="true"
+          class="min-w-0 overflow-hidden rounded-2xl border border-(--border-color) bg-(--surface-bg) shadow-sm"
+        >
+          <div class="animate-pulse motion-reduce:animate-none">
+            <div class="border-b border-(--border-color) p-4 max-[320px]:p-3">
+              <div class="flex items-center justify-between gap-3">
+                <div class="h-8 w-20 rounded-lg bg-slate-400/30"></div>
+                <div class="h-7 w-32 rounded-full bg-slate-400/30"></div>
+              </div>
+              <div class="mt-4 h-5 w-4/5 rounded bg-slate-400/30"></div>
+              <div class="mt-3 h-3 w-24 rounded bg-slate-400/30"></div>
+              <div class="mt-3 min-h-24 space-y-3 rounded-xl border border-(--border-color) bg-(--page-bg) p-3">
+                <div class="h-3 w-28 rounded bg-slate-400/30"></div>
+                <div class="h-4 w-4/5 rounded bg-slate-400/30"></div>
+                <div class="h-3 w-1/2 rounded bg-slate-400/30"></div>
+              </div>
+            </div>
+            <div class="aspect-video w-full bg-slate-400/30"></div>
+            <div class="space-y-3 p-4 max-[320px]:p-3">
+              <div class="h-4 w-20 rounded bg-slate-400/30"></div>
+              <div class="h-3 w-full rounded bg-slate-400/30"></div>
+              <div class="h-3 w-full rounded bg-slate-400/30"></div>
+              <div class="h-3 w-3/4 rounded bg-slate-400/30"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div
@@ -600,7 +628,7 @@ onUnmounted(() => {
 
             <div
               class="mt-3 min-h-24 rounded-xl border border-(--border-color)
-                     bg-(--page-bg) p-3&#x20;
+                     bg-(--page-bg) p-3 
                      "
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
