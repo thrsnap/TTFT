@@ -33,6 +33,8 @@ import {
   createLoginLimiter,
 } from './middleware/rateLimiter.js'
 
+import journalRoutes from './routes/journal.routes.js'
+import adminJournalRoutes from './routes/adminJournal.routes.js'
 const app = express()
 
 app.set('trust proxy', 1)
@@ -264,6 +266,12 @@ app.use(
   protectJsonMutations,
   authRoutes,
 )
+
+//journal trader
+app.use('/api/journals', journalRoutes)
+// admin journal
+app.use('/api/admin/journals', adminJournalRoutes)
+
 
 // Shared admin mutation protection.
 // Allows multipart uploads through to their own routes.

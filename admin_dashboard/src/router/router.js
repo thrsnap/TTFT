@@ -4,12 +4,12 @@ import AdminPanel from '../views/admin/AdminPanel.vue'
 import AdminLogin from '../views/admin/adminLogin.vue'
 import CourseAdmin from '../views/admin/CourseAdmin.vue'
 import UsersAdmin from '../views/admin/UsersAdmin.vue'
+import SupportAdmin from '../views/admin/SupportAdmin.vue'
+
 import {
   getCurrentUser,
   isAdmin,
 } from '../api/authApi.js'
-
-import SupportAdmin from '../views/admin/SupportAdmin.vue'
 
 const sections = [
   {
@@ -21,6 +21,11 @@ const sections = [
     path: '/admin/news',
     name: 'admin-news',
     section: 'News',
+  },
+  {
+    path: '/admin/journal',
+    name: 'admin-journal',
+    section: 'Trading Journal',
   },
   {
     path: '/admin/academy',
@@ -49,6 +54,16 @@ const sections = [
   },
 ]
 
+function sectionComponent(section) {
+  if (section === 'Academy') return CourseAdmin
+  if (section === 'Users') return UsersAdmin
+  if (section === 'Support') return SupportAdmin
+
+  // Includes Dashboard, News, Trading Journal,
+  // Analysis, and Settings.
+  return AdminPanel
+}
+
 const router = createRouter({
   history: createWebHistory(),
 
@@ -66,15 +81,7 @@ const router = createRouter({
     ...sections.map(({ path, name, section }) => ({
       path,
       name,
-
-     component:
-  section === 'Academy'
-    ? CourseAdmin
-    : section === 'Users'
-      ? UsersAdmin
-      : section === 'Support'
-        ? SupportAdmin
-        : AdminPanel,
+      component: sectionComponent(section),
 
       meta: {
         requiresAuth: true,
@@ -96,23 +103,16 @@ router.beforeEach(async to => {
   try {
     const user = await getCurrentUser()
 
-    if (!isAdmin(user)) {
-      return {
-        name: 'admin-login',
-        query: {
-          redirect: to.fullPath,
-        },
-      }
-    }
-
-    return true
+    if (isAdmin(user)) return true
   } catch {
-    return {
-      name: 'admin-login',
-      query: {
-        redirect: to.fullPath,
-      },
-    }
+    // An expired session also redirects to login.
+  }
+
+  return {
+    name: 'admin-login',
+    query: {
+      redirect: to.fullPath,
+    },
   }
 })
 

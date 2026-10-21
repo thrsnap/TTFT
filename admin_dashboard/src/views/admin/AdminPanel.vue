@@ -235,6 +235,7 @@ const route = useRoute();
 const nav = [
   ["Dashboard", LayoutDashboard],
   ["News", Newspaper],
+  ["Trading Journal", FileText],
   ["Academy", GraduationCap],
   ["Analysis", ChartNoAxesCombined],
   ["Users", Users],
@@ -282,6 +283,7 @@ const initials = (name) =>
 const sectionPaths = {
   Dashboard: "/admin",
   News: "/admin/news",
+  "Trading Journal": "/admin/journal",
   Academy: "/admin/academy",
   Analysis: "/admin/analysis",
   Users: "/admin/users",
@@ -333,7 +335,12 @@ async function loadRecords() {
   recordsLoaded.value = false;
   try {
     let data;
-    if (page.value === "Academy") {
+    if (page.value === "Trading Journal") {
+      records.value = [];
+      await loadJournalPosts();
+      recordsLoaded.value = true;
+      return;
+    } else if (page.value === "Academy") {
       records.value = [];
       recordsLoaded.value = true;
       return;
@@ -1207,6 +1214,129 @@ onMounted(() => {
   load();
 });
 onUnmounted(() => document.removeEventListener("keydown", modalKeys));
+
+// Trading Journal moderation uses the existing admin API and session.
+const journalPosts = ref([]);
+const journalLoading = ref(false);
+const journalError = ref("");
+const journalResult = ref("all");
+const journalCursor = ref(null);
+const journalDeleting = ref(false);
+const journalTarget = ref(null);
+const journalDeleteDialog = ref(null);
+const journalImageDialog = ref(null);
+const journalSelectedImage = ref(null);
+const journalImageErrors = ref({});
+const journalNow = ref(Date.now());
+let journalClock;
+let journalController;
+let journalRequestId = 0;
+
+function journalTime(value) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return "";
+  const seconds = Math.max(0, Math.floor((journalNow.value - time) / 1000));
+  if (seconds < 60) return "Just now";
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (seconds < 3600) return format.format(-Math.floor(seconds / 60), "minute");
+  if (seconds < 86400) return format.format(-Math.floor(seconds / 3600), "hour");
+  if (seconds < 604800) return format.format(-Math.floor(seconds / 86400), "day");
+  return new Date(time).toLocaleDateString();
+}
+function journalExactTime(value) {
+  const time = new Date(value);
+  return Number.isFinite(time.getTime()) ? time.toLocaleString() : "";
+}
+function journalAmount(post) {
+  const currency = ["USD", "KHR", "EUR", "GBP", "INR"].includes(post.currency) ? post.currency : "USD";
+  const amount = post.result === "breakeven" ? 0 : Math.abs(Number(post.amount) || 0);
+  return (post.result === "loss" ? "−" : post.result === "profit" ? "+" : "") +
+    new Intl.NumberFormat(undefined, { style: "currency", currency }).format(amount);
+}
+async function loadJournalPosts(append = false) {
+  journalController?.abort();
+  journalController = new AbortController();
+  const requestId = ++journalRequestId;
+  journalLoading.value = true;
+  journalError.value = "";
+  if (!append) {
+    journalPosts.value = [];
+    journalCursor.value = null;
+    journalImageErrors.value = {};
+  }
+  const query = new URLSearchParams({ scope: "all", limit: "12" });
+  if (journalResult.value !== "all") query.set("result", journalResult.value);
+  if (append && journalCursor.value) query.set("cursor", journalCursor.value);
+  try {
+    const data = await api(`journals?${query}`, { signal: journalController.signal });
+    if (requestId !== journalRequestId) return;
+    if (!Array.isArray(data?.posts)) throw new Error("Invalid journal response: expected posts.");
+    const incoming = data.posts.map(post => ({ ...post, imageUrl: fileUrl(post.imageUrl) }));
+    const combined = append ? [...journalPosts.value, ...incoming] : incoming;
+    journalPosts.value = [...new Map(combined.map(post => [post._id, post])).values()];
+    journalCursor.value = data.nextCursor || null;
+  } catch (caught) {
+    if (caught.name !== "AbortError" && requestId === journalRequestId) {
+      journalError.value = caught.status === 403
+        ? "Admin access is required to moderate journal posts."
+        : caught.status === 401
+          ? "Your session expired. Please sign in again."
+          : caught.message || "Could not load journal posts.";
+    }
+  } finally {
+    if (requestId === journalRequestId) journalLoading.value = false;
+  }
+}
+async function previewJournalImage(post) {
+  journalSelectedImage.value = post;
+  await nextTick();
+  journalImageDialog.value?.showModal();
+}
+function retryJournalImage(post) {
+  const url = new URL(post.imageUrl);
+  url.searchParams.set("_retry", String(Date.now()));
+  post.imageUrl = url.href;
+  delete journalImageErrors.value[post._id];
+}
+async function confirmJournalDelete(post) {
+  journalTarget.value = post;
+  await nextTick();
+  journalDeleteDialog.value?.showModal();
+}
+async function deleteJournalPost() {
+  if (!journalTarget.value || journalDeleting.value) return;
+  journalDeleting.value = true;
+  journalError.value = "";
+  try {
+    await api(`journals/${encodeURIComponent(journalTarget.value._id)}`, { method: "DELETE" });
+    journalDeleteDialog.value?.close();
+    journalTarget.value = null;
+    notify("Journal post deleted.");
+    await loadJournalPosts();
+  } catch (caught) {
+    journalError.value = caught.message || "Could not delete the post.";
+    journalDeleteDialog.value?.close();
+  } finally {
+    journalDeleting.value = false;
+  }
+}
+watch(page, (section) => {
+  if (section !== "Trading Journal") {
+    journalController?.abort();
+    ++journalRequestId;
+    journalPosts.value = [];
+    journalTarget.value = null;
+    journalSelectedImage.value = null;
+  }
+});
+onMounted(() => {
+  journalClock = setInterval(() => { journalNow.value = Date.now(); }, 30000);
+});
+onUnmounted(() => {
+  journalController?.abort();
+  clearInterval(journalClock);
+});
+
 </script>
 
 <template>
@@ -1418,6 +1548,7 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
                 {
                   Dashboard: "A clear view of your community and content.",
                   News: "Manage economic events, News Signals, and monthly Daily Signals.",
+                  "Trading Journal": "Review member posts and remove scams or inappropriate content.",
                   Academy: "Build your course library and manage pricing.",
                   Analysis:
                     "Share your technical outlook and downloadable resources.",
@@ -1922,6 +2053,54 @@ onUnmounted(() => document.removeEventListener("keydown", modalKeys));
               </div>
             </section>
           </div>
+        </template>
+        <template v-else-if="page === 'Trading Journal'">
+          <section aria-label="Trading Journal moderation" class="min-w-0">
+            <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <label class="flex items-center gap-2 text-sm">Result
+                <select v-model="journalResult" class="rounded-lg border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900" @change="loadJournalPosts()">
+                  <option value="all">All results</option><option value="profit">Profit</option><option value="loss">Loss</option><option value="breakeven">Breakeven</option>
+                </select>
+              </label>
+              <button type="button" :disabled="journalLoading || journalDeleting" class="rounded-lg border border-slate-200 bg-white px-4 py-2.5 font-medium dark:border-slate-700 dark:bg-slate-900" @click="loadJournalPosts()">{{ journalLoading ? 'Loading…' : 'Refresh posts' }}</button>
+            </div>
+            <p class="mb-5 text-xs text-slate-500 dark:text-slate-400">Review screenshots and notes before deleting a post. Deletion is permanent. Results are self-reported.</p>
+            <div v-if="journalError" role="alert" class="mb-5 rounded-xl border border-red-300 bg-red-50 p-4 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+              <p>{{ journalError }}</p><button type="button" class="mt-2 font-semibold underline" @click="loadJournalPosts()">Try again</button>
+            </div>
+            <p v-if="journalLoading && !journalPosts.length" role="status" class="rounded-xl border border-slate-200 p-10 text-center dark:border-slate-700">Loading journal posts…</p>
+            <p v-else-if="!journalError && !journalPosts.length" class="rounded-xl border border-dashed border-slate-300 p-10 text-center text-slate-500 dark:border-slate-700">No journal posts match this filter.</p>
+            <div class="grid items-start gap-5 xl:grid-cols-2">
+              <article v-for="post in journalPosts" :key="post._id" class="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+                <div class="p-5">
+                  <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div class="min-w-0"><p class="break-words font-semibold">@{{ post.author?.username || 'Trader' }}</p><time :datetime="post.createdAt" :title="journalExactTime(post.createdAt)" class="text-xs text-slate-500 dark:text-slate-400">{{ journalTime(post.createdAt) }}</time></div>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs capitalize dark:bg-slate-800">{{ post.result }}</span>
+                  </div>
+                  <div class="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    <div><h2 class="text-lg font-semibold">{{ post.pair }}</h2><p class="text-xs uppercase text-slate-500 dark:text-slate-400">{{ post.direction }}</p></div>
+                    <p class="text-xl font-bold tabular-nums" :class="post.result === 'profit' ? 'text-emerald-600 dark:text-emerald-400' : post.result === 'loss' ? 'text-red-600 dark:text-red-400' : 'text-slate-500'">{{ journalAmount(post) }}</p>
+                  </div>
+                  <p v-if="post.notes" class="mt-4 whitespace-pre-wrap break-words leading-relaxed">{{ post.notes }}</p>
+                </div>
+                <div v-if="post.imageUrl" class="bg-slate-100 dark:bg-slate-950">
+                  <div v-if="journalImageErrors[post._id]" class="p-5 text-center text-sm"><p>Screenshot could not load.</p><button type="button" class="mt-2 underline" @click="retryJournalImage(post)">Retry screenshot</button></div>
+                  <button v-else type="button" class="block w-full" :aria-label="`Enlarge ${post.pair} screenshot`" @click="previewJournalImage(post)"><img :key="post.imageUrl" :src="post.imageUrl" :alt="`${post.pair} trade screenshot`" loading="lazy" class="max-h-72 w-full object-contain" @error="journalImageErrors[post._id] = true"><span class="block py-2 text-xs text-slate-500">View screenshot</span></button>
+                </div>
+                <footer class="flex items-center justify-between gap-3 border-t border-slate-200 p-4 dark:border-slate-700"><span class="min-w-0 break-all text-xs text-slate-400">Post: {{ post._id }}</span><button type="button" :disabled="journalDeleting" class="inline-flex shrink-0 items-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700" @click="confirmJournalDelete(post)"><Trash2 :size="15" />Delete post</button></footer>
+              </article>
+            </div>
+            <div v-if="journalCursor" class="mt-6 text-center"><button type="button" :disabled="journalLoading || journalDeleting" class="rounded-lg border border-slate-200 px-5 py-2.5 dark:border-slate-700" @click="loadJournalPosts(true)">{{ journalLoading ? 'Loading…' : 'Load more posts' }}</button></div>
+          </section>
+          <dialog ref="journalDeleteDialog" aria-labelledby="journal-delete-title" class="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-slate-800 shadow-xl backdrop:bg-slate-950/75 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" @cancel="journalDeleting && $event.preventDefault()">
+            <h2 id="journal-delete-title" class="text-lg font-semibold">Delete this journal post?</h2>
+            <p class="mt-3 leading-relaxed text-slate-500 dark:text-slate-400">Remove the {{ journalTarget?.pair }} post by @{{ journalTarget?.author?.username || 'Trader' }} and request deletion of its R2 screenshot. This cannot be undone.</p>
+            <div class="mt-6 flex justify-end gap-3"><button type="button" :disabled="journalDeleting" class="rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-600" @click="journalDeleteDialog.close()">Cancel</button><button type="button" :disabled="journalDeleting" class="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white" @click="deleteJournalPost()">{{ journalDeleting ? 'Deleting…' : 'Delete post' }}</button></div>
+          </dialog>
+          <dialog ref="journalImageDialog" aria-label="Journal screenshot" class="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-5xl overflow-y-auto rounded-2xl bg-slate-950 p-4 text-white backdrop:bg-slate-950/75" @close="journalSelectedImage = null">
+            <header class="mb-3 flex items-center justify-between gap-3"><p>{{ journalSelectedImage?.pair }} · @{{ journalSelectedImage?.author?.username || 'Trader' }}</p><button type="button" aria-label="Close screenshot" class="rounded-lg p-2" @click="journalImageDialog.close()"><X :size="22" /></button></header>
+            <template v-if="journalSelectedImage"><div v-if="journalImageErrors[journalSelectedImage._id]" class="p-8 text-center"><p>Screenshot could not load.</p><button type="button" class="mt-3 underline" @click="retryJournalImage(journalSelectedImage)">Retry screenshot</button></div><img v-else :key="journalSelectedImage.imageUrl" :src="journalSelectedImage.imageUrl" alt="Journal trade screenshot" class="max-h-[75dvh] w-full object-contain" @error="journalImageErrors[journalSelectedImage._id] = true"></template>
+          </dialog>
         </template>
         <template v-else-if="page === 'Academy'"><CourseAdmin /></template>
         <template v-else-if="currentKind">
