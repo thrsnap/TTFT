@@ -9,6 +9,7 @@ const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
   .trim().replace(/\/+$/, '')
 
 const TELEGRAM_CHANNEL_URL = 'https://t.me/+rkSIBgQkT_xhZDdl'
+const TELEGRAM_APP_URL = 'tg://join?invite=rkSIBgQkT_xhZDdl'
 
 // Each check calls the backend. Use a limited polling schedule.
 const CHECK_INTERVAL = 30000
@@ -323,9 +324,7 @@ onUnmounted(() => {
               Please join our Telegram channel to receive signal alerts.
             </p>
             <a
-              :href="TELEGRAM_CHANNEL_URL"
-              target="_blank"
-              rel="noopener noreferrer"
+              :href="TELEGRAM_APP_URL"
               class="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2
                      rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white
                      transition-colors hover:bg-sky-500
@@ -338,6 +337,21 @@ onUnmounted(() => {
                 <path d="M22 2 11 13" />
               </svg>
               Join Telegram Channel
+            </a>
+            <p class="mt-2 text-xs leading-5 text-(--muted-color)">
+              Opens the Telegram app on your device.
+            </p>
+            <a
+              :href="TELEGRAM_CHANNEL_URL"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="mt-2 inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-2
+                     text-sm font-semibold text-sky-600 underline underline-offset-4
+                     hover:text-sky-500 dark:text-sky-400
+                     focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-sky-500"
+            >
+              Open in browser
             </a>
           </div>
         </div>
