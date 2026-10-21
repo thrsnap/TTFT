@@ -416,8 +416,7 @@ export async function updateJournal(req, res) {
         },
       },
       {
-        new: true,
-        runValidators: true,
+         returnDocument: 'after', runValidators: true,
       },
     )
 

@@ -316,7 +316,7 @@ router.patch('/posts/:id', requireUser, requireAdmin, upload.array('images', 10)
     if (mode === 'replace' && oldIds.length) update.$addToSet = { obsoleteImageIds: { $each: oldIds } }
     const saved = await AnalysisPost.findOneAndUpdate(
       { _id: post._id, __v: post.__v ?? 0, pendingDelete: { $ne: true } },
-      update, { new: true }, // Complete candidate was validated above.
+      update, {  returnDocument: 'after', runValidators: true }, // Complete candidate was validated above.
     )
     if (!saved) throw httpError(409, 'This analysis changed. Reload and try again.')
     committed = true
@@ -468,7 +468,7 @@ router.patch('/documents/:id', requireUser, requireAdmin, documentUpload.single(
     if (replacement && oldKey) update.$addToSet = { obsoleteFileKeys: oldKey }
     const saved = await AnalysisDocument.findOneAndUpdate(
       { _id: doc._id, __v: doc.__v ?? 0, pendingDelete: { $ne: true } },
-      update, { new: true }, // Document validation above handles conditional fields.
+      update, {  returnDocument: 'after', runValidators: true }, // Document validation above handles conditional fields.
     )
     if (!saved) throw httpError(409, 'This document changed. Reload and try again.')
     committed = true

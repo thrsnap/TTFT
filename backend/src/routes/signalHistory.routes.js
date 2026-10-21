@@ -101,7 +101,7 @@ router.patch('/:type/:id/result', requireUser, requireAdmin, run(async (req, res
   else if (fields.outcome && !Object.hasOwn(fields, 'closedAt')) fields.closedAt = new Date()
   const signal = await Model.findOneAndUpdate(
     { _id: req.params.id, archivedAt: { $type: 'date' } }, { $set: fields },
-    { new: true, runValidators: true },
+    {  returnDocument: 'after', runValidators: true, runValidators: true },
   ).select('_id outcome closedAt resultNotes archivedAt')
   if (!signal) throw historyError('Archived signal not found.', 404)
   res.json({ message: 'Signal result saved.', signal })

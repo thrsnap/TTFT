@@ -4,6 +4,7 @@ import sharp from 'sharp'
 import mongoose from 'mongoose'
 
 import Signal from '../models/signal.model.js'
+import { sendSignalReleasedAlert } from '../services/telegram.service.js'
 import NewsSignalGrant from '../models/newsSignalGrant.model.js'
 import User from '../models/user.model.js'
 
@@ -202,6 +203,37 @@ function isSignalReleased(signal) {
   )
 }
 
+// News cards have no draft status in this route; active image + details
+// is the same release rule used in the public API.
+async function alertNewsRelease(signal, wasReleased = false) {
+  if (process.env.TELEGRAM_ALERT_DEBUG === '1') {
+    console.log('News Signal release check:', {
+      signalId: String(signal._id),
+      wasReleased,
+      hasImage: imageByteLength(signal.image) > 0,
+      hasDetails: Boolean(signal.details?.trim()),
+      archived: Boolean(signal.archivedAt),
+      releasedAt: signal.releasedAt || null,
+      tokenConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN?.trim()),
+      channelConfigured: Boolean(process.env.TELEGRAM_CHANNEL_ID?.trim()),
+    })
+  }
+  if (wasReleased || signal.archivedAt || !isSignalReleased(signal)) return
+
+  try {
+    const messageId = await sendSignalReleasedAlert(signal, 'News Signal')
+    if (process.env.TELEGRAM_ALERT_DEBUG === '1') {
+      console.log('News Signal Telegram result:', { signalId: String(signal._id), messageId })
+    }
+  } catch (error) {
+    // Print diagnostic text without exposing a token in a nested error message.
+    const token = process.env.TELEGRAM_BOT_TOKEN?.trim()
+    const message = String(error?.message || 'Unknown notification error')
+    console.error('Telegram News Signal notification failed:',
+      token ? message.split(token).join('[redacted]') : message)
+  }
+}
+
 async function processSignalImage(file) {
   try {
     const options = {
@@ -277,6 +309,8 @@ router.post(
         ...fields,
         ...images,
       })
+
+      await alertNewsRelease(signal)
 
       res.status(201).json({
         message: 'Signal created successfully.',
@@ -775,13 +809,15 @@ router.patch(
       const signal = await Signal.findOne({
         _id: req.params.id,
         archivedAt: null,
-      }).select('+image')
+      }).select('+image +details')
 
       if (!signal) {
         return res.status(404).json({
           message: 'Signal not found.',
         })
       }
+
+      const wasReleased = isSignalReleased(signal)
 
       Object.assign(signal, fields)
 
@@ -796,6 +832,8 @@ router.patch(
       }
 
       await signal.save()
+
+      await alertNewsRelease(signal, wasReleased)
 
       res.json({
         message: 'Signal updated successfully.',

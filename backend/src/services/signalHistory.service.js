@@ -41,7 +41,7 @@ export async function archiveSignal(Model, id, actorId) {
   const signal = await Model.findOneAndUpdate(
     { _id: id, archivedAt: null },
     { $set: { archivedAt: new Date(), archivedBy } },
-    { new: true, runValidators: true },
+    {  returnDocument: 'after', runValidators: true, runValidators: true },
   ).select('_id archivedAt outcome')
 
   if (signal) return signal
