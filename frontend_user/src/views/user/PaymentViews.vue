@@ -8,6 +8,8 @@ const router = useRouter()
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
   .trim().replace(/\/+$/, '')
 
+const TELEGRAM_CHANNEL_URL = 'https://t.me/+rkSIBgQkT_xhZDdl'
+
 // Each check calls the backend. Use a limited polling schedule.
 const CHECK_INTERVAL = 30000
 const MAX_AUTO_CHECKS = 10
@@ -316,6 +318,28 @@ onUnmounted(() => {
           <h2 class="mt-3 text-xl font-bold">Payment verified</h2>
           <p class="mt-2 text-sm">Your payment has been confirmed.</p>
           <p v-if="order.subscriptionExpiresAt" class="mt-2 text-sm">Access until {{ formatExpiry(order.subscriptionExpiresAt) }}.</p>
+          <div class="mt-5 border-t border-emerald-500/20 pt-4">
+            <p class="text-sm font-medium leading-6 text-(--text-color)">
+              Please join our Telegram channel to receive signal alerts.
+            </p>
+            <a
+              :href="TELEGRAM_CHANNEL_URL"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2
+                     rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white
+                     transition-colors hover:bg-sky-500
+                     focus-visible:outline-2 focus-visible:outline-offset-2
+                     focus-visible:outline-sky-500"
+            >
+              <svg class="size-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m22 2-7 20-4-9-9-4 20-7Z" />
+                <path d="M22 2 11 13" />
+              </svg>
+              Join Telegram Channel
+            </a>
+          </div>
         </div>
         <div v-else-if="qrImage && !expired" class="mx-auto mt-5 max-w-[280px] rounded-xl bg-white p-2">
           <img :src="qrImage" alt="Scan to pay with Bakong" width="420" height="420" class="block h-auto w-full" />
