@@ -55,18 +55,21 @@
             <RouterLink
               :to="localizedPath(link.to)"
               @click="closeMenus"
-              class="flex items-center gap-2 whitespace-nowrap
-                rounded-lg px-2 py-2 text-[1rem]
+              class="flex items-center gap-1.5 whitespace-nowrap
+                rounded-lg px-1.5 py-2 text-xs
                 font-medium text-white no-underline
                 transition-colors hover:bg-white/10
-                min-[1280px]:px-3 min-[1280px]:text-sm"
+                min-[1280px]:px-2 min-[1280px]:text-[13px]
+                min-[1536px]:text-sm"
               exact-active-class="bg-white/10"
             >
               <FontAwesomeIcon
                 :icon="link.icon"
-                class="hidden min-[1280px]:inline-block"
+                class="hidden min-[1536px]:inline-block"
               />
-              {{ t(link.label) }}
+              {{ link.to === "/journal"
+                ? (language === "km" ? "កំណត់ហេតុជួញដូរ" : "Trade Journal")
+                : t(link.label) }}
             </RouterLink>
           </li>
         </ul>
@@ -169,7 +172,7 @@
               whitespace-nowrap rounded-xl
               bg-[linear-gradient(135deg,#667eea,#764ba2)]
               px-3 py-2 text-sm font-semibold text-white
-              min-[1280px]:px-4 min-[1280px]:text-base"
+              min-[1280px]:px-3 min-[1536px]:px-4"
           >
             <FontAwesomeIcon :icon="faUserPlus" />
             {{ t('nav.joinNow') }}
@@ -292,7 +295,9 @@
             exact-active-class="bg-white/10"
           >
             <FontAwesomeIcon :icon="link.icon" class="w-5 shrink-0" />
-            {{ t(link.label) }}
+            {{ link.to === "/journal"
+                ? (language === "km" ? "កំណត់ហេតុជួញដូរ" : "Trading Journal")
+                : t(link.label) }}
           </RouterLink>
         </nav>
 
@@ -349,6 +354,7 @@ import {
   faHouse,
   faNewspaper,
   faBook,
+  faBookOpen,
   faCircleUser,
   faMoon,
   faSun,
@@ -377,6 +383,7 @@ const navLinks = [
   { to: '/news', label: 'nav.news', icon: faNewspaper },
   { to: '/academy', label: 'nav.academy', icon: faBook },
   { to: '/signal', label: 'nav.signal', icon: faSquarePollVertical },
+  { to: '/journal', label: 'nav.journal', icon: faBookOpen },
   {
     to: '/analysis',
     label: 'nav.analysis',

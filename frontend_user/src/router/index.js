@@ -26,6 +26,9 @@ import CourseLessons from '../views/CourseLessons.vue'
 
 import { useAuthStore } from '../store/user/authStore.js'
 
+import TradingJournal from '../views/TradingJournal.vue'
+
+
 const pages = [
   {
     path: '',
@@ -94,6 +97,12 @@ const pages = [
     name: 'forgot-password',
     component: ForgotPasswordViews,
   },
+  {
+  path: 'journal',
+  name: 'journal',
+  component: () => import('../views/TradingJournal.vue'),
+  meta: { requiresAuth: true },
+},
   {
     path: '/reset-password',
     name: 'reset-password',
