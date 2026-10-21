@@ -194,7 +194,7 @@ export async function sendSignalReleasedAlert(signal, type = 'News Signal') {
       body: JSON.stringify({
         chat_id: chatId, text,
         reply_markup: { inline_keyboard: [[
-          { text: 'View Signal', url: 'https://cmm-ft.com/signal' },
+          { text: 'Visit to website', url: 'https://cmm-ft.com/signal' },
         ]] },
       }),
       signal: AbortSignal.timeout(10000),
