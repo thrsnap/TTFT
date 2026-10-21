@@ -341,18 +341,7 @@ onUnmounted(() => {
             <p class="mt-2 text-xs leading-5 text-(--muted-color)">
               Opens the Telegram app on your device.
             </p>
-            <a
-              :href="TELEGRAM_CHANNEL_URL"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="mt-2 inline-flex min-h-11 items-center justify-center rounded-lg px-3 py-2
-                     text-sm font-semibold text-sky-600 underline underline-offset-4
-                     hover:text-sky-500 dark:text-sky-400
-                     focus-visible:outline-2 focus-visible:outline-offset-2
-                     focus-visible:outline-sky-500"
-            >
-              Open in browser
-            </a>
+            
           </div>
         </div>
         <div v-else-if="qrImage && !expired" class="mx-auto mt-5 max-w-[280px] rounded-xl bg-white p-2">
