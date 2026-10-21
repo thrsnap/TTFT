@@ -13,6 +13,7 @@ import {
   faHouse,
   faNewspaper,
   faBook,
+  faBookOpen,
   faSquarePollVertical,
   faMagnifyingGlassChart,
   faHandshake,
@@ -50,13 +51,30 @@ const dashboardLink = computed(() => ({
 }))
 
 const navLinks = [
-  { to: '/', label: 'nav.home', icon: faHouse },
-  { to: '/news', label: 'nav.news', icon: faNewspaper },
-  { to: '/academy', label: 'nav.academy', icon: faBook },
+  {
+    to: '/',
+    label: 'nav.home',
+    icon: faHouse,
+  },
+  {
+    to: '/news',
+    label: 'nav.news',
+    icon: faNewspaper,
+  },
+  {
+    to: '/academy',
+    label: 'nav.academy',
+    icon: faBook,
+  },
   {
     to: '/signal',
     label: 'nav.signal',
     icon: faSquarePollVertical,
+  },
+  {
+    to: '/journal',
+    label: 'nav.journal',
+    icon: faBookOpen,
   },
   {
     to: '/analysis',
@@ -73,8 +91,22 @@ const navLinks = [
     label: 'nav.support',
     icon: faHeadset,
   },
-  { to: '/about', label: 'nav.about', icon: faCircleUser },
+  {
+    to: '/about',
+    label: 'nav.about',
+    icon: faCircleUser,
+  },
 ]
+
+function linkLabel(link) {
+  if (link.to === '/journal') {
+    return route.params.lang === 'km'
+      ? 'កំណត់ហេតុជួញដូរ'
+      : 'Trade Journal'
+  }
+
+  return t(link.label)
+}
 
 function localizedPath(path) {
   if (route.params.lang !== 'km') return path
@@ -166,46 +198,46 @@ onUnmounted(() => {
     :class="{ 'font-khmer': route.params.lang === 'km' }"
   >
     <button
-  ref="trigger"
-  type="button"
-  :aria-expanded="open"
-  :aria-label="open ? 'Close account menu' : 'Open account menu'"
-  aria-controls="user-account-dropdown"
-  class="flex shrink-0 cursor-pointer items-center gap-1.5
-         rounded-full p-1 transition-colors hover:bg-white/10
-         focus-visible:outline-2
-         focus-visible:outline-offset-2
-         focus-visible:outline-emerald-400"
-  @click="toggle"
->
-  <!-- Profile circle -->
-  <span
-    class="flex size-10 items-center justify-center
-           rounded-full border border-emerald-700
-           bg-emerald-950 text-base font-semibold
-           text-emerald-400
-           max-[768px]:size-8 max-[768px]:text-sm
-           max-[320px]:size-7 max-[320px]:text-xs"
-  >
-    {{ initial }}
-  </span>
+      ref="trigger"
+      type="button"
+      :aria-expanded="open"
+      :aria-label="open ? 'Close account menu' : 'Open account menu'"
+      aria-controls="user-account-dropdown"
+      class="flex shrink-0 cursor-pointer items-center gap-1.5
+             rounded-full p-1 transition-colors hover:bg-white/10
+             focus-visible:outline-2
+             focus-visible:outline-offset-2
+             focus-visible:outline-emerald-400"
+      @click="toggle"
+    >
+      <!-- Profile circle -->
+      <span
+        class="flex size-10 items-center justify-center
+               rounded-full border border-emerald-700
+               bg-emerald-950 text-base font-semibold
+               text-emerald-400
+               max-[768px]:size-8 max-[768px]:text-sm
+               max-[320px]:size-7 max-[320px]:text-xs"
+      >
+        {{ initial }}
+      </span>
 
-  <!-- Dropdown arrow -->
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-    class="size-3.5 shrink-0 text-slate-300
-           transition-transform duration-200"
-    :class="{ 'rotate-180': open }"
-  >
-    <path d="m6 9 6 6 6-6" />
-  </svg>
-</button>
+      <!-- Dropdown arrow -->
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+        class="size-3.5 shrink-0 text-slate-300
+               transition-transform duration-200"
+        :class="{ 'rotate-180': open }"
+      >
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </button>
 
     <Transition
       enter-active-class="transition duration-150"
@@ -259,7 +291,7 @@ onUnmounted(() => {
               class="w-5 shrink-0"
             />
 
-            {{ t(link.label) }}
+            {{ linkLabel(link) }}
           </RouterLink>
         </nav>
 
@@ -285,10 +317,34 @@ onUnmounted(() => {
               stroke-width="1.8"
               aria-hidden="true"
             >
-              <rect x="3" y="3" width="7" height="7" rx="1.5" />
-              <rect x="14" y="3" width="7" height="7" rx="1.5" />
-              <rect x="3" y="14" width="7" height="7" rx="1.5" />
-              <rect x="14" y="14" width="7" height="7" rx="1.5" />
+              <rect
+                x="3"
+                y="3"
+                width="7"
+                height="7"
+                rx="1.5"
+              />
+              <rect
+                x="14"
+                y="3"
+                width="7"
+                height="7"
+                rx="1.5"
+              />
+              <rect
+                x="3"
+                y="14"
+                width="7"
+                height="7"
+                rx="1.5"
+              />
+              <rect
+                x="14"
+                y="14"
+                width="7"
+                height="7"
+                rx="1.5"
+              />
             </svg>
 
             My Dashboard
