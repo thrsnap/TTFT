@@ -35,6 +35,14 @@ import {
 
 import journalRoutes from './routes/journal.routes.js'
 import adminJournalRoutes from './routes/adminJournal.routes.js'
+import Journal from './models/journal.model.js'
+
+import {
+  createJournalReactionRouter,
+} from './routes/journalReaction.routes.js'
+
+
+
 const app = express()
 
 app.set('trust proxy', 1)
@@ -272,6 +280,15 @@ app.use('/api/journals', journalRoutes)
 // admin journal
 app.use('/api/admin/journals', adminJournalRoutes)
 
+app.use('/api/journals', journalRoutes)
+app.use(
+  '/api/journal-reactions',
+  protectJsonMutations,
+  createJournalReactionRouter({
+    Journal,
+    requireUser,
+  }),
+)
 
 // Shared admin mutation protection.
 // Allows multipart uploads through to their own routes.
