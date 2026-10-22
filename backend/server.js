@@ -43,9 +43,11 @@ async function startServer() {
     // Keep existing app initialization, including Redis setup.
     const { default: app } = await import('./src/app.js')
 
-    const server = app.listen(port, '0.0.0.0', () => {
-      console.log(`API listening on port ${port}`)
-    })
+console.log('Node.js version:', process.version)
+
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`API listening on port ${port}`)
+  })
 
     server.on('error', error => {
       console.error('Server error:', error.message)
