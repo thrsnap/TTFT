@@ -68,7 +68,7 @@
                 class="hidden min-[1536px]:inline-block"
               />
               {{ link.to === "/journal"
-                ? (language === "km" ? "កំណត់ហេតុជួញដូរ" : "Trade Journal")
+                ? (language === "km" ? "កំណត់ហេតុជួញដូរ" : "Trader Journal")
                 : t(link.label) }}
             </RouterLink>
           </li>

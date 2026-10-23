@@ -102,7 +102,7 @@ function linkLabel(link) {
   if (link.to === '/journal') {
     return route.params.lang === 'km'
       ? 'កំណត់ហេតុជួញដូរ'
-      : 'Trade Journal'
+      : 'Trader Journal'
   }
 
   return t(link.label)
