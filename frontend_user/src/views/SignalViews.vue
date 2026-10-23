@@ -132,12 +132,12 @@ onUnmounted(() => {
              items-start gap-6 px-4 py-6
              sm:px-6 lg:grid-cols-2"
     >
-      <div data-signal-column="news" class="min-w-0">
-        <NewsSignal />
-      </div>
-
       <div data-signal-column="daily" class="min-w-0">
         <DailySignal />
+      </div>
+      
+      <div data-signal-column="news" class="min-w-0">
+        <NewsSignal />
       </div>
     </div>
 
