@@ -198,12 +198,12 @@ function serializeJournal(post) {
     _id: String(post._id),
 
     author: {
-      id: post.userId?._id
-        ? String(post.userId._id)
-        : '',
-
-      username: post.userId?.username || 'Trader',
-    },
+  id: post.userId?._id
+    ? String(post.userId._id)
+    : '',
+  username: post.userId?.username || 'Trader',
+  role: post.userId?.role === 'admin' ? 'admin' : 'user',
+},
 
     pair: post.pair,
     direction: post.direction,
@@ -299,7 +299,7 @@ export async function listJournals(req, res) {
     const rows = await Journal.find(filter)
       .sort({ _id: -1 })
       .limit(limit + 1)
-      .populate('userId', 'username')
+      .populate('userId', 'username role')
       .lean()
 
     const hasMore = rows.length > limit

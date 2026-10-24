@@ -13,7 +13,6 @@ import { requireUser } from '../controllers/auth.controller.js'
 
 const router = Router()
 
-// Protect posts, uploads, and screenshots.
 router.use(requireUser)
 
 const upload = multer({
@@ -36,7 +35,9 @@ const upload = multer({
 
     if (!allowed.includes(file.mimetype)) {
       return callback(
-        new Error('Only JPG, PNG, and WebP screenshots are allowed.'),
+        new Error(
+          'Only JPG, PNG, and WebP screenshots are allowed.',
+        ),
       )
     }
 
@@ -49,9 +50,10 @@ function screenshotUpload(req, res, next) {
     if (!error) return next()
 
     return res.status(400).json({
-      message: error.code === 'LIMIT_FILE_SIZE'
-        ? 'Screenshot must be smaller than 5 MB.'
-        : error.message || 'Unable to upload screenshot.',
+      message:
+        error.code === 'LIMIT_FILE_SIZE'
+          ? 'Screenshot must be smaller than 5 MB.'
+          : error.message || 'Unable to upload screenshot.',
     })
   })
 }
