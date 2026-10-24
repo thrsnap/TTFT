@@ -38,7 +38,7 @@ router.use((req, res, next) => {
     })
   }
 
-  res.locals.profilePhotoUserId = userId
+  res.locals.profilePhotoUserId = String(userId)
 
   if (
     req.method !== 'GET' &&
@@ -55,14 +55,12 @@ router.use((req, res, next) => {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-
   limits: {
     fileSize: MAX_PROFILE_PHOTO_SIZE,
     files: 1,
     fields: 0,
     parts: 2,
   },
-
   fileFilter(req, file, callback) {
     if (!PROFILE_PHOTO_TYPES.includes(file.mimetype)) {
       return callback(
@@ -78,12 +76,39 @@ const upload = multer({
   },
 })
 
-// Apply private caching only to successful photo responses.
-// Missing-photo responses should not be cached.
 function setPhotoCacheHeaders(res) {
   res.set({
     'Cache-Control': 'private, max-age=300, must-revalidate',
     Vary: 'Cookie',
+  })
+}
+
+function sendMissingPhoto(res, message) {
+  res.set('Cache-Control', 'private, no-store')
+
+  return res.status(404).json({
+    code: 'PROFILE_PHOTO_NOT_SET',
+    message,
+  })
+}
+
+function sendPhotoError(res, error) {
+  const status = Number(error?.statusCode) || 500
+  const code = error?.code || 'PROFILE_PHOTO_READ_FAILED'
+
+  console.error('[PROFILE PHOTO ROUTE]', {
+    code,
+    message: error?.message,
+  })
+
+  res.set('Cache-Control', 'private, no-store')
+
+  return res.status(status >= 400 && status < 600 ? status : 500).json({
+    code,
+    message:
+      status >= 500
+        ? 'Unable to load the profile photo. Please try again.'
+        : error.message,
   })
 }
 
@@ -96,16 +121,14 @@ router.get(
     )
 
     if (!body) {
-      res.set('Cache-Control', 'private, no-store')
-
-      return res.status(404).json({
-        code: 'PROFILE_PHOTO_NOT_SET',
-        message: 'You have not added a profile photo yet.',
-      })
+      return sendMissingPhoto(
+        res,
+        'You have not added a profile photo yet.',
+      )
     }
 
     setPhotoCacheHeaders(res)
-    res.type('image/webp').send(body)
+    return res.type('image/webp').send(body)
   }),
 )
 
@@ -117,6 +140,7 @@ router.get(
 
     if (!mongoose.isObjectIdOrHexString(userId)) {
       return res.status(400).json({
+        code: 'PROFILE_PHOTO_INVALID_USER_ID',
         message: 'Invalid profile photo user ID.',
       })
     }
@@ -124,16 +148,14 @@ router.get(
     const body = await readProfilePhoto(userId)
 
     if (!body) {
-      res.set('Cache-Control', 'private, no-store')
-
-      return res.status(404).json({
-        code: 'PROFILE_PHOTO_NOT_SET',
-        message: 'This member has not added a profile photo yet.',
-      })
+      return sendMissingPhoto(
+        res,
+        'This member has not added a profile photo yet.',
+      )
     }
 
     setPhotoCacheHeaders(res)
-    res.type('image/webp').send(body)
+    return res.type('image/webp').send(body)
   }),
 )
 
@@ -147,9 +169,8 @@ router.post(
       req.file,
     )
 
-    // Do not cache upload responses.
     res.set('Cache-Control', 'private, no-store')
-    res.type('image/webp').send(body)
+    return res.type('image/webp').send(body)
   }),
 )
 
@@ -163,7 +184,7 @@ router.delete(
 
     res.set('Cache-Control', 'private, no-store')
 
-    res.json({
+    return res.json({
       message: 'Profile photo removed.',
     })
   }),
@@ -177,6 +198,9 @@ router.use((error, req, res, next) => {
     const tooLarge = error.code === 'LIMIT_FILE_SIZE'
 
     return res.status(tooLarge ? 413 : 400).json({
+      code: tooLarge
+        ? 'PROFILE_PHOTO_TOO_LARGE'
+        : 'PROFILE_PHOTO_UPLOAD_ERROR',
       message: tooLarge
         ? 'Choose a photo smaller than 2 MB.'
         : 'Upload one photo in the photo field.',
@@ -185,22 +209,12 @@ router.use((error, req, res, next) => {
 
   if (error instanceof ProfilePhotoError) {
     return res.status(error.status).json({
+      code: error.code || 'PROFILE_PHOTO_INVALID',
       message: error.message,
-      ...(error.code ? { code: error.code } : {}),
     })
   }
 
-  console.error(
-    'Profile photo request failed:',
-    error?.name,
-    error?.message,
-  )
-
-  res.set('Cache-Control', 'private, no-store')
-
-  res.status(500).json({
-    message: 'Unable to update your profile photo. Please try again.',
-  })
+  return sendPhotoError(res, error)
 })
 
 export default router

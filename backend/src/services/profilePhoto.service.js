@@ -1,3 +1,4 @@
+
 export async function readProfilePhoto(userId) {
   const startedAt = Date.now()
   const requestedUserId = String(userId ?? '').trim()
@@ -9,12 +10,7 @@ export async function readProfilePhoto(userId) {
     throw error
   }
 
-  console.log('[PROFILE PHOTO] Request started:', {
-    userId: requestedUserId,
-  })
-
   try {
-    // 1. Find the photo record in MongoDB.
     const mongoStartedAt = Date.now()
 
     const photo = await ProfilePhoto.findOne({
@@ -37,14 +33,13 @@ export async function readProfilePhoto(userId) {
 
     if (!photo.key) {
       const error = new Error(
-        'The profile photo record exists but has no storage key.'
+        'The profile photo record has no storage key.'
       )
       error.code = 'PROFILE_PHOTO_KEY_MISSING'
       error.statusCode = 500
       throw error
     }
 
-    // 2. Retrieve the image from Cloudflare R2.
     const { bucket } = getStorage()
     const r2StartedAt = Date.now()
 
@@ -56,9 +51,7 @@ export async function readProfilePhoto(userId) {
     )
 
     if (!result.Body) {
-      const error = new Error(
-        'The profile photo exists in MongoDB, but R2 returned no image body.'
-      )
+      const error = new Error('R2 returned an empty image body.')
       error.code = 'PROFILE_PHOTO_R2_EMPTY'
       error.statusCode = 502
       throw error
@@ -77,24 +70,22 @@ export async function readProfilePhoto(userId) {
     return body
   } catch (error) {
     const statusCode = error?.$metadata?.httpStatusCode
-    const errorName = error?.name
 
     console.error('[PROFILE PHOTO] Read failed:', {
       userId: requestedUserId,
-      errorName,
+      errorName: error?.name,
       errorCode: error?.code,
       statusCode,
       durationMs: Date.now() - startedAt,
     })
 
-    // R2 confirms the stored object does not exist.
     if (
-      errorName === 'NoSuchKey' ||
-      errorName === 'NotFound' ||
+      error?.name === 'NoSuchKey' ||
+      error?.name === 'NotFound' ||
       statusCode === 404
     ) {
       const missingError = new Error(
-        'The profile photo record exists, but its image is missing from R2.'
+        'The photo record exists, but the image is missing from R2.'
       )
       missingError.code = 'PROFILE_PHOTO_OBJECT_MISSING'
       missingError.statusCode = 500
