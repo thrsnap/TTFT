@@ -22,6 +22,68 @@ const accountRoot = ref(null)
 const accountTrigger = ref(null)
 const busy = ref(false)
 const logoutError = ref('')
+
+const isDark = ref(true)
+let themeObserver
+
+const themeLabel = computed(() =>
+  isDark.value ? 'Switch to light mode' : 'Switch to dark mode',
+)
+
+function syncTheme() {
+  const root = document.documentElement
+  // Match the existing website CSS, which defaults to dark mode.
+  isDark.value = !root.classList.contains('ligh-mode')
+
+  // Keep components that read the dark class in sync as well.
+  if (root.classList.contains('dark') !== isDark.value) {
+    root.classList.toggle('dark', isDark.value)
+  }
+
+  root.style.colorScheme = isDark.value ? 'dark' : 'light'
+}
+
+function applyTheme(dark) {
+  document.documentElement.classList.toggle('ligh-mode', !dark)
+  syncTheme()
+}
+
+function toggleTheme() {
+  const dark = document.documentElement.classList.contains('ligh-mode')
+  applyTheme(dark)
+
+  try {
+    window.localStorage.setItem('theme', dark ? 'dark' : 'light')
+  } catch {
+    // The button still works when the browser blocks saved preferences.
+  }
+}
+
+function restoreTheme() {
+  let savedTheme
+  try {
+    savedTheme = window.localStorage.getItem('theme')
+  } catch {
+    // Keep the theme already applied by the website.
+  }
+
+  if (savedTheme === 'dark' || savedTheme === 'light') {
+    applyTheme(savedTheme === 'dark')
+  } else {
+    syncTheme()
+  }
+}
+
+function onThemeStorage(event) {
+  if (
+    event.key === 'theme' &&
+    event.storageArea === window.localStorage &&
+    (event.newValue === 'dark' || event.newValue === 'light')
+  ) {
+    applyTheme(event.newValue === 'dark')
+  }
+}
+
 const username = computed(() => auth.user?.username || 'Member')
 const email = computed(() => auth.user?.email || '—')
 const initial = computed(() => username.value.slice(0, 1).toUpperCase())
@@ -140,10 +202,19 @@ watch(
 )
 watch(() => auth.isAuthenticated, closeAccount)
 onMounted(() => {
+  restoreTheme()
+  themeObserver = new MutationObserver(syncTheme)
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class'],
+  })
+  window.addEventListener('storage', onThemeStorage)
   document.addEventListener('pointerdown', onOutside)
   document.addEventListener('keydown', onEscape)
 })
 onUnmounted(() => {
+  themeObserver?.disconnect()
+  window.removeEventListener('storage', onThemeStorage)
   document.removeEventListener('pointerdown', onOutside)
   document.removeEventListener('keydown', onEscape)
 })
@@ -456,26 +527,65 @@ onUnmounted(() => {
               {{ pageTitle }}
             </h1>
           </div>
-          <RouterLink
-            :to="localizedPath('/dashboard/profile')"
-            aria-label="Open my information"
-            class="flex shrink-0 items-center gap-2 rounded-full
-                   border border-slate-200 px-2 py-1.5 text-xs
-                   transition hover:border-emerald-400
-                   dark:border-white/10"
-          >
-            <span
-              aria-hidden="true"
-              class="flex size-8 items-center justify-center
-                     rounded-full bg-emerald-600
-                     font-semibold text-white"
+          <div class="flex shrink-0 items-center gap-2 sm:gap-3">
+            <button
+              type="button"
+              :aria-label="themeLabel"
+              :title="themeLabel"
+              class="flex size-11 shrink-0 cursor-pointer items-center
+                     justify-center rounded-full border border-slate-200
+                     bg-slate-50 text-slate-600 transition-colors
+                     hover:border-emerald-400 hover:bg-slate-100
+                     focus-visible:outline-2
+                     focus-visible:outline-offset-2
+                     focus-visible:outline-emerald-500
+                     dark:border-white/10 dark:bg-white/5
+                     dark:text-amber-300 dark:hover:border-emerald-500
+                     dark:hover:bg-white/10"
+              @click="toggleTheme"
             >
-              {{ initial }}
-            </span>
-            <span class="hidden max-w-32 truncate pr-2 sm:block">
-              {{ username }}
-            </span>
-          </RouterLink>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="size-5"
+              >
+                <template v-if="isDark">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2 M12 20v2 M2 12h2 M20 12h2 M4.93 4.93l1.42 1.42 M17.65 17.65l1.42 1.42 M4.93 19.07l1.42-1.42 M17.65 6.35l1.42-1.42" />
+                </template>
+                <path
+                  v-else
+                  d="M20.9 13.1A9 9 0 0 1 10.9 3.1a9 9 0 1 0 10 10Z"
+                />
+              </svg>
+            </button>
+
+            <RouterLink
+              :to="localizedPath('/dashboard/profile')"
+              aria-label="Open my information"
+              class="flex shrink-0 items-center gap-2 rounded-full
+                     border border-slate-200 px-2 py-1.5 text-xs
+                     transition hover:border-emerald-400
+                     dark:border-white/10"
+            >
+              <span
+                aria-hidden="true"
+                class="flex size-8 items-center justify-center
+                       rounded-full bg-emerald-600
+                       font-semibold text-white"
+              >
+                {{ initial }}
+              </span>
+              <span class="hidden max-w-32 truncate pr-2 sm:block">
+                {{ username }}
+              </span>
+            </RouterLink>
+          </div>
         </header>
         <RouterView />
       </div>
