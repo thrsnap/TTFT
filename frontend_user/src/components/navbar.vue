@@ -364,6 +364,7 @@ import {
   faRightToBracket,
   faHandshake,
   faMagnifyingGlassChart,
+  faBoltLightning,
 } from '@fortawesome/free-solid-svg-icons'
 
 const route = useRoute()
@@ -383,7 +384,7 @@ const navLinks = [
   { to: '/news', label: 'nav.news', icon: faNewspaper },
   { to: '/academy', label: 'nav.academy', icon: faBook },
   { to: '/signal', label: 'nav.signal', icon: faSquarePollVertical },
-  { to: '/journal', label: 'nav.journal', icon: faBookOpen },
+  { to: '/journal', label: 'nav.journal', icon: faBoltLightning },
   {
     to: '/analysis',
     label: 'nav.analysis',

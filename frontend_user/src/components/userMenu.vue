@@ -19,6 +19,7 @@ import {
   faHandshake,
   faHeadset,
   faCircleUser,
+  faBoltLightning
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuthStore } from '../store/user/authStore.js'
 
@@ -74,7 +75,7 @@ const navLinks = [
   {
     to: '/journal',
     label: 'nav.journal',
-    icon: faBookOpen,
+    icon: faBoltLightning,
   },
   {
     to: '/analysis',
