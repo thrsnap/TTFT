@@ -575,7 +575,7 @@ onUnmounted(() => {
           </span>
         </div>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          {{ isAdmin ? 'CMM-FT admin account' : 'CMM-FT member account' }}
+          {{ isAdmin ? 'CMM-FT admin full control' : 'CMM-FT member account' }}
         </p>
         <dl
           class="mt-7 grid gap-5 border-t border-slate-100
