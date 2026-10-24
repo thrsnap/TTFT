@@ -1,3 +1,4 @@
+
 import { Router } from 'express'
 import mongoose from 'mongoose'
 import multer from 'multer'
@@ -22,8 +23,8 @@ const asyncRoute = handler => (req, res, next) => {
 // Require a signed-in user for every photo route.
 router.use(requireUser)
 
+// Validate the signed-in user's ID and protect mutations.
 router.use((req, res, next) => {
-  res.set('Cache-Control', 'private, no-store')
   res.set('X-Content-Type-Options', 'nosniff')
 
   const userId =
@@ -68,6 +69,7 @@ const upload = multer({
         new ProfilePhotoError(
           400,
           'Choose a JPG, PNG or WebP image.',
+          'PROFILE_PHOTO_INVALID_TYPE',
         ),
       )
     }
@@ -75,6 +77,15 @@ const upload = multer({
     callback(null, true)
   },
 })
+
+// Apply private caching only to successful photo responses.
+// Missing-photo responses should not be cached.
+function setPhotoCacheHeaders(res) {
+  res.set({
+    'Cache-Control': 'private, max-age=300, must-revalidate',
+    Vary: 'Cookie',
+  })
+}
 
 // Get the signed-in user's profile photo.
 router.get(
@@ -85,12 +96,15 @@ router.get(
     )
 
     if (!body) {
+      res.set('Cache-Control', 'private, no-store')
+
       return res.status(404).json({
         code: 'PROFILE_PHOTO_NOT_SET',
         message: 'You have not added a profile photo yet.',
       })
     }
 
+    setPhotoCacheHeaders(res)
     res.type('image/webp').send(body)
   }),
 )
@@ -110,12 +124,15 @@ router.get(
     const body = await readProfilePhoto(userId)
 
     if (!body) {
+      res.set('Cache-Control', 'private, no-store')
+
       return res.status(404).json({
         code: 'PROFILE_PHOTO_NOT_SET',
         message: 'This member has not added a profile photo yet.',
       })
     }
 
+    setPhotoCacheHeaders(res)
     res.type('image/webp').send(body)
   }),
 )
@@ -130,6 +147,8 @@ router.post(
       req.file,
     )
 
+    // Do not cache upload responses.
+    res.set('Cache-Control', 'private, no-store')
     res.type('image/webp').send(body)
   }),
 )
@@ -141,6 +160,8 @@ router.delete(
     await removeProfilePhoto(
       res.locals.profilePhotoUserId,
     )
+
+    res.set('Cache-Control', 'private, no-store')
 
     res.json({
       message: 'Profile photo removed.',
@@ -169,7 +190,13 @@ router.use((error, req, res, next) => {
     })
   }
 
-  console.error('Profile photo request failed:', error)
+  console.error(
+    'Profile photo request failed:',
+    error?.name,
+    error?.message,
+  )
+
+  res.set('Cache-Control', 'private, no-store')
 
   res.status(500).json({
     message: 'Unable to update your profile photo. Please try again.',
