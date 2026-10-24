@@ -1,10 +1,12 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
+import { useProfilePhoto } from '../composable/useProfilePhoto.js'
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const { photoUrl: myProfilePhoto } = useProfilePhoto()
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
   .trim()
   .replace(/\/+$/, '')
@@ -86,6 +88,109 @@ const localPath = (path) => (route.params.lang === 'km' ? `/km${path}` : path)
 const exactTime = (value) =>
   new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
 const username = (post) => post.author?.username || 'Trader'
+const isAdminAuthor = (post) => post.author?.role === 'admin'
+const authorId = post => String(post.author?.id || post.author?._id || '')
+const authorPhotos = ref({})
+const authorPhotoErrors = ref({})
+const photoSession = computed(() => auth.isAuthenticated === false ? '' : myId.value)
+const authorCheckedAt = new Map()
+const authorRequests = new Map()
+let photoEpoch = 0
+let photosDisposed = false
+function authorPhotoSrc(post) {
+  const id = authorId(post)
+  if (!photoSession.value || !id) return ''
+  const source = id === myId.value ? myProfilePhoto.value : authorPhotos.value[id] || ''
+  return authorPhotoErrors.value[id] === source ? '' : source
+}
+function authorPhotoFailed(post, event) {
+  const id = authorId(post)
+  const source = event.target?.getAttribute('src')
+  if (id && source) authorPhotoErrors.value[id] = source
+}
+function replaceAuthorPhoto(id, next) {
+  const previous = authorPhotos.value[id]
+  if (next) authorPhotos.value[id] = next
+  else delete authorPhotos.value[id]
+  delete authorPhotoErrors.value[id]
+  if (previous) URL.revokeObjectURL(previous)
+}
+function clearAuthorPhotos() {
+  photoEpoch++
+  for (const entry of authorRequests.values()) entry.controller.abort()
+  authorRequests.clear()
+  authorCheckedAt.clear()
+  for (const source of Object.values(authorPhotos.value)) URL.revokeObjectURL(source)
+  authorPhotos.value = {}
+  authorPhotoErrors.value = {}
+}
+function pruneAuthorPhotos() {
+  const visible = new Set(posts.value.map(authorId))
+  for (const id of Object.keys(authorPhotos.value)) {
+    if (!visible.has(id)) replaceAuthorPhoto(id, '')
+  }
+  for (const id of authorCheckedAt.keys()) {
+    if (!visible.has(id)) authorCheckedAt.delete(id)
+  }
+  for (const [id, entry] of authorRequests) {
+    if (!visible.has(id)) {
+      entry.controller.abort()
+      authorRequests.delete(id)
+    }
+  }
+}
+function fetchAuthorPhoto(id, force = false) {
+  if (photosDisposed || !photoSession.value || id === myId.value || !/^[a-f\d]{24}$/i.test(id)) return Promise.resolve()
+  const pending = authorRequests.get(id)
+  if (pending) return pending.promise
+  if (!force && Date.now() - (authorCheckedAt.get(id) || 0) < 60000) return Promise.resolve()
+  const entry = { controller: new AbortController(), epoch: photoEpoch, session: photoSession.value, promise: null }
+  const current = () => !photosDisposed && entry.epoch === photoEpoch && entry.session === photoSession.value && authorRequests.get(id) === entry
+  authorRequests.set(id, entry)
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; entry.controller.abort() }, 20000)
+  entry.promise = (async () => {
+    try {
+      const response = await fetch(`${BASE}/api/profile/photo/${encodeURIComponent(id)}`, {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: entry.controller.signal,
+      })
+      if (!current()) return
+      if (response.status === 404) {
+        replaceAuthorPhoto(id, '')
+        authorCheckedAt.set(id, Date.now())
+        return
+      }
+      if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) {
+        authorCheckedAt.set(id, Date.now())
+        return
+      }
+      const photo = await response.blob()
+      if (!current() || !photo.size) return
+      replaceAuthorPhoto(id, URL.createObjectURL(photo))
+      authorCheckedAt.set(id, Date.now())
+    } catch (failure) {
+      if (current() && (timedOut || failure.name !== 'AbortError')) authorCheckedAt.set(id, Date.now())
+    } finally {
+      clearTimeout(timer)
+      if (authorRequests.get(id) === entry) authorRequests.delete(id)
+    }
+  })()
+  return entry.promise
+}
+async function loadAuthorPhotos(pagePosts, force = false) {
+  if (!photoSession.value || photosDisposed) return
+  const epoch = photoEpoch
+  const session = photoSession.value
+  const ids = [...new Set(pagePosts.map(authorId))].filter(id => id !== myId.value && /^[a-f\d]{24}$/i.test(id))
+  let index = 0
+  await Promise.allSettled(Array.from({ length: Math.min(4, ids.length) }, async () => {
+    while (index < ids.length && epoch === photoEpoch && session === photoSession.value && !photosDisposed) {
+      await fetchAuthorPhoto(ids[index++], force)
+    }
+  }))
+}
 const resultLabel = (result) =>
   ({ profit: 'Profit', loss: 'Loss', breakeven: 'Breakeven' })[result] || 'Result'
 const resultClass = (result) =>
@@ -182,7 +287,6 @@ function applyReaction(post, value) {
     reactionError: '',
   })
 }
-
 async function loadReactions(pagePosts, current = loadId, signal) {
   if (!pagePosts.length) return
   try {
@@ -209,7 +313,6 @@ async function loadReactions(pagePosts, current = loadId, signal) {
     }
   }
 }
-
 async function retryReactions(post) {
   const id = String(post._id)
   if (reactionBusy.value[id]) return
@@ -221,7 +324,6 @@ async function retryReactions(post) {
     delete reactionBusy.value[id]
   }
 }
-
 async function reactToPost(post, type) {
   const id = String(post._id)
   if (reactionBusy.value[id] || !post.reactionsReady || !reactionTypes.includes(type)) return
@@ -247,7 +349,6 @@ async function reactToPost(post, type) {
     delete reactionBusy.value[id]
   }
 }
-
 async function loadPosts(append = false) {
   loadController?.abort()
   const current = ++loadId
@@ -278,6 +379,8 @@ async function loadPosts(append = false) {
     if (!append) imageErrors.value = {}
     posts.value = [...new Map(combined.map((post) => [post._id, post])).values()]
     nextCursor.value = data.nextCursor || null
+    pruneAuthorPhotos()
+    void loadAuthorPhotos(incoming, !append)
     await loadReactions(incoming, current, loadController.signal)
   } catch (err) {
     if (err.name !== 'AbortError' && current === loadId)
@@ -374,7 +477,6 @@ function handleViewerError() {
   viewerLoading.value = false
   viewerError.value = true
 }
-
 async function openImage(post) {
   selectedImage.value = post
   viewerError.value = false
@@ -401,6 +503,10 @@ async function removePost() {
     deleting.value = false
   }
 }
+watch(photoSession, () => {
+  clearAuthorPhotos()
+  if (photoSession.value) void loadAuthorPhotos(posts.value)
+}, { flush: 'sync' })
 onMounted(() => {
   loadPosts()
   clock = setInterval(() => {
@@ -408,6 +514,8 @@ onMounted(() => {
   }, 30000)
 })
 onUnmounted(() => {
+  photosDisposed = true
+  clearAuthorPhotos()
   loadController?.abort()
   clearInterval(clock)
   clearTimeout(noticeTimer)
@@ -476,7 +584,7 @@ onUnmounted(() => {
         </label>
       </div>
       <p class="mb-5 text-xs opacity-60">
-        Visible to signed-in members. Results are self-reported. Only your username is displayed.
+        Visible to signed-in members. Results are self-reported. Your username and profile photo are displayed.
       </p>
       <div
         v-if="error"
@@ -527,10 +635,52 @@ onUnmounted(() => {
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-center gap-3">
                 <span
-                  class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-500/15 font-bold text-indigo-500"
-                  aria-hidden="true"
-                  >{{ username(post).slice(0, 1).toUpperCase() }}</span
+                  class="relative h-10 w-10 shrink-0"
                 >
+                  <span
+                    class="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-indigo-500/15 font-bold text-indigo-500"
+                    aria-hidden="true"
+                  >
+                    <img
+                      v-if="authorPhotoSrc(post)"
+                      :key="authorPhotoSrc(post)"
+                      :src="authorPhotoSrc(post)"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      class="h-full w-full rounded-full object-cover"
+                      @error="authorPhotoFailed(post, $event)"
+                    >
+                    <span v-else>{{ username(post).slice(0, 1).toUpperCase() }}</span>
+                  </span>
+                  <span
+                    v-if="isAdminAuthor(post)"
+                    class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex size-[18px]
+                           items-center justify-center rounded-full border-2 border-white
+                           bg-white dark:border-[#111c2d] dark:bg-[#111c2d]"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      role="img"
+                      aria-label="Admin account"
+                      class="size-full text-[#1877f2] dark:text-blue-400"
+                    >
+                      <title>Admin account</title>
+                      <path
+                        fill="currentColor"
+                        d="m12 2 2.3 1.6 2.8-.2 1 2.6 2.5 1.2-.2 2.8L22 12l-1.6 2.3.2 2.8-2.6 1-1.2 2.5-2.8-.2L12 22l-2.3-1.6-2.8.2-1-2.6-2.5-1.2.2-2.8L2 12l1.6-2.3-.2-2.8 2.6-1 1.2-2.5 2.8.2Z"
+                      />
+                      <path
+                        d="m7.8 12 2.7 2.7 5.7-5.8"
+                        fill="none"
+                        stroke="white"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2.4"
+                      />
+                    </svg>
+                  </span>
+                </span>
                 <div class="min-w-0">
                   <p class="truncate text-sm font-semibold">@{{ username(post) }}</p>
                   <time
