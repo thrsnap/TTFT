@@ -13,28 +13,30 @@ import {
   useRouter,
 } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
-
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-
 const menuOpen = ref(false)
 const accountOpen = ref(false)
 const accountRoot = ref(null)
 const accountTrigger = ref(null)
 const busy = ref(false)
 const logoutError = ref('')
-
 const username = computed(() => auth.user?.username || 'Member')
 const email = computed(() => auth.user?.email || '—')
 const initial = computed(() => username.value.slice(0, 1).toUpperCase())
 const profileActive = computed(() => route.name === 'profile')
-
 const menu = [
   {
     label: 'Overview',
     path: '/dashboard',
     icon: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
+  },
+  {
+    label: 'Trading Journal',
+    labelKm: 'កំណត់ហេតុជួញដូរ',
+    path: '/dashboard/trade-journal',
+    icon: 'M4 4h16v17H4z M8 2v4 M16 2v4 M4 9h16 M7 17l3-3 3 2 4-5',
   },
   {
     label: 'My Courses',
@@ -57,42 +59,36 @@ const menu = [
     icon: 'M21 11a9 9 0 0 1-9 9H5l-4 3 2-7a9 9 0 1 1 18-5z M8 10h8 M8 14h5',
   },
 ]
-
 function localizedPath(path) {
   if (route.params.lang !== 'km') return path
-
   return path === '/' ? '/km' : `/km${path}`
 }
-
 function isActive(path) {
   const current = route.path.replace(/\/+$/, '')
   const target = localizedPath(path)
-
   return path === '/dashboard'
     ? current === target
     : current === target || current.startsWith(`${target}/`)
 }
-
+function menuLabel(item) {
+  return route.params.lang === 'km' && item.labelKm ? item.labelKm : item.label
+}
 const pageTitle = computed(() => {
   if (profileActive.value) return 'My information'
-
-  return menu.find(item => isActive(item.path))?.label || 'Dashboard'
+  const item = menu.find(item => isActive(item.path))
+  return item ? menuLabel(item) : 'Dashboard'
 })
-
 function closeAccount() {
   accountOpen.value = false
 }
-
 function toggleAccount() {
   logoutError.value = ''
   accountOpen.value = !accountOpen.value
 }
-
 function toggleNavigation() {
   menuOpen.value = !menuOpen.value
   closeAccount()
 }
-
 function onOutside(event) {
   if (
     accountRoot.value &&
@@ -101,10 +97,8 @@ function onOutside(event) {
     closeAccount()
   }
 }
-
 function onEscape(event) {
   if (event.key !== 'Escape') return
-
   if (accountOpen.value) {
     closeAccount()
     accountTrigger.value?.focus()
@@ -112,30 +106,23 @@ function onEscape(event) {
     menuOpen.value = false
   }
 }
-
 async function logout() {
   if (busy.value) return
-
   busy.value = true
   logoutError.value = ''
-
   const params = route.params.lang === 'km'
     ? { lang: 'km' }
     : {}
-
   try {
     await auth.logout()
   } catch (failure) {
     logoutError.value =
       failure?.message || 'Unable to log out. Please try again.'
-
     busy.value = false
     return
   }
-
   closeAccount()
   menuOpen.value = false
-
   try {
     await router.replace({ name: 'home', params })
   } catch (failure) {
@@ -144,7 +131,6 @@ async function logout() {
     busy.value = false
   }
 }
-
 watch(
   () => route.fullPath,
   () => {
@@ -152,20 +138,16 @@ watch(
     closeAccount()
   },
 )
-
 watch(() => auth.isAuthenticated, closeAccount)
-
 onMounted(() => {
   document.addEventListener('pointerdown', onOutside)
   document.addEventListener('keydown', onEscape)
 })
-
 onUnmounted(() => {
   document.removeEventListener('pointerdown', onOutside)
   document.removeEventListener('keydown', onEscape)
 })
 </script>
-
 <template>
   <div
     class="min-h-dvh w-full bg-slate-50 text-slate-900
@@ -200,12 +182,10 @@ onUnmounted(() => {
     class="h-full w-full object-cover"
   />
 </span>
-
             <span class="min-w-0">
               <span class="block text-sm font-bold">
                 CMM-FT
               </span>
-
               <span
                 class="mt-1 block text-[11px]
                        text-slate-500 dark:text-slate-400"
@@ -214,7 +194,6 @@ onUnmounted(() => {
               </span>
             </span>
           </RouterLink>
-
           <button
             type="button"
             aria-controls="dashboard-navigation"
@@ -240,7 +219,6 @@ onUnmounted(() => {
             </svg>
           </button>
         </div>
-
         <div
           id="dashboard-navigation"
           :class="menuOpen ? 'flex' : 'hidden'"
@@ -257,7 +235,6 @@ onUnmounted(() => {
             >
               Main menu
             </p>
-
             <nav
               aria-label="Dashboard navigation"
               class="space-y-1.5"
@@ -289,11 +266,9 @@ onUnmounted(() => {
                 >
                   <path :d="item.icon" />
                 </svg>
-
                 <span class="min-w-0 flex-1">
-                  {{ item.label }}
+                  {{ menuLabel(item) }}
                 </span>
-
                 <span
                   v-if="isActive(item.path)"
                   aria-hidden="true"
@@ -302,7 +277,6 @@ onUnmounted(() => {
               </RouterLink>
             </nav>
           </div>
-
           <!-- Account -->
           <div
             class="shrink-0 border-t border-slate-100
@@ -333,12 +307,10 @@ onUnmounted(() => {
                 >
                   {{ initial }}
                 </span>
-
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-semibold">
                     {{ username }}
                   </span>
-
                   <span
                     class="mt-1 block text-[11px]
                            text-slate-500 dark:text-slate-400"
@@ -346,7 +318,6 @@ onUnmounted(() => {
                     My account
                   </span>
                 </span>
-
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 24 24"
@@ -361,7 +332,6 @@ onUnmounted(() => {
                   <path d="M6 9l6 6 6-6" />
                 </svg>
               </button>
-
               <!-- Dropdown below username -->
               <div
                 v-if="accountOpen"
@@ -378,7 +348,6 @@ onUnmounted(() => {
                   <p class="break-words text-sm font-semibold">
                     {{ username }}
                   </p>
-
                   <p
                     class="mt-1 break-all text-xs leading-5
                            text-slate-500 dark:text-slate-400"
@@ -386,7 +355,6 @@ onUnmounted(() => {
                     {{ email }}
                   </p>
                 </div>
-
                 <RouterLink
                   :to="localizedPath('/dashboard/profile')"
                   :aria-current="profileActive ? 'page' : undefined"
@@ -412,10 +380,8 @@ onUnmounted(() => {
                     <circle cx="12" cy="8" r="4" />
                     <path d="M4 21v-2a8 8 0 0 1 16 0v2" />
                   </svg>
-
                   My information
                 </RouterLink>
-
                 <div
                   class="mt-1 border-t border-slate-100 pt-1
                          dark:border-white/10"
@@ -447,10 +413,8 @@ onUnmounted(() => {
                         d="M9 5H4v14h5 M14 8l4 4-4 4 M8 12h13"
                       />
                     </svg>
-
                     {{ busy ? 'Logging out…' : 'Logout' }}
                   </button>
-
                   <p
                     v-if="logoutError"
                     role="alert"
@@ -462,7 +426,6 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-
             <!-- Homepage -->
             <RouterLink
               :to="localizedPath('/')"
@@ -477,7 +440,6 @@ onUnmounted(() => {
           </div>
         </div>
       </aside>
-
       <!-- Page content -->
       <div class="w-full min-w-0">
         <header
@@ -490,12 +452,10 @@ onUnmounted(() => {
             <p class="text-xs text-slate-500 dark:text-slate-400">
               Your workspace
             </p>
-
             <h1 class="mt-1 text-lg font-semibold">
               {{ pageTitle }}
             </h1>
           </div>
-
           <RouterLink
             :to="localizedPath('/dashboard/profile')"
             aria-label="Open my information"
@@ -512,13 +472,11 @@ onUnmounted(() => {
             >
               {{ initial }}
             </span>
-
             <span class="hidden max-w-32 truncate pr-2 sm:block">
               {{ username }}
             </span>
           </RouterLink>
         </header>
-
         <RouterView />
       </div>
     </div>

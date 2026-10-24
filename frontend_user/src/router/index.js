@@ -13,6 +13,7 @@ import ForgotPasswordViews from '../views/ForgotPasswordViews.vue'
 import ProfileViews from '../views/user/ProfileViews.vue'
 import PaymentViews from '../views/user/PaymentViews.vue'
 import SignalViews from '../views/SignalViews.vue'
+import TraderPostViews from '../views/TraderPostViews.vue'
 
 import DashboardLayout from '../layouts/DashbordLayout.vue'
 import DashboardHome from '../views/user/DashboardHome.vue'
@@ -20,14 +21,12 @@ import MyCourses from '../views/user/MyCourse.vue'
 import MySignal from '../views/user/MySignal.vue'
 import MyChallenges from '../views/user/MyChallenges.vue'
 import MySupport from '../views/user/MySupport.vue'
+import TradeJournalViews from '../views/user/TradeJournalViews.vue'
 
 import CoursePayment from '../views/CoursePayment.vue'
 import CourseLessons from '../views/CourseLessons.vue'
 
 import { useAuthStore } from '../store/user/authStore.js'
-
-import TraderPostViews from '../views/TraderPostViews.vue'
-
 
 const pages = [
   {
@@ -98,11 +97,21 @@ const pages = [
     component: ForgotPasswordViews,
   },
   {
-  path: '/trader-post',
-  name: 'trader-post',
-  component: TraderPostViews,
-  meta: { requiresAuth: true },
-},
+    path: '/trader-post',
+    name: 'trader-post',
+    component: TraderPostViews,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/journal',
+    name: 'journal',
+    redirect: (to) => ({
+      name: 'trader-post',
+      params: to.params.lang === 'km' ? { lang: 'km' } : {},
+      query: to.query,
+      hash: to.hash,
+    }),
+  },
   {
     path: '/reset-password',
     name: 'reset-password',
@@ -118,7 +127,7 @@ const pages = [
   // Redirect old profile links into the dashboard.
   {
     path: '/profile',
-    redirect: to => ({
+    redirect: (to) => ({
       name: 'profile',
       params: to.params.lang === 'km' ? { lang: 'km' } : {},
       query: to.query,
@@ -160,6 +169,11 @@ const pages = [
         component: DashboardHome,
       },
       {
+        path: 'trade-journal',
+        name: 'trade-journal',
+        component: TradeJournalViews,
+      },
+      {
         path: 'profile',
         name: 'profile',
         component: ProfileViews,
@@ -190,7 +204,7 @@ const pages = [
 
 // Add the optional Khmer prefix once.
 // Dashboard children inherit it from their parent.
-const routes = pages.map(page => ({
+const routes = pages.map((page) => ({
   ...page,
   path: `/:lang(km)?${page.path}`,
 }))
@@ -209,7 +223,7 @@ router.beforeEach(async (to) => {
   const requiresAuth = Boolean(to.meta.requiresAuth)
 
   try {
-    // Restore the session when no signed-in user is available.
+    // Reuse the signed-in user already held in the auth store.
     if (!auth.isAuthenticated) {
       await auth.restoreSession(requiresAuth)
     }
@@ -226,9 +240,7 @@ router.beforeEach(async (to) => {
   if (requiresAuth && !auth.isAuthenticated) {
     return {
       name: 'login',
-      params: to.params.lang === 'km'
-        ? { lang: 'km' }
-        : {},
+      params: to.params.lang === 'km' ? { lang: 'km' } : {},
       query: {
         redirect: to.fullPath,
       },
