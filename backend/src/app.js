@@ -41,7 +41,7 @@ import {
   createJournalReactionRouter,
 } from './routes/journalReaction.routes.js'
 
-
+import tradeJournalRoutes from './routes/tradeJournal.routes.js'
 
 const app = express()
 
@@ -275,9 +275,9 @@ app.use(
   authRoutes,
 )
 
-//journal trader
+//trder post
 app.use('/api/journals', journalRoutes)
-// admin journal
+
 app.use('/api/admin/journals', adminJournalRoutes)
 
 app.use('/api/journals', journalRoutes)
@@ -289,7 +289,8 @@ app.use(
     requireUser,
   }),
 )
-
+//journal trader
+app.use('/api/trade-journal', tradeJournalRoutes)
 // Shared admin mutation protection.
 // Allows multipart uploads through to their own routes.
 app.use('/api/admin', (req, res, next) => {
