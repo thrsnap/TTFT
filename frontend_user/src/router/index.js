@@ -98,9 +98,9 @@ const pages = [
     component: ForgotPasswordViews,
   },
   {
-  path: 'journal',
+  path: '/journal',
   name: 'journal',
-  component: () => import('../views/TradingJournal.vue'),
+  component: TradingJournal,
   meta: { requiresAuth: true },
 },
   {
@@ -204,25 +204,31 @@ const router = createRouter({
   },
 })
 
-router.beforeEach(async to => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  const requiresAuth = Boolean(to.meta.requiresAuth)
 
   try {
-    await auth.restoreSession(Boolean(to.meta.requiresAuth))
+    // Restore the session when no signed-in user is available.
+    if (!auth.isAuthenticated) {
+      await auth.restoreSession(requiresAuth)
+    }
   } catch (error) {
     console.error('Session check failed:', error)
 
-    if (to.meta.requiresAuth) {
+    if (requiresAuth) {
       return false
     }
 
     return
   }
 
-  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+  if (requiresAuth && !auth.isAuthenticated) {
     return {
       name: 'login',
-      params: to.params.lang === 'km' ? { lang: 'km' } : {},
+      params: to.params.lang === 'km'
+        ? { lang: 'km' }
+        : {},
       query: {
         redirect: to.fullPath,
       },
