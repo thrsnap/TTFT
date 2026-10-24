@@ -184,7 +184,7 @@ onUnmounted(() => {
       <!-- Profile circle -->
       <UserAvatar
         variant="dark"
-        class="size-10 border border-emerald-700 text-base
+        class="size-10   text-base
                max-[768px]:size-8 max-[768px]:text-sm
                max-[320px]:size-7 max-[320px]:text-xs"
         decorative
@@ -225,7 +225,6 @@ onUnmounted(() => {
         <!-- Username and email -->
         <div class="border-b border-white/10 px-4 py-4">
           <div class="flex min-w-0 items-center gap-3">
-            <UserAvatar variant="dark" class="size-10 border border-emerald-700 text-base" decorative />
             <div class="min-w-0 flex-1">
               <p class="break-words text-sm font-semibold text-white">
                 {{ username }}
