@@ -1,5 +1,5 @@
 export default {
-    title: 'Trading Journal', eyebrow: 'YOUR PERFORMANCE', subtitle: 'Review your trades. Understand your progress.',
+    title: 'My Journal', eyebrow: 'YOUR PERFORMANCE', subtitle: 'Review your trades. Understand your progress.',
     private: 'Private to you', add: 'Add trade', refresh: 'Refresh journal', thisMonth: 'This month', lastMonth: 'Last month',
     lastQuarter: 'Last quarter', lastYear: 'Last year', all: 'All time', customMonth: 'Selected month',
     custom: 'Custom dates', fromDate: 'Start date', toDate: 'End date', applyRange: 'Apply dates',
