@@ -13,6 +13,7 @@ import {
   useRouter,
 } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
+import UserAvatar from '../components/UserAvatar.vue'
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -22,43 +23,34 @@ const accountRoot = ref(null)
 const accountTrigger = ref(null)
 const busy = ref(false)
 const logoutError = ref('')
-
 const isDark = ref(true)
 let themeObserver
-
 const themeLabel = computed(() =>
   isDark.value ? 'Switch to light mode' : 'Switch to dark mode',
 )
-
 function syncTheme() {
   const root = document.documentElement
   // Match the existing website CSS, which defaults to dark mode.
   isDark.value = !root.classList.contains('ligh-mode')
-
   // Keep components that read the dark class in sync as well.
   if (root.classList.contains('dark') !== isDark.value) {
     root.classList.toggle('dark', isDark.value)
   }
-
   root.style.colorScheme = isDark.value ? 'dark' : 'light'
 }
-
 function applyTheme(dark) {
   document.documentElement.classList.toggle('ligh-mode', !dark)
   syncTheme()
 }
-
 function toggleTheme() {
   const dark = document.documentElement.classList.contains('ligh-mode')
   applyTheme(dark)
-
   try {
     window.localStorage.setItem('theme', dark ? 'dark' : 'light')
   } catch {
     // The button still works when the browser blocks saved preferences.
   }
 }
-
 function restoreTheme() {
   let savedTheme
   try {
@@ -66,14 +58,12 @@ function restoreTheme() {
   } catch {
     // Keep the theme already applied by the website.
   }
-
   if (savedTheme === 'dark' || savedTheme === 'light') {
     applyTheme(savedTheme === 'dark')
   } else {
     syncTheme()
   }
 }
-
 function onThemeStorage(event) {
   if (
     event.key === 'theme' &&
@@ -83,10 +73,8 @@ function onThemeStorage(event) {
     applyTheme(event.newValue === 'dark')
   }
 }
-
 const username = computed(() => auth.user?.username || 'Member')
 const email = computed(() => auth.user?.email || '—')
-const initial = computed(() => username.value.slice(0, 1).toUpperCase())
 const profileActive = computed(() => route.name === 'profile')
 const menu = [
   {
@@ -370,14 +358,7 @@ onUnmounted(() => {
                 "
                 @click="toggleAccount"
               >
-                <span
-                  aria-hidden="true"
-                  class="flex size-10 shrink-0 items-center justify-center
-                         rounded-xl bg-emerald-600
-                         text-sm font-bold text-white"
-                >
-                  {{ initial }}
-                </span>
+                <UserAvatar variant="solid" class="size-10 text-sm font-bold" decorative />
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-semibold">
                     {{ username }}
@@ -416,15 +397,20 @@ onUnmounted(() => {
                   class="mb-1 border-b border-slate-100 px-3 py-3
                          dark:border-white/10"
                 >
-                  <p class="break-words text-sm font-semibold">
-                    {{ username }}
-                  </p>
-                  <p
-                    class="mt-1 break-all text-xs leading-5
-                           text-slate-500 dark:text-slate-400"
-                  >
-                    {{ email }}
-                  </p>
+                  <div class="flex min-w-0 items-center gap-3">
+                    <UserAvatar variant="solid" class="size-10 text-sm font-bold" decorative />
+                    <div class="min-w-0 flex-1">
+                      <p class="break-words text-sm font-semibold">
+                        {{ username }}
+                      </p>
+                      <p
+                        class="mt-1 break-all text-xs leading-5
+                               text-slate-500 dark:text-slate-400"
+                      >
+                        {{ email }}
+                      </p>
+                    </div>
+                  </div>
                 </div>
                 <RouterLink
                   :to="localizedPath('/dashboard/profile')"
@@ -564,27 +550,6 @@ onUnmounted(() => {
                 />
               </svg>
             </button>
-
-            <RouterLink
-              :to="localizedPath('/dashboard/profile')"
-              aria-label="Open my information"
-              class="flex shrink-0 items-center gap-2 rounded-full
-                     border border-slate-200 px-2 py-1.5 text-xs
-                     transition hover:border-emerald-400
-                     dark:border-white/10"
-            >
-              <span
-                aria-hidden="true"
-                class="flex size-8 items-center justify-center
-                       rounded-full bg-emerald-600
-                       font-semibold text-white"
-              >
-                {{ initial }}
-              </span>
-              <span class="hidden max-w-32 truncate pr-2 sm:block">
-                {{ username }}
-              </span>
-            </RouterLink>
           </div>
         </header>
         <RouterView />

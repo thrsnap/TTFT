@@ -42,7 +42,7 @@ import {
 } from './routes/journalReaction.routes.js'
 
 import tradeJournalRoutes from './routes/tradeJournal.routes.js'
-
+import profilePhotoRoutes from './routes/profilePhoto.routes.js'
 const app = express()
 
 app.set('trust proxy', 1)
@@ -274,7 +274,8 @@ app.use(
   protectJsonMutations,
   authRoutes,
 )
-
+//profile
+app.use('/api/profile', profilePhotoRoutes)
 //trder post
 app.use('/api/journals', journalRoutes)
 

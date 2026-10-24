@@ -22,35 +22,26 @@ import {
   faBoltLightning
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuthStore } from '../store/user/authStore.js'
-
+import UserAvatar from './UserAvatar.vue'
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n({ useScope: 'global' })
-
 const root = ref(null)
 const trigger = ref(null)
 const open = ref(false)
 const busy = ref(false)
 const error = ref('')
-
 const username = computed(
   () => auth.user?.username || 'My account',
 )
-
 const email = computed(
   () => auth.user?.email || '—',
 )
-
-const initial = computed(
-  () => username.value.slice(0, 1).toUpperCase(),
-)
-
 const dashboardLink = computed(() => ({
   name: 'dashboard',
   params: route.params.lang === 'km' ? { lang: 'km' } : {},
 }))
-
 const navLinks = [
   {
     to: '/',
@@ -98,67 +89,52 @@ const navLinks = [
     icon: faCircleUser,
   },
 ]
-
 function linkLabel(link) {
   if (link.to === '/trader-post') {
     return route.params.lang === 'km'
       ? 'បង្ហោះការជួញដូរ'
       : 'Trader Post'
   }
-
   return t(link.label)
 }
-
 function localizedPath(path) {
   if (route.params.lang !== 'km') return path
-
   return path === '/' ? '/km' : `/km${path}`
 }
-
 function close() {
   open.value = false
 }
-
 function toggle() {
   error.value = ''
   open.value = !open.value
 }
-
 function outside(event) {
   if (root.value && !root.value.contains(event.target)) {
     close()
   }
 }
-
 function escape(event) {
   if (event.key === 'Escape' && open.value) {
     close()
     trigger.value?.focus()
   }
 }
-
 async function logout() {
   if (busy.value) return
-
   busy.value = true
   error.value = ''
-
   const params = route.params.lang === 'km'
     ? { lang: 'km' }
     : {}
-
   try {
     await auth.logout()
   } catch (failure) {
     error.value =
       failure?.message || 'Unable to log out. Please try again.'
-
     busy.value = false
     return
   }
-
   close()
-
   try {
     await router.replace({
       name: 'home',
@@ -170,27 +146,21 @@ async function logout() {
     busy.value = false
   }
 }
-
 watch(() => route.fullPath, close)
 watch(() => auth.isAuthenticated, close)
-
 let desktopQuery
-
 onMounted(() => {
   document.addEventListener('pointerdown', outside)
   document.addEventListener('keydown', escape)
-
   desktopQuery = window.matchMedia('(min-width: 1024px)')
   desktopQuery.addEventListener('change', close)
 })
-
 onUnmounted(() => {
   document.removeEventListener('pointerdown', outside)
   document.removeEventListener('keydown', escape)
   desktopQuery?.removeEventListener('change', close)
 })
 </script>
-
 <template>
   <div
     v-if="auth.isAuthenticated"
@@ -212,17 +182,13 @@ onUnmounted(() => {
       @click="toggle"
     >
       <!-- Profile circle -->
-      <span
-        class="flex size-10 items-center justify-center
-               rounded-full border border-emerald-700
-               bg-emerald-950 text-base font-semibold
-               text-emerald-400
+      <UserAvatar
+        variant="dark"
+        class="size-10 border border-emerald-700 text-base
                max-[768px]:size-8 max-[768px]:text-sm
                max-[320px]:size-7 max-[320px]:text-xs"
-      >
-        {{ initial }}
-      </span>
-
+        decorative
+      />
       <!-- Dropdown arrow -->
       <svg
         viewBox="0 0 24 24"
@@ -239,7 +205,6 @@ onUnmounted(() => {
         <path d="m6 9 6 6 6-6" />
       </svg>
     </button>
-
     <Transition
       enter-active-class="transition duration-150"
       enter-from-class="-translate-y-1 opacity-0"
@@ -259,15 +224,18 @@ onUnmounted(() => {
       >
         <!-- Username and email -->
         <div class="border-b border-white/10 px-4 py-4">
-          <p class="break-words text-sm font-semibold text-white">
-            {{ username }}
-          </p>
-
-          <p class="mt-1 break-all text-xs leading-5 text-slate-400">
-            {{ email }}
-          </p>
+          <div class="flex min-w-0 items-center gap-3">
+            <UserAvatar variant="dark" class="size-10 border border-emerald-700 text-base" decorative />
+            <div class="min-w-0 flex-1">
+              <p class="break-words text-sm font-semibold text-white">
+                {{ username }}
+              </p>
+              <p class="mt-1 break-all text-xs leading-5 text-slate-400">
+                {{ email }}
+              </p>
+            </div>
+          </div>
         </div>
-
         <!-- Navbar links: mobile and tablet only -->
         <nav
           aria-label="Mobile navigation"
@@ -291,11 +259,9 @@ onUnmounted(() => {
               :icon="link.icon"
               class="w-5 shrink-0"
             />
-
             {{ linkLabel(link) }}
           </RouterLink>
         </nav>
-
         <!-- Dashboard -->
         <nav aria-label="Your account" class="p-2">
           <RouterLink
@@ -347,11 +313,9 @@ onUnmounted(() => {
                 rx="1.5"
               />
             </svg>
-
             My Dashboard
           </RouterLink>
         </nav>
-
         <!-- Log out: always last -->
         <div class="border-t border-white/10 p-2">
           <button
@@ -380,10 +344,8 @@ onUnmounted(() => {
               <path d="M9 12h12" />
               <path d="m17 8 4 4-4 4" />
             </svg>
-
             {{ busy ? 'Logging out…' : 'Log out' }}
           </button>
-
           <p
             v-if="error"
             role="alert"
