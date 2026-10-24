@@ -72,11 +72,11 @@ const navLinks = [
     label: 'nav.signal',
     icon: faSquarePollVertical,
   },
-  {
-    to: '/journal',
-    label: 'nav.journal',
-    icon: faBoltLightning,
-  },
+ {
+  to: '/trader-post',
+  label: 'nav.trader-post',
+  icon: faBoltLightning,
+},
   {
     to: '/analysis',
     label: 'nav.analysis',
@@ -100,10 +100,10 @@ const navLinks = [
 ]
 
 function linkLabel(link) {
-  if (link.to === '/journal') {
+  if (link.to === '/trader-post') {
     return route.params.lang === 'km'
-      ? 'កំណត់ហេតុជួញដូរ'
-      : 'Trader Journal'
+      ? 'បង្ហោះការជួញដូរ'
+      : 'Trader Post'
   }
 
   return t(link.label)

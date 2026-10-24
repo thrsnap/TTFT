@@ -422,7 +422,7 @@ onUnmounted(() => {
           <p class="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-500">
             CMM-FT Community
           </p>
-          <h1 class="text-2xl font-bold sm:text-3xl">Trading Journal</h1>
+          <h1 class="text-2xl font-bold sm:text-3xl">Trader Communities</h1>
           <p class="mt-2 max-w-xl text-sm opacity-65">
             Share your trades, review your results, and learn from each other.
           </p>

@@ -30,7 +30,6 @@
             max-[480px]:h-9 max-[480px]:w-9
             max-[320px]:h-8 max-[320px]:w-8"
         >
-
         <span
           class="shrink-0 whitespace-nowrap
             bg-[linear-gradient(135deg,#667eea,#764ba2)]
@@ -43,7 +42,6 @@
           CMM-FT
         </span>
       </RouterLink>
-
       <!-- Desktop navigation -->
       <nav
         aria-label="Main navigation"
@@ -67,14 +65,11 @@
                 :icon="link.icon"
                 class="hidden min-[1536px]:inline-block"
               />
-              {{ link.to === "/journal"
-                ? (language === "km" ? "កំណត់ហេតុជួញដូរ" : "Trader Journal")
-                : t(link.label) }}
+              {{ navLabel(link) }}
             </RouterLink>
           </li>
         </ul>
       </nav>
-
       <!-- Right-side controls -->
       <div
         class="flex shrink-0 items-center gap-2
@@ -96,7 +91,6 @@
         >
           <FontAwesomeIcon :icon="faHouse" />
         </RouterLink>
-
         <!-- Theme -->
         <button
           type="button"
@@ -111,7 +105,6 @@
         >
           <FontAwesomeIcon :icon="isLightMode ? faSun : faMoon" />
         </button>
-
         <!-- Language -->
         <div
           role="group"
@@ -137,7 +130,6 @@
           >
             EN
           </button>
-
           <button
             type="button"
             @click="switchLanguage('km')"
@@ -156,13 +148,12 @@
             ខ្មែរ
           </button>
         </div>
-
         <!-- Desktop account dropdown -->
         <div
           v-if="!auth.isAuthenticated"
           class="relative hidden shrink-0 min-[1024px]:block"
           :class="{ 'font-khmer': language === 'km' }"
-        > 
+        >
           <button
             type="button"
             @click="joinOpen = !joinOpen"
@@ -177,7 +168,6 @@
             <FontAwesomeIcon :icon="faUserPlus" />
             {{ t('nav.joinNow') }}
           </button>
-
           <nav
             v-if="joinOpen"
             id="join-dropdown"
@@ -194,7 +184,6 @@
               <FontAwesomeIcon :icon="faRightToBracket" />
               {{ t('nav.login') }}
             </RouterLink>
-
             <RouterLink
               :to="localizedPath('/register')"
               @click="closeMenus"
@@ -205,7 +194,6 @@
             </RouterLink>
           </nav>
         </div>
-
         <!-- Profile menu on desktop and mobile -->
         <div
           v-if="auth.isAuthenticated"
@@ -215,7 +203,6 @@
         >
           <UserMenu />
         </div>
-
         <!-- Hamburger -->
         <!-- Hamburger: guests only -->
 <button
@@ -237,13 +224,11 @@
               transition-transform duration-300 max-[480px]:w-5"
             :class="{ 'translate-y-2 rotate-45': isMenuOpen }"
           ></span>
-
           <span
             class="block h-0.5 w-6 rounded-sm bg-white
               transition-opacity duration-300 max-[480px]:w-5"
             :class="{ 'opacity-0': isMenuOpen }"
           ></span>
-
           <span
             class="block h-0.5 w-6 rounded-sm bg-white
               transition-transform duration-300 max-[480px]:w-5"
@@ -252,7 +237,6 @@
         </button>
       </div>
     </div>
-
     <!-- Mobile navigation -->
     <Transition
       enter-active-class="transition duration-200 ease-out"
@@ -295,12 +279,9 @@
             exact-active-class="bg-white/10"
           >
             <FontAwesomeIcon :icon="link.icon" class="w-5 shrink-0" />
-            {{ link.to === "/journal"
-                ? (language === "km" ? "កំណត់ហេតុជួញដូរ" : "Trading Journal")
-                : t(link.label) }}
+            {{ navLabel(link) }}
           </RouterLink>
         </nav>
-
         <!-- Mobile account buttons -->
         <div
           v-if="!auth.isAuthenticated"
@@ -323,7 +304,6 @@
             <FontAwesomeIcon :icon="faRightToBracket" />
             {{ t('nav.login') }}
           </RouterLink>
-
           <RouterLink
             :to="localizedPath('/register')"
             @click="closeMenus"
@@ -342,7 +322,6 @@
     </Transition>
   </header>
 </template>
-
 <script setup>
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
@@ -354,7 +333,6 @@ import {
   faHouse,
   faNewspaper,
   faBook,
-  faBookOpen,
   faCircleUser,
   faMoon,
   faSun,
@@ -366,25 +344,25 @@ import {
   faMagnifyingGlassChart,
   faBoltLightning,
 } from '@fortawesome/free-solid-svg-icons'
-
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-
 const { t, locale: language } = useI18n({
   useScope: 'global',
 })
-
 const joinOpen = ref(false)
 const isMenuOpen = ref(false)
 const isLightMode = ref(false)
-
 const navLinks = [
   { to: '/', label: 'nav.home', icon: faHouse },
   { to: '/news', label: 'nav.news', icon: faNewspaper },
   { to: '/academy', label: 'nav.academy', icon: faBook },
   { to: '/signal', label: 'nav.signal', icon: faSquarePollVertical },
-  { to: '/journal', label: 'nav.journal', icon: faBoltLightning },
+  {
+  to: '/trader-post',
+  label: 'nav.trader-post',
+  icon: faBoltLightning,
+},
   {
     to: '/analysis',
     label: 'nav.analysis',
@@ -397,21 +375,25 @@ const navLinks = [
   },
   { to: '/getsupport', label: 'nav.support', icon: faHeadset },
   { to: '/about', label: 'nav.about', icon: faCircleUser },
-  
 ]
+// Use the same localized label for desktop and mobile navigation.
+function navLabel(link) {
+  if (link.to === '/trader-post') {
+    return language.value === 'km' ? 'បង្ហោះការជួញដូរ' : 'Trader Post'
+  }
+
+  return t(link.label)
+}
 
 // English: /news
 // Khmer: /km/news
 function localizedPath(path) {
   if (route.params.lang !== 'km') return path
-
   return path === '/' ? '/km' : `/km${path}`
 }
-
 // Preserve the current page, category, broker, query, and hash.
 function switchLanguage(lang) {
   if (!route.name || !['en', 'km'].includes(lang)) return
-
   return router.push({
     name: route.name,
     params: {
@@ -422,7 +404,6 @@ function switchLanguage(lang) {
     hash: route.hash,
   })
 }
-
 // Synchronize translations with the URL, including browser Back/Forward.
 watch(
   () => route.params.lang,
@@ -432,45 +413,35 @@ watch(
   },
   { immediate: true },
 )
-
 function closeMenus() {
   joinOpen.value = false
   isMenuOpen.value = false
 }
-
 function toggleMenu() {
   isMenuOpen.value = !isMenuOpen.value
   joinOpen.value = false
 }
-
 function toggleTheme() {
   isLightMode.value = !isLightMode.value
-
   document.documentElement.classList.toggle(
     'ligh-mode',
     isLightMode.value,
   )
-
   document.body.classList.toggle(
     'ligh-mode',
     isLightMode.value,
   )
 }
-
 watch(() => route.fullPath, closeMenus)
 watch(() => auth.isAuthenticated, closeMenus)
-
 let desktopQuery
-
 onMounted(() => {
   isLightMode.value =
     document.documentElement.classList.contains('ligh-mode') ||
     document.body.classList.contains('ligh-mode')
-
   desktopQuery = window.matchMedia('(min-width: 1024px)')
   desktopQuery.addEventListener('change', closeMenus)
 })
-
 onUnmounted(() => {
   desktopQuery?.removeEventListener('change', closeMenus)
 })
