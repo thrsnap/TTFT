@@ -635,30 +635,35 @@ onUnmounted(() => {
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-center gap-3">
                 <span
-                  class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-500/15 font-bold text-indigo-500"
-                  aria-hidden="true"
+                  class="relative h-10 w-10 shrink-0"
                 >
-                  <img
-                    v-if="authorPhotoSrc(post)"
-                    :key="authorPhotoSrc(post)"
-                    :src="authorPhotoSrc(post)"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    class="h-full w-full rounded-full object-cover"
-                    @error="authorPhotoFailed(post, $event)"
+                  <span
+                    class="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-indigo-500/15 font-bold text-indigo-500"
+                    aria-hidden="true"
                   >
-                  <span v-else>{{ username(post).slice(0, 1).toUpperCase() }}</span>
-                </span>
-                <div class="min-w-0">
-                  <p class="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
-                    <span class="min-w-0 truncate">@{{ username(post) }}</span>
+                    <img
+                      v-if="authorPhotoSrc(post)"
+                      :key="authorPhotoSrc(post)"
+                      :src="authorPhotoSrc(post)"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      class="h-full w-full rounded-full object-cover"
+                      @error="authorPhotoFailed(post, $event)"
+                    >
+                    <span v-else>{{ username(post).slice(0, 1).toUpperCase() }}</span>
+                  </span>
+                  <span
+                    v-if="isAdminAuthor(post)"
+                    class="pointer-events-none absolute -bottom-0.5 -right-0.5 flex size-[18px]
+                           items-center justify-center rounded-full border-2 border-white
+                           bg-white dark:border-[#111c2d] dark:bg-[#111c2d]"
+                  >
                     <svg
-                      v-if="isAdminAuthor(post)"
                       viewBox="0 0 24 24"
                       role="img"
                       aria-label="Admin account"
-                      class="size-4 shrink-0 text-[#1877f2] dark:text-blue-400"
+                      class="size-full text-[#1877f2] dark:text-blue-400"
                     >
                       <title>Admin account</title>
                       <path
@@ -666,15 +671,18 @@ onUnmounted(() => {
                         d="m12 2 2.3 1.6 2.8-.2 1 2.6 2.5 1.2-.2 2.8L22 12l-1.6 2.3.2 2.8-2.6 1-1.2 2.5-2.8-.2L12 22l-2.3-1.6-2.8.2-1-2.6-2.5-1.2.2-2.8L2 12l1.6-2.3-.2-2.8 2.6-1 1.2-2.5 2.8.2Z"
                       />
                       <path
-                        d="m8 12 2.5 2.5L16 9"
+                        d="m7.8 12 2.7 2.7 5.7-5.8"
                         fill="none"
                         stroke="white"
                         stroke-linecap="round"
                         stroke-linejoin="round"
-                        stroke-width="2"
+                        stroke-width="2.4"
                       />
                     </svg>
-                  </p>
+                  </span>
+                </span>
+                <div class="min-w-0">
+                  <p class="truncate text-sm font-semibold">@{{ username(post) }}</p>
                   <time
                     :datetime="post.createdAt"
                     :title="exactTime(post.createdAt)"
