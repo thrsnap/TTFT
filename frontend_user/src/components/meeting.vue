@@ -2,7 +2,7 @@
 
     <h2  class="text-[2rem] font-bold mb-2.5 bg-[linear-gradient(135deg,#6366f1,#10b981)] bg-clip-text text-transparent max-[480px]:text-[1.3rem] max-[414px]:text-[1.2rem]" :class="{ 'font-khmer': language === 'km' }">{{ t('meeting.title') }}</h2>
     
-<div class="py-5">
+<div class="py-8">
     <div
     class="w-full overflow-hidden
            mask-[linear-gradient(to_right,transparent,black,transparent)]
@@ -42,147 +42,108 @@
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even1.jpg"
+          src="../assets/static/certification/certi1.jpg"
         />
       </div>
 
       <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even2.jpg"
+          src="../assets/static/certification/certi2.jpg"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even3.jpg"
+          src="../assets/static/certification/certi3.png"
         />
       </div>
 
       <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even4.jpg"
+          src="../assets/static/certification/certi4.png"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even5.jpg"
+          src="../assets/static/certification/certi5.png"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even6.jpg"
+          src="../assets/static/certification/certi6.JPG"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even7.jpg"
+          src="../assets/static/certification/certi7.JPG"
         />
       </div>
 
-      <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
-        <img
-          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even8.jpg"
-        />
-      </div>
-
-      <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
-        <img
-          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even9.jpg"
-        />
-      </div>
-
-      <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
-        <img
-          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even10.jpg"
-        />
-      </div>
-
+      
       <!-- Duplicate images -->
-      <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+     <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even1.jpg"
+          src="../assets/static/certification/certi1.jpg"
         />
       </div>
 
       <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even2.jpg"
+          src="../assets/static/certification/certi2.jpg"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even3.jpg"
+          src="../assets/static/certification/certi3.png"
         />
       </div>
 
       <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even4.jpg"
+          src="../assets/static/certification/certi4.png"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even5.jpg"
+          src="../assets/static/certification/certi5.png"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even6.jpg"
+          src="../assets/static/certification/certi6.JPG"
         />
       </div>
 
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even7.jpg"
+          src="../assets/static/certification/certi7.JPG"
         />
       </div>
 
-      <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
-        <img
-          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even8.jpg"
-        />
-      </div>
-
-      <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
-        <img
-          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even9.jpg"
-        />
-      </div>
-
-      <div class="w-60 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
-        <img
-          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
-          src="../assets/static/meeting/even10.jpg"
-        />
-      </div>
     </div>
   </div>
 
-  <!-- Second row: reverse -->
+
+  <!-- Second row: reverse 
   <div
     class="w-full overflow-hidden
            mask-[linear-gradient(to_right,transparent,black,transparent)]
@@ -289,7 +250,7 @@
         />
       </div>
 
-      <!-- Duplicate images -->
+      
       <div class="w-80 h-50 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
@@ -361,6 +322,7 @@
       </div>
     </div>
   </div>
+   -->
 </div>
 </template>
 
