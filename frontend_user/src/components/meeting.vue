@@ -11,7 +11,7 @@
   >
     <div
       class="flex w-max will-change-transform
-             animate-[scrolled_200s_linear_infinite]
+             animate-[scrolled_100s_linear_infinite]
              hover:[animation-play-state:paused]
 
              max-[768px]:[&>div]:h-44
@@ -39,103 +39,115 @@
              max-[320px]:[&>.w-80]:w-38
              max-[320px]:[&>.w-60]:w-28"
     >
-      <div class="w-60 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi1.jpg"
         />
       </div>
 
-      <div class="w-110 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-110 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi2.jpg"
         />
       </div>
 
-      <div class="w-80 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-90 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi3.png"
         />
       </div>
 
-      <div class="w-100 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-110 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi4.png"
         />
       </div>
 
-      <div class="w-80 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-90 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi5.png"
         />
       </div>
 
-      <div class="w-80 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-90 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi6.JPG"
         />
       </div>
 
-      <div class="w-70 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi7.JPG"
+        />
+      </div>
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+        <img
+          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
+          src="../assets/static/certification/certi8.jpg"
         />
       </div>
 
       
       <!-- Duplicate images -->
-    <div class="w-60 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+    <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi1.jpg"
         />
       </div>
 
-      <div class="w-110 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-110 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi2.jpg"
         />
       </div>
 
-      <div class="w-80 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-90 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi3.png"
         />
       </div>
 
-      <div class="w-100 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-110 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi4.png"
         />
       </div>
 
-      <div class="w-80 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-90 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi5.png"
         />
       </div>
 
-      <div class="w-80 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-90 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi6.JPG"
         />
       </div>
 
-      <div class="w-70 h-60 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
         <img
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
           src="../assets/static/certification/certi7.JPG"
+        />
+      </div>
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+        <img
+          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
+          src="../assets/static/certification/certi8.jpg"
         />
       </div>
 
