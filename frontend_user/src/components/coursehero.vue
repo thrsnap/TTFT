@@ -2,7 +2,7 @@
   
   <!-- Background image -->
   <img
-  src="../assets/static/coursecard/liveclass.jpg"
+  src="../assets/static/coursesection/photo_2026-10-24_20-05-45.jpg"
   alt=""
   class="absolute inset-0 -z-20 h-full w-full
          object-cover object-center blur-[4px] scale-105"
@@ -29,7 +29,7 @@
              max-[414px]:text-[1.2rem]
              max-[320px]:text-[1.1rem]"
     >
-      ICT Live Class
+      
     </h1>
 
     <p
@@ -41,25 +41,31 @@
              max-[414px]:text-[13px]
              max-[320px]:text-xs"
     >
-      Explore practical lessons and start your learning journey with us.
+      Dear Every one, Today i would like to inform u about The Order Flow Concept(online class), This Course to helps all of you to understanding , how to read Volume and Market Structure.
+    
+      <br>
+      ➡️Only 100 seat available for all of you.<br>
+      💵Price: 100$
     </p>
 
-    <RouterLink
-      to=""
-      class="mt-8 inline-flex items-center justify-center
-             rounded-xl bg-emerald-100 px-7 py-3 font-semibold
-             text-slate-950 transition duration-300
-             hover:-translate-y-1 hover:bg-emerald-400
-             focus-visible:outline-2 focus-visible:outline-offset-4
-             focus-visible:outline-white
-             max-[768px]:mt-7 max-[768px]:px-6 max-[768px]:text-base
-             max-[600px]:mt-6 max-[600px]:px-5 max-[600px]:text-sm
-             max-[480px]:mt-5 max-[480px]:py-2.5
-             max-[414px]:px-4 max-[414px]:text-[13px]
-             max-[320px]:mt-4 max-[320px]:px-3 max-[320px]:text-xs"
-    >
-      Rister Now->
-    </RouterLink>
+    <a
+  href="https://t.me/ThunTulaFT"
+  target="_blank"
+  rel="noopener noreferrer"
+  class="mt-8 inline-flex items-center justify-center
+         rounded-xl bg-emerald-100 px-7 py-3 font-semibold
+         text-slate-950 transition duration-300
+         hover:-translate-y-1 hover:bg-emerald-400
+         focus-visible:outline-2 focus-visible:outline-offset-4
+         focus-visible:outline-white
+         max-[768px]:mt-7 max-[768px]:px-6 max-[768px]:text-base
+         max-[600px]:mt-6 max-[600px]:px-5 max-[600px]:text-sm
+         max-[480px]:mt-5 max-[480px]:py-2.5
+         max-[414px]:px-4 max-[414px]:text-[13px]
+         max-[320px]:mt-4 max-[320px]:px-3 max-[320px]:text-xs"
+>
+  Register Now →
+</a>
   </div>
 
   <!-- Bottom fade -->
