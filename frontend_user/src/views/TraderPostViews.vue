@@ -96,6 +96,25 @@ const exactTime = (value) =>
 
 const username = (post) => post.author?.username || 'Trader'
 const isAdminAuthor = (post) => post.author?.role === 'admin'
+// Use creation time so editing an older admin post does not replace the newest one.
+const pinnedAdminPost = computed(() => {
+  if (tab.value !== 'all') return null
+  return posts.value.reduce((latest, post) => {
+    if (!isAdminAuthor(post)) return latest
+    if (!latest) return post
+    const created = Date.parse(post.createdAt) || 0
+    const previous = Date.parse(latest.createdAt) || 0
+    if (created !== previous) return created > previous ? post : latest
+    return String(post._id) > String(latest._id) ? post : latest
+  }, null)
+})
+const displayedPosts = computed(() => {
+  const pinned = pinnedAdminPost.value
+  if (!pinned) return posts.value
+  return [pinned, ...posts.value.filter(post => String(post._id) !== String(pinned._id))]
+})
+const isPinnedAdminPost = post =>
+  Boolean(pinnedAdminPost.value && String(post._id) === String(pinnedAdminPost.value._id))
 const authorId = (post) => String(post.author?.id || post.author?._id || '')
 
 const authorPhotos = ref({})
@@ -960,10 +979,19 @@ onUnmounted(() => {
         class="flex w-full min-w-0 flex-col gap-5 sm:gap-6"
       >
         <article
-          v-for="post in posts"
+          v-for="post in displayedPosts"
           :key="post._id"
           class="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-500/20 bg-slate-500/5"
         >
+          <div
+            v-if="isPinnedAdminPost(post)"
+            class="flex items-center gap-2 border-b border-indigo-500/15 bg-indigo-500/10 px-4 py-2 text-xs font-semibold text-indigo-600 dark:text-indigo-300 sm:px-5"
+          >
+            <svg class="size-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="m16 3 5 5-4 1-4 5v3l-3-3-6 6 6-6-3-3h3l5-4 1-4Z" stroke-linejoin="round" />
+            </svg>
+            {{ route.params.lang === 'km' ? 'ប្រកាសអ្នកគ្រប់គ្រងដែលបានខ្ទាស់' : 'Pinned Post' }}
+          </div>
           <div class="p-4 sm:p-5">
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-center gap-3">
