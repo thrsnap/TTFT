@@ -32,6 +32,7 @@ let s3Client
 
 function getStorage() {
   const accountId = process.env.R2_ACCOUNT_ID?.trim()
+
   const endpoint = (
     process.env.R2_ENDPOINT?.trim() ||
     (accountId
@@ -48,7 +49,7 @@ function getStorage() {
 
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
     throw new Error(
-      'Cloudflare R2 configuration is incomplete. Check R2_ENDPOINT or R2_ACCOUNT_ID, R2_BUCKET_NAME or R2_BUCKET, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.'
+      'Cloudflare R2 configuration is incomplete. Check R2_ENDPOINT or R2_ACCOUNT_ID, R2_BUCKET_NAME or R2_BUCKET, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.',
     )
   }
 
@@ -61,13 +62,32 @@ function getStorage() {
         secretAccessKey,
       },
       maxAttempts: 2,
-      requestHandler: {
-        requestTimeout: 15000,
-      },
     })
   }
 
   return { client: s3Client, bucket }
+}
+
+function validateUserId(userId) {
+  const id = String(userId ?? '').trim()
+
+  if (!/^[a-fA-F0-9]{24}$/.test(id)) {
+    throw new ProfilePhotoError(
+      400,
+      'A valid user ID is required.',
+      'PROFILE_PHOTO_INVALID_USER_ID',
+    )
+  }
+
+  return id
+}
+
+function isMissingR2Object(error) {
+  return (
+    error?.name === 'NoSuchKey' ||
+    error?.name === 'NotFound' ||
+    error?.$metadata?.httpStatusCode === 404
+  )
 }
 
 async function prepareProfilePhoto(file) {
@@ -100,6 +120,28 @@ async function prepareProfilePhoto(file) {
       400,
       'Choose a JPG, PNG or WebP image.',
       'PROFILE_PHOTO_INVALID_TYPE',
+    )
+  }
+
+  let metadata
+
+  try {
+    metadata = await sharp(file.buffer, {
+      failOn: 'error',
+    }).metadata()
+  } catch {
+    throw new ProfilePhotoError(
+      400,
+      'The image is invalid or cannot be processed.',
+      'PROFILE_PHOTO_INVALID_IMAGE',
+    )
+  }
+
+  if (!['jpeg', 'png', 'webp'].includes(metadata.format)) {
+    throw new ProfilePhotoError(
+      400,
+      'The uploaded file is not a supported image.',
+      'PROFILE_PHOTO_INVALID_IMAGE',
     )
   }
 
@@ -139,34 +181,23 @@ async function deleteR2Object(key) {
 
 // Read the stored photo from MongoDB and Cloudflare R2.
 export async function readProfilePhoto(userId) {
+  const id = validateUserId(userId)
   const startedAt = Date.now()
-  const requestedUserId = String(userId ?? '').trim()
-
-  if (!requestedUserId) {
-    throw new ProfilePhotoError(
-      400,
-      'A valid user ID is required.',
-      'PROFILE_PHOTO_INVALID_USER_ID',
-    )
-  }
 
   try {
-    const mongoStartedAt = Date.now()
-
     const photo = await ProfilePhoto.findOne({
-      userId: requestedUserId,
+      userId: id,
     }).lean()
 
     console.log('[PROFILE PHOTO] MongoDB lookup:', {
       found: Boolean(photo),
-      durationMs: Date.now() - mongoStartedAt,
-      requestedUserId,
-      savedUserId: photo?.userId
-        ? String(photo.userId)
-        : null,
+      durationMs: Date.now() - startedAt,
+      requestedUserId: id,
+      savedUserId: photo?.userId ? String(photo.userId) : null,
       hasKey: Boolean(photo?.key),
     })
 
+    // No saved photo is a normal condition for a new user.
     if (!photo) return null
 
     if (!photo.key) {
@@ -178,7 +209,6 @@ export async function readProfilePhoto(userId) {
     }
 
     const { client, bucket } = getStorage()
-    const r2StartedAt = Date.now()
 
     const result = await client.send(
       new GetObjectCommand({
@@ -199,28 +229,24 @@ export async function readProfilePhoto(userId) {
     const body = Buffer.from(bytes)
 
     console.log('[PROFILE PHOTO] R2 read successful:', {
-      durationMs: Date.now() - r2StartedAt,
-      totalDurationMs: Date.now() - startedAt,
+      durationMs: Date.now() - startedAt,
       sizeBytes: body.length,
     })
 
     return body
   } catch (error) {
-    const statusCode = error?.$metadata?.httpStatusCode
-
     console.error('[PROFILE PHOTO] Read failed:', {
-      userId: requestedUserId,
+      userId: id,
       errorName: error?.name,
       errorCode: error?.code,
-      statusCode,
-      durationMs: Date.now() - startedAt,
+      statusCode: error?.$metadata?.httpStatusCode,
     })
 
-    if (
-      error?.name === 'NoSuchKey' ||
-      error?.name === 'NotFound' ||
-      statusCode === 404
-    ) {
+    if (error instanceof ProfilePhotoError) {
+      throw error
+    }
+
+    if (isMissingR2Object(error)) {
       throw new ProfilePhotoError(
         500,
         'The photo record exists, but its image is missing from R2.',
@@ -234,24 +260,13 @@ export async function readProfilePhoto(userId) {
 
 // Save or replace the signed-in user's photo.
 export async function saveProfilePhoto(userId, file) {
-  const requestedUserId = String(userId ?? '').trim()
-
-  if (!requestedUserId) {
-    throw new ProfilePhotoError(
-      400,
-      'A valid user ID is required.',
-      'PROFILE_PHOTO_INVALID_USER_ID',
-    )
-  }
-
+  const id = validateUserId(userId)
   const body = await prepareProfilePhoto(file)
   const { client, bucket } = getStorage()
 
-  const key =
-    `profile-photos/${requestedUserId}/${randomUUID()}.webp`
+  const key = `profile-photos/${id}/${randomUUID()}.webp`
 
-  // Upload the new object first so the existing photo remains intact
-  // if the upload fails.
+  // Upload first so the existing photo stays intact if upload fails.
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -267,12 +282,15 @@ export async function saveProfilePhoto(userId, file) {
 
   try {
     previous = await ProfilePhoto.findOneAndUpdate(
-      { userId: requestedUserId },
+      { userId: id },
       {
         $set: {
           key,
           contentType: 'image/webp',
           size: body.length,
+        },
+        $setOnInsert: {
+          userId: id,
         },
       },
       {
@@ -283,12 +301,12 @@ export async function saveProfilePhoto(userId, file) {
       },
     ).lean()
   } catch (error) {
-    // Avoid leaving the new upload behind if MongoDB update fails.
+    // Clean up the new object if MongoDB did not save its reference.
     try {
       await deleteR2Object(key)
     } catch (cleanupError) {
       console.error(
-        '[PROFILE PHOTO] Failed to clean up an unused R2 object:',
+        '[PROFILE PHOTO] New-object cleanup failed:',
         cleanupError?.name,
       )
     }
@@ -296,54 +314,44 @@ export async function saveProfilePhoto(userId, file) {
     throw error
   }
 
-  // Delete the old image only after the database points to the new one.
+  // Remove the old image only after MongoDB points to the new image.
   if (previous?.key && previous.key !== key) {
     try {
       await deleteR2Object(previous.key)
     } catch (error) {
-      // The new photo has been saved. A failed cleanup should not
-      // make the upload appear unsuccessful.
       console.error(
-        '[PROFILE PHOTO] Failed to delete the old R2 object:',
+        '[PROFILE PHOTO] Old-object cleanup failed:',
         error?.name,
       )
     }
   }
 
   console.log('[PROFILE PHOTO] Saved successfully:', {
-    userId: requestedUserId,
+    userId: id,
     sizeBytes: body.length,
   })
 
-  // The upload route sends the processed image back to the client.
   return body
 }
 
 // Remove the signed-in user's photo.
 export async function removeProfilePhoto(userId) {
-  const requestedUserId = String(userId ?? '').trim()
-
-  if (!requestedUserId) {
-    throw new ProfilePhotoError(
-      400,
-      'A valid user ID is required.',
-      'PROFILE_PHOTO_INVALID_USER_ID',
-    )
-  }
+  const id = validateUserId(userId)
 
   const photo = await ProfilePhoto.findOneAndDelete({
-    userId: requestedUserId,
+    userId: id,
   }).lean()
 
-  if (!photo?.key) return
+  if (!photo?.key) {
+    return
+  }
 
   try {
     await deleteR2Object(photo.key)
   } catch (error) {
-    // The database record is already removed. Log cleanup failures
-    // so they can be investigated without restoring the photo record.
+    // The database record is already deleted; log any orphaned R2 object.
     console.error(
-      '[PROFILE PHOTO] Failed to delete the R2 object:',
+      '[PROFILE PHOTO] R2 deletion failed:',
       error?.name,
     )
   }

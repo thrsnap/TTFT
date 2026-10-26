@@ -16,11 +16,11 @@ import {
 
 const router = Router()
 
-const asyncRoute = handler => (req, res, next) => {
+const asyncRoute = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next)
 }
 
-// Require a signed-in user for every photo route.
+// Require authentication for all profile photo routes.
 router.use(requireUser)
 
 // Validate the signed-in user's ID and protect mutations.
@@ -78,7 +78,7 @@ const upload = multer({
 
 function setPhotoCacheHeaders(res) {
   res.set({
-    'Cache-Control': 'private, max-age=300, must-revalidate',
+    'Cache-Control': 'private, no-store',
     Vary: 'Cookie',
   })
 }
@@ -93,7 +93,7 @@ function sendMissingPhoto(res, message) {
 }
 
 function sendPhotoError(res, error) {
-  const status = Number(error?.statusCode) || 500
+  const status = Number(error?.statusCode ?? error?.status) || 500
   const code = error?.code || 'PROFILE_PHOTO_READ_FAILED'
 
   console.error('[PROFILE PHOTO ROUTE]', {
@@ -103,7 +103,9 @@ function sendPhotoError(res, error) {
 
   res.set('Cache-Control', 'private, no-store')
 
-  return res.status(status >= 400 && status < 600 ? status : 500).json({
+  return res.status(
+    status >= 400 && status < 600 ? status : 500,
+  ).json({
     code,
     message:
       status >= 500
@@ -128,11 +130,13 @@ router.get(
     }
 
     setPhotoCacheHeaders(res)
+
     return res.type('image/webp').send(body)
   }),
 )
 
-// Get a community member's profile photo.
+// Get another community member's profile photo.
+// This route allows any authenticated member to view it.
 router.get(
   '/photo/:userId',
   asyncRoute(async (req, res) => {
@@ -155,6 +159,7 @@ router.get(
     }
 
     setPhotoCacheHeaders(res)
+
     return res.type('image/webp').send(body)
   }),
 )
@@ -170,6 +175,7 @@ router.post(
     )
 
     res.set('Cache-Control', 'private, no-store')
+
     return res.type('image/webp').send(body)
   }),
 )
@@ -190,9 +196,11 @@ router.delete(
   }),
 )
 
-// Handle photo and upload errors.
+// Handle upload, image-validation and storage errors.
 router.use((error, req, res, next) => {
-  if (res.headersSent) return next(error)
+  if (res.headersSent) {
+    return next(error)
+  }
 
   if (error instanceof multer.MulterError) {
     const tooLarge = error.code === 'LIMIT_FILE_SIZE'
