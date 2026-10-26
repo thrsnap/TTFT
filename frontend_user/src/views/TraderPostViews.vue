@@ -511,8 +511,8 @@ onUnmounted(() => {
 })
 </script>
 <template>
-  <main class="min-h-[75vh] bg-(--page-bg) px-4 py-8 text-(--text-color) sm:py-12">
-    <div class="mx-auto max-w-5xl">
+  <main class="min-h-[75vh] bg-(--page-bg) px-3 py-8 text-(--text-color) sm:px-6 sm:py-12">
+    <div class="mx-auto w-full max-w-2xl">
       <header class="mb-7 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p class="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-indigo-500">
@@ -613,13 +613,13 @@ onUnmounted(() => {
           Add your trade
         </button>
       </div>
-      <section aria-label="Trade posts" class="grid items-start gap-5 md:grid-cols-2">
+      <section aria-label="Trade posts" class="flex w-full min-w-0 flex-col gap-5 sm:gap-6">
         <article
           v-for="post in posts"
           :key="post._id"
-          class="min-w-0 overflow-hidden rounded-2xl border border-slate-500/20 bg-slate-500/5"
+          class="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-500/20 bg-slate-500/5"
         >
-          <div class="p-5">
+          <div class="p-4 sm:p-5">
             <div class="flex items-start justify-between gap-3">
               <div class="flex min-w-0 items-center gap-3">
                 <span
@@ -734,7 +734,7 @@ onUnmounted(() => {
               <span class="block py-2 text-xs opacity-60">View screenshot</span>
             </button>
           </div>
-          <footer class="border-t border-slate-500/15 px-5 py-3">
+          <footer class="border-t border-slate-500/15 px-4 py-3 sm:px-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div
                 role="group"
