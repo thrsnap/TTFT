@@ -1,15 +1,22 @@
+
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
 import { useProfilePhoto } from '../composable/useProfilePhoto.js'
+
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const { photoUrl: myProfilePhoto } = useProfilePhoto()
+
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
   .trim()
   .replace(/\/+$/, '')
+
+const MIN_SKELETON_MS = 600
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 const reactionOptions = [
   {
     type: 'like',
@@ -30,13 +37,15 @@ const reactionOptions = [
     activeClass: 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300',
   },
 ]
+
 const reactionTypes = reactionOptions.map((option) => option.type)
 const emptyReactionCounts = () =>
   Object.fromEntries(reactionTypes.map((type) => [`${type}Count`, 0]))
+
 const posts = ref([])
 const tab = ref('all')
 const resultFilter = ref('all')
-const loading = ref(false)
+const loading = ref(true)
 const saving = ref(false)
 const deleting = ref(false)
 const error = ref('')
@@ -44,6 +53,7 @@ const formError = ref('')
 const notice = ref('')
 const nextCursor = ref(null)
 const now = ref(Date.now())
+
 const editor = ref(null)
 const viewer = ref(null)
 const deleteDialog = ref(null)
@@ -57,6 +67,7 @@ const reactionBusy = ref({})
 const viewerError = ref(false)
 const viewerLoading = ref(false)
 const fileInput = ref(null)
+
 const form = reactive({
   pair: '',
   direction: 'buy',
@@ -65,61 +76,95 @@ const form = reactive({
   currency: 'USD',
   notes: '',
 })
+
 let clock
 let noticeTimer
 let loadController
 let loadId = 0
+let disposed = false
+
 const myId = computed(() => String(auth.user?._id || auth.user?.id || ''))
+
 const mine = (post) =>
   Boolean(myId.value && String(post.author?.id || post.author?._id || '') === myId.value)
+
 const localPath = (path) => (route.params.lang === 'km' ? `/km${path}` : path)
+
 const exactTime = (value) =>
   new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+
 const username = (post) => post.author?.username || 'Trader'
 const isAdminAuthor = (post) => post.author?.role === 'admin'
-const authorId = post => String(post.author?.id || post.author?._id || '')
+const authorId = (post) => String(post.author?.id || post.author?._id || '')
+
 const authorPhotos = ref({})
 const authorPhotoErrors = ref({})
 const photoSession = computed(() => auth.isAuthenticated === false ? '' : myId.value)
+
 const authorCheckedAt = new Map()
 const authorRequests = new Map()
+
 let photoEpoch = 0
 let photosDisposed = false
+
 function authorPhotoSrc(post) {
   const id = authorId(post)
   if (!photoSession.value || !id) return ''
-  const source = id === myId.value ? myProfilePhoto.value : authorPhotos.value[id] || ''
+
+  const source = id === myId.value
+    ? myProfilePhoto.value
+    : authorPhotos.value[id] || ''
+
   return authorPhotoErrors.value[id] === source ? '' : source
 }
+
 function authorPhotoFailed(post, event) {
   const id = authorId(post)
   const source = event.target?.getAttribute('src')
+
   if (id && source) authorPhotoErrors.value[id] = source
 }
+
 function replaceAuthorPhoto(id, next) {
   const previous = authorPhotos.value[id]
+
   if (next) authorPhotos.value[id] = next
   else delete authorPhotos.value[id]
+
   delete authorPhotoErrors.value[id]
-  if (previous) URL.revokeObjectURL(previous)
+
+  if (previous && previous !== next) URL.revokeObjectURL(previous)
 }
+
 function clearAuthorPhotos() {
   photoEpoch++
-  for (const entry of authorRequests.values()) entry.controller.abort()
+
+  for (const entry of authorRequests.values()) {
+    entry.controller.abort()
+  }
+
   authorRequests.clear()
   authorCheckedAt.clear()
-  for (const source of Object.values(authorPhotos.value)) URL.revokeObjectURL(source)
+
+  for (const source of Object.values(authorPhotos.value)) {
+    URL.revokeObjectURL(source)
+  }
+
   authorPhotos.value = {}
   authorPhotoErrors.value = {}
 }
+
 function pruneAuthorPhotos() {
   const visible = new Set(posts.value.map(authorId))
+
   for (const id of Object.keys(authorPhotos.value)) {
     if (!visible.has(id)) replaceAuthorPhoto(id, '')
   }
+
   for (const id of authorCheckedAt.keys()) {
     if (!visible.has(id)) authorCheckedAt.delete(id)
   }
+
   for (const [id, entry] of authorRequests) {
     if (!visible.has(id)) {
       entry.controller.abort()
@@ -127,68 +172,134 @@ function pruneAuthorPhotos() {
     }
   }
 }
+
 function fetchAuthorPhoto(id, force = false) {
-  if (photosDisposed || !photoSession.value || id === myId.value || !/^[a-f\d]{24}$/i.test(id)) return Promise.resolve()
+  if (
+    photosDisposed ||
+    !photoSession.value ||
+    id === myId.value ||
+    !/^[a-f\d]{24}$/i.test(id)
+  ) {
+    return Promise.resolve()
+  }
+
   const pending = authorRequests.get(id)
   if (pending) return pending.promise
-  if (!force && Date.now() - (authorCheckedAt.get(id) || 0) < 60000) return Promise.resolve()
-  const entry = { controller: new AbortController(), epoch: photoEpoch, session: photoSession.value, promise: null }
-  const current = () => !photosDisposed && entry.epoch === photoEpoch && entry.session === photoSession.value && authorRequests.get(id) === entry
+
+  if (!force && Date.now() - (authorCheckedAt.get(id) || 0) < 60000) {
+    return Promise.resolve()
+  }
+
+  const entry = {
+    controller: new AbortController(),
+    epoch: photoEpoch,
+    session: photoSession.value,
+    promise: null,
+  }
+
+  const current = () =>
+    !photosDisposed &&
+    entry.epoch === photoEpoch &&
+    entry.session === photoSession.value &&
+    authorRequests.get(id) === entry
+
   authorRequests.set(id, entry)
+
   let timedOut = false
-  const timer = setTimeout(() => { timedOut = true; entry.controller.abort() }, 20000)
+
+  const timer = setTimeout(() => {
+    timedOut = true
+    entry.controller.abort()
+  }, 20000)
+
   entry.promise = (async () => {
     try {
-      const response = await fetch(`${BASE}/api/profile/photo/${encodeURIComponent(id)}`, {
-        credentials: 'include',
-        cache: 'no-store',
-        signal: entry.controller.signal,
-      })
+      const response = await fetch(
+        `${BASE}/api/profile/photo/${encodeURIComponent(id)}`,
+        {
+          credentials: 'include',
+          cache: 'no-store',
+          signal: entry.controller.signal,
+        },
+      )
+
       if (!current()) return
+
       if (response.status === 404) {
         replaceAuthorPhoto(id, '')
         authorCheckedAt.set(id, Date.now())
         return
       }
-      if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) {
+
+      if (
+        !response.ok ||
+        !response.headers.get('content-type')?.startsWith('image/')
+      ) {
         authorCheckedAt.set(id, Date.now())
         return
       }
+
       const photo = await response.blob()
+
       if (!current() || !photo.size) return
+
       replaceAuthorPhoto(id, URL.createObjectURL(photo))
       authorCheckedAt.set(id, Date.now())
     } catch (failure) {
-      if (current() && (timedOut || failure.name !== 'AbortError')) authorCheckedAt.set(id, Date.now())
+      if (current() && (timedOut || failure.name !== 'AbortError')) {
+        authorCheckedAt.set(id, Date.now())
+      }
     } finally {
       clearTimeout(timer)
-      if (authorRequests.get(id) === entry) authorRequests.delete(id)
+
+      if (authorRequests.get(id) === entry) {
+        authorRequests.delete(id)
+      }
     }
   })()
+
   return entry.promise
 }
+
 async function loadAuthorPhotos(pagePosts, force = false) {
   if (!photoSession.value || photosDisposed) return
+
   const epoch = photoEpoch
   const session = photoSession.value
-  const ids = [...new Set(pagePosts.map(authorId))].filter(id => id !== myId.value && /^[a-f\d]{24}$/i.test(id))
+
+  const ids = [
+    ...new Set(pagePosts.map(authorId)),
+  ].filter((id) => id !== myId.value && /^[a-f\d]{24}$/i.test(id))
+
   let index = 0
-  await Promise.allSettled(Array.from({ length: Math.min(4, ids.length) }, async () => {
-    while (index < ids.length && epoch === photoEpoch && session === photoSession.value && !photosDisposed) {
-      await fetchAuthorPhoto(ids[index++], force)
-    }
-  }))
+
+  await Promise.allSettled(
+    Array.from({ length: Math.min(4, ids.length) }, async () => {
+      while (
+        index < ids.length &&
+        epoch === photoEpoch &&
+        session === photoSession.value &&
+        !photosDisposed
+      ) {
+        await fetchAuthorPhoto(ids[index++], force)
+      }
+    }),
+  )
 }
+
 const resultLabel = (result) =>
   ({ profit: 'Profit', loss: 'Loss', breakeven: 'Breakeven' })[result] || 'Result'
+
 const resultClass = (result) =>
   ({
     profit: 'text-emerald-600 dark:text-emerald-400',
     loss: 'text-red-600 dark:text-red-400',
     breakeven: 'text-slate-500 dark:text-slate-400',
   })[result]
+
 function screenshotUrl(value) {
   if (!value) return ''
+
   try {
     const url = new URL(value, `${BASE}/`)
     return ['http:', 'https:'].includes(url.protocol) ? url.href : ''
@@ -196,68 +307,104 @@ function screenshotUrl(value) {
     return ''
   }
 }
+
 function retryImage(post) {
+  if (!post?.imageUrl) return
+
   const url = new URL(post.imageUrl)
   url.searchParams.set('_retry', String(Date.now()))
+
   post.imageUrl = url.href
   delete imageErrors.value[post._id]
+
   viewerError.value = false
   viewerLoading.value = true
 }
+
 function timeAgo(value) {
   const ms = new Date(value).getTime()
   if (!Number.isFinite(ms)) return ''
+
   const seconds = Math.max(0, Math.floor((now.value - ms) / 1000))
+
   if (seconds < 60) return 'Just now'
   if (seconds < 3600) return `${Math.floor(seconds / 60)} minute${seconds < 120 ? '' : 's'} ago`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} hour${seconds < 7200 ? '' : 's'} ago`
   if (seconds < 172800) return 'Yesterday'
   if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`
-  return new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+
+  return new Date(ms).toLocaleDateString([], {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
 }
+
 function money(post) {
   const amount = post.result === 'breakeven' ? 0 : Math.abs(Number(post.amount) || 0)
+
   const formatted = new Intl.NumberFormat(undefined, {
     style: 'currency',
-    currency: ['USD', 'KHR', 'EUR', 'GBP', 'INR'].includes(post.currency) ? post.currency : 'USD',
+    currency: ['USD', 'KHR', 'EUR', 'GBP', 'INR'].includes(post.currency)
+      ? post.currency
+      : 'USD',
   }).format(amount)
+
   return `${post.result === 'loss' ? '−' : post.result === 'profit' ? '+' : ''}${formatted}`
 }
+
 function notify(message) {
   notice.value = message
   clearTimeout(noticeTimer)
+
   noticeTimer = setTimeout(() => {
     notice.value = ''
   }, 5000)
 }
+
 function login() {
-  return router.replace({ path: localPath('/login'), query: { redirect: route.fullPath } })
+  return router.replace({
+    path: localPath('/login'),
+    query: { redirect: route.fullPath },
+  })
 }
+
 async function request(path, options = {}) {
   const method = options.method || 'GET'
   const headers = new Headers(options.headers)
+
   if (method !== 'GET') headers.set('X-CMM-Request', '1')
+
   const response = await fetch(`${BASE}${path}`, {
     ...options,
     method,
     headers,
     credentials: 'include',
   })
+
   if (response.status === 401) {
     posts.value = []
     editor.value?.close()
     viewer.value?.close()
     deleteDialog.value?.close()
+
     await login()
     throw new Error('Please sign in to continue.')
   }
+
   const data = await response.json().catch(() => null)
-  if (!response.ok)
+
+  if (!response.ok) {
     throw new Error(data?.message || data?.error || `Request failed (${response.status}).`)
-  if (response.status !== 204 && !data)
+  }
+
+  if (response.status !== 204 && !data) {
     throw new Error('The journal API did not return valid JSON. Please check the backend route.')
+  }
+
   return data
 }
+
 function applyReaction(post, value) {
   if (
     !value ||
@@ -266,95 +413,170 @@ function applyReaction(post, value) {
       (type) => Number.isSafeInteger(value[`${type}Count`]) && value[`${type}Count`] >= 0,
     ) ||
     ![null, ...reactionTypes].includes(value.myReaction)
-  )
+  ) {
     throw new Error('Invalid reaction response. Please retry.')
+  }
+
   Object.assign(post, {
-    ...Object.fromEntries(reactionTypes.map((type) => [`${type}Count`, value[`${type}Count`]])),
+    ...Object.fromEntries(
+      reactionTypes.map((type) => [`${type}Count`, value[`${type}Count`]]),
+    ),
     myReaction: value.myReaction,
     reactionsReady: true,
     reactionError: '',
   })
 }
+
 async function loadReactions(pagePosts, current = loadId, signal) {
   if (!pagePosts.length) return
+
   try {
     const ids = pagePosts.map((post) => post._id).join(',')
-    const data = await request(`/api/journal-reactions?${new URLSearchParams({ ids })}`, { signal })
+
+    const data = await request(
+      `/api/journal-reactions?${new URLSearchParams({ ids })}`,
+      { signal },
+    )
+
     if (current !== loadId) return
-    if (!Array.isArray(data?.reactions)) throw new Error('Invalid reaction response.')
-    const byId = new Map(data.reactions.map((value) => [String(value.postId), value]))
+
+    if (!Array.isArray(data?.reactions)) {
+      throw new Error('Invalid reaction response.')
+    }
+
+    const byId = new Map(
+      data.reactions.map((value) => [String(value.postId), value]),
+    )
+
     const targets = new Set(pagePosts.map((post) => String(post._id)))
+
     for (const post of posts.value) {
       if (!targets.has(String(post._id))) continue
+
       const value = byId.get(String(post._id))
+
       if (!value) {
         post.reactionError = 'Reactions unavailable. Please retry.'
         continue
       }
+
       applyReaction(post, value)
     }
   } catch (err) {
     if (err.name === 'AbortError' || current !== loadId) return
+
     const targets = new Set(pagePosts.map((post) => String(post._id)))
+
     for (const post of posts.value) {
-      if (targets.has(String(post._id))) post.reactionError = 'Reactions unavailable. Please retry.'
+      if (targets.has(String(post._id))) {
+        post.reactionError = 'Reactions unavailable. Please retry.'
+      }
     }
   }
 }
+
 async function retryReactions(post) {
   const id = String(post._id)
   if (reactionBusy.value[id]) return
+
   reactionBusy.value[id] = true
   post.reactionError = ''
+
   try {
     await loadReactions([post])
   } finally {
     delete reactionBusy.value[id]
   }
 }
+
 async function reactToPost(post, type) {
   const id = String(post._id)
-  if (reactionBusy.value[id] || !post.reactionsReady || !reactionTypes.includes(type)) return
+
+  if (reactionBusy.value[id] || !post.reactionsReady || !reactionTypes.includes(type)) {
+    return
+  }
+
   if (!myId.value) return login()
+
   const memberId = myId.value
-  // Clicking the active reaction removes it; another reaction replaces it.
   const desiredType = post.myReaction === type ? null : type
+
   reactionBusy.value[id] = true
   post.reactionError = ''
+
   try {
     const data = await request(`/api/journal-reactions/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: desiredType }),
     })
+
     if (myId.value !== memberId) return
+
     const visiblePost = posts.value.find((item) => String(item._id) === id)
+
     if (visiblePost) applyReaction(visiblePost, data?.reaction)
   } catch (err) {
     const visiblePost = posts.value.find((item) => String(item._id) === id)
-    if (visiblePost) visiblePost.reactionError = err.message || 'Unable to save your reaction.'
+
+    if (visiblePost) {
+      visiblePost.reactionError = err.message || 'Unable to save your reaction.'
+    }
   } finally {
     delete reactionBusy.value[id]
   }
 }
+
+/*
+ * Skeleton-loading fix:
+ * - Uses a local AbortController for each request.
+ * - Keeps skeletons visible for at least MIN_SKELETON_MS.
+ * - Only the latest request may change loading/error state.
+ * - Preserves existing cards when loading the next page.
+ */
 async function loadPosts(append = false) {
+  if (disposed) return
+
   loadController?.abort()
+
   const current = ++loadId
-  loadController = new AbortController()
+  const controller = new AbortController()
+  loadController = controller
+
+  const startedAt = Date.now()
+
   loading.value = true
   error.value = ''
+
   if (!append) {
     posts.value = []
     nextCursor.value = null
   }
-  const params = new URLSearchParams({ scope: tab.value, limit: '12' })
-  if (resultFilter.value !== 'all') params.set('result', resultFilter.value)
-  if (append && nextCursor.value) params.set('cursor', nextCursor.value)
+
+  const params = new URLSearchParams({
+    scope: tab.value,
+    limit: '12',
+  })
+
+  if (resultFilter.value !== 'all') {
+    params.set('result', resultFilter.value)
+  }
+
+  if (append && nextCursor.value) {
+    params.set('cursor', nextCursor.value)
+  }
+
   try {
-    const data = await request(`/api/journals?${params}`, { signal: loadController.signal })
-    if (current !== loadId) return
-    if (!Array.isArray(data?.posts))
+    const data = await request(`/api/journals?${params}`, {
+      signal: controller.signal,
+    })
+
+    if (current !== loadId || disposed) return
+
+    if (!Array.isArray(data?.posts)) {
       throw new Error('Invalid journal response: expected a posts array.')
+    }
+
     const incoming = data.posts.map((post) => ({
       ...post,
       imageUrl: screenshotUrl(post.imageUrl),
@@ -363,34 +585,74 @@ async function loadPosts(append = false) {
       reactionsReady: false,
       reactionError: '',
     }))
-    const combined = append ? [...posts.value, ...incoming] : incoming
+
+    const combined = append
+      ? [...posts.value, ...incoming]
+      : incoming
+
     if (!append) imageErrors.value = {}
-    posts.value = [...new Map(combined.map((post) => [post._id, post])).values()]
+
+    posts.value = [
+      ...new Map(
+        combined.map((post) => [String(post._id), post]),
+      ).values(),
+    ]
+
     nextCursor.value = data.nextCursor || null
+
     pruneAuthorPhotos()
     void loadAuthorPhotos(incoming, !append)
-    await loadReactions(incoming, current, loadController.signal)
+
+    await loadReactions(incoming, current, controller.signal)
   } catch (err) {
-    if (err.name !== 'AbortError' && current === loadId)
+    if (
+      err.name !== 'AbortError' &&
+      current === loadId &&
+      !disposed
+    ) {
       error.value = err.message || 'Unable to load trades.'
+    }
   } finally {
-    if (current === loadId) loading.value = false
+    if (current === loadId && !disposed) {
+      const elapsed = Date.now() - startedAt
+      const remaining = Math.max(0, MIN_SKELETON_MS - elapsed)
+
+      if (remaining > 0) {
+        await wait(remaining)
+      }
+
+      // A newer request may have started while this one was waiting.
+      if (current === loadId && !disposed) {
+        loading.value = false
+      }
+    }
   }
 }
+
 function changeTab(value) {
+  if (tab.value === value) return
+
   tab.value = value
-  loadPosts()
+  void loadPosts()
 }
+
 function clearFile() {
-  if (imagePreview.value.startsWith('blob:')) URL.revokeObjectURL(imagePreview.value)
+  if (imagePreview.value.startsWith('blob:')) {
+    URL.revokeObjectURL(imagePreview.value)
+  }
+
   imageFile.value = null
   imagePreview.value = ''
+
   if (fileInput.value) fileInput.value.value = ''
 }
+
 async function openEditor(post = null) {
   editingId.value = post?._id || null
   formError.value = ''
+
   clearFile()
+
   Object.assign(form, {
     pair: post?.pair || '',
     direction: post?.direction || 'buy',
@@ -399,20 +661,26 @@ async function openEditor(post = null) {
     currency: post?.currency || 'USD',
     notes: post?.notes || '',
   })
+
   imagePreview.value = post?.imageUrl || ''
+
   await nextTick()
   editor.value?.showModal()
 }
+
 function closeEditor() {
   if (!saving.value) {
     editor.value?.close()
     clearFile()
   }
 }
+
 function chooseFile(event) {
   const file = event.target.files?.[0]
   if (!file) return
+
   formError.value = ''
+
   if (
     !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
     file.size > 5 * 1024 * 1024
@@ -421,39 +689,56 @@ function chooseFile(event) {
     event.target.value = ''
     return
   }
-  if (imagePreview.value.startsWith('blob:')) URL.revokeObjectURL(imagePreview.value)
+
+  if (imagePreview.value.startsWith('blob:')) {
+    URL.revokeObjectURL(imagePreview.value)
+  }
+
   imageFile.value = file
   imagePreview.value = URL.createObjectURL(file)
 }
+
 async function savePost() {
   if (saving.value) return
+
   formError.value = ''
+
   const amount = form.result === 'breakeven' ? 0 : Number(form.amount)
+
   if (!form.pair.trim() || form.pair.trim().length > 30) {
     formError.value = 'Enter a trading pair up to 30 characters.'
     return
   }
+
   if (!Number.isFinite(amount) || (form.result !== 'breakeven' && amount <= 0)) {
     formError.value = 'Enter a positive profit or loss amount.'
     return
   }
+
   const payload = new FormData()
+
   payload.set('pair', form.pair.trim().toUpperCase())
   payload.set('direction', form.direction)
   payload.set('result', form.result)
   payload.set('amount', amount.toFixed(2))
   payload.set('currency', form.currency)
   payload.set('notes', form.notes.trim())
+
   if (imageFile.value) payload.set('image', imageFile.value)
+
   saving.value = true
+
   try {
     await request(`/api/journals${editingId.value ? `/${editingId.value}` : ''}`, {
       method: editingId.value ? 'PATCH' : 'POST',
       body: payload,
     })
+
     saving.value = false
     closeEditor()
+
     notify(editingId.value ? 'Trade updated.' : 'Trade posted.')
+
     await loadPosts()
   } catch (err) {
     formError.value = err.message || 'Unable to save your trade.'
@@ -461,28 +746,39 @@ async function savePost() {
     saving.value = false
   }
 }
+
 function handleViewerError() {
   viewerLoading.value = false
   viewerError.value = true
 }
+
 async function openImage(post) {
   selectedImage.value = post
   viewerError.value = false
   viewerLoading.value = true
+
   await nextTick()
   viewer.value?.showModal()
 }
+
 function askDelete(post) {
   selectedPost.value = post
   deleteDialog.value?.showModal()
 }
+
 async function removePost() {
   if (!selectedPost.value || deleting.value) return
+
   deleting.value = true
+
   try {
-    await request(`/api/journals/${selectedPost.value._id}`, { method: 'DELETE' })
+    await request(`/api/journals/${selectedPost.value._id}`, {
+      method: 'DELETE',
+    })
+
     deleteDialog.value?.close()
     notify('Trade deleted.')
+
     await loadPosts()
   } catch (err) {
     error.value = err.message
@@ -491,25 +787,44 @@ async function removePost() {
     deleting.value = false
   }
 }
-watch(photoSession, () => {
-  clearAuthorPhotos()
-  if (photoSession.value) void loadAuthorPhotos(posts.value)
-}, { flush: 'sync' })
+
+watch(
+  photoSession,
+  () => {
+    clearAuthorPhotos()
+
+    if (photoSession.value) {
+      void loadAuthorPhotos(posts.value)
+    }
+  },
+  { flush: 'sync' },
+)
+
 onMounted(() => {
-  loadPosts()
+  disposed = false
+  photosDisposed = false
+
+  void loadPosts()
+
   clock = setInterval(() => {
     now.value = Date.now()
   }, 30000)
 })
+
 onUnmounted(() => {
+  disposed = true
   photosDisposed = true
-  clearAuthorPhotos()
+
+  loadId++
   loadController?.abort()
+
+  clearAuthorPhotos()
   clearInterval(clock)
   clearTimeout(noticeTimer)
   clearFile()
 })
 </script>
+
 <template>
   <main class="min-h-[75vh] bg-(--page-bg) px-3 py-8 text-(--text-color) sm:px-6 sm:py-12">
     <div class="mx-auto w-full max-w-2xl">
@@ -523,6 +838,7 @@ onUnmounted(() => {
             Share your trades, review your results, and learn from each other.
           </p>
         </div>
+
         <button
           type="button"
           class="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-500"
@@ -531,6 +847,7 @@ onUnmounted(() => {
           + Add Trade
         </button>
       </header>
+
       <p
         v-if="notice"
         role="status"
@@ -538,6 +855,7 @@ onUnmounted(() => {
       >
         {{ notice }}
       </p>
+
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div class="flex gap-1 rounded-xl bg-slate-500/10 p-1" aria-label="Journal feed">
           <button
@@ -550,13 +868,16 @@ onUnmounted(() => {
             :aria-pressed="tab === item.value"
             class="rounded-lg px-4 py-2 text-sm font-medium"
             :class="
-              tab === item.value ? 'bg-indigo-600 text-white shadow-sm' : 'hover:bg-slate-500/10'
+              tab === item.value
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'hover:bg-slate-500/10'
             "
             @click="changeTab(item.value)"
           >
             {{ item.label }}
           </button>
         </div>
+
         <label class="flex items-center gap-2 text-sm">
           Result
           <select
@@ -571,33 +892,86 @@ onUnmounted(() => {
           </select>
         </label>
       </div>
+
       <p class="mb-5 text-xs opacity-60">
         Visible to signed-in members. Results are self-reported. Your username and profile photo are displayed.
       </p>
+
       <div
         v-if="error"
         role="alert"
         class="mb-5 rounded-xl border border-red-500/25 bg-red-500/10 p-4"
       >
         <p class="text-sm text-red-600 dark:text-red-300">{{ error }}</p>
-        <button type="button" class="mt-3 text-sm font-semibold underline" @click="loadPosts()">
+        <button
+          type="button"
+          class="mt-3 text-sm font-semibold underline"
+          @click="loadPosts()"
+        >
           Try again
         </button>
       </div>
-      <p
-        v-if="loading && !posts.length"
-        role="status"
-        class="rounded-2xl border border-slate-500/15 p-12 text-center text-sm opacity-65"
-      >
-        Loading trades…
-      </p>
+
+      <!-- Initial skeleton loading cards -->
       <div
-        v-else-if="!error && !posts.length"
+        v-if="loading && posts.length === 0"
+        role="status"
+        aria-label="Loading trades"
+        aria-busy="true"
+        class="flex w-full min-w-0 flex-col gap-5 sm:gap-6"
+      >
+        <span class="sr-only">Loading trades...</span>
+
+        <article
+          v-for="n in 3"
+          :key="`skeleton-${n}`"
+          class="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-500/20 bg-slate-500/5"
+        >
+          <div class="animate-pulse p-4 sm:p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-3">
+                <div class="h-10 w-10 shrink-0 rounded-full bg-slate-500/20"></div>
+
+                <div class="min-w-0 flex-1 space-y-2">
+                  <div class="h-4 w-28 max-w-full rounded bg-slate-500/20"></div>
+                  <div class="h-3 w-20 rounded bg-slate-500/15"></div>
+                </div>
+              </div>
+
+              <div class="h-6 w-16 shrink-0 rounded-full bg-slate-500/20"></div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap items-end justify-between gap-3">
+              <div class="space-y-2">
+                <div class="h-5 w-24 rounded bg-slate-500/20"></div>
+                <div class="h-3 w-12 rounded bg-slate-500/15"></div>
+              </div>
+
+              <div class="h-8 w-28 max-w-full rounded bg-slate-500/20"></div>
+            </div>
+
+            <div class="mt-5 space-y-2">
+              <div class="h-3 w-full rounded bg-slate-500/15"></div>
+              <div class="h-3 w-4/5 rounded bg-slate-500/15"></div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 border-t border-slate-500/15 px-4 py-3 sm:px-5">
+            <div class="h-10 w-20 rounded-xl bg-slate-500/15"></div>
+            <div class="h-10 w-20 rounded-xl bg-slate-500/15"></div>
+            <div class="h-10 w-20 rounded-xl bg-slate-500/15"></div>
+          </div>
+        </article>
+      </div>
+
+      <div
+        v-if="!loading && !error && !posts.length"
         class="rounded-2xl border border-dashed border-slate-500/30 p-10 text-center"
       >
         <h2 class="font-semibold">
           {{ tab === 'mine' ? 'Your journal starts here' : 'No trades to show yet' }}
         </h2>
+
         <p class="mt-2 text-sm opacity-60">
           {{
             resultFilter === 'all'
@@ -605,6 +979,7 @@ onUnmounted(() => {
               : 'Try a different result filter or add a trade.'
           }}
         </p>
+
         <button
           type="button"
           class="mt-5 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white"
@@ -613,6 +988,7 @@ onUnmounted(() => {
           Add your trade
         </button>
       </div>
+
       <section aria-label="Trade posts" class="flex w-full min-w-0 flex-col gap-5 sm:gap-6">
         <article
           v-for="post in posts"
@@ -635,12 +1011,14 @@ onUnmounted(() => {
                     decoding="async"
                     class="h-full w-full rounded-full object-cover"
                     @error="authorPhotoFailed(post, $event)"
-                  >
+                  />
                   <span v-else>{{ username(post).slice(0, 1).toUpperCase() }}</span>
                 </span>
+
                 <div class="min-w-0">
                   <p class="flex min-w-0 items-center gap-1.5 text-sm font-semibold">
                     <span class="min-w-0 truncate">@{{ username(post) }}</span>
+
                     <svg
                       v-if="isAdminAuthor(post)"
                       viewBox="0 0 24 24"
@@ -663,26 +1041,33 @@ onUnmounted(() => {
                       />
                     </svg>
                   </p>
+
                   <time
                     :datetime="post.createdAt"
                     :title="exactTime(post.createdAt)"
                     class="text-xs opacity-60"
-                    >{{ timeAgo(post.createdAt) }}</time
                   >
+                    {{ timeAgo(post.createdAt) }}
+                  </time>
+
                   <span
                     v-if="post.updatedAt && post.updatedAt !== post.createdAt"
                     class="ml-1 text-xs opacity-50"
                     :title="`Edited ${exactTime(post.updatedAt)}`"
-                    >· edited</span
                   >
+                    · edited
+                  </span>
                 </div>
               </div>
+
               <span
                 class="rounded-full bg-slate-500/10 px-2.5 py-1 text-xs font-medium"
                 :class="resultClass(post.result)"
-                >{{ resultLabel(post.result) }}</span
               >
+                {{ resultLabel(post.result) }}
+              </span>
             </div>
+
             <div class="mt-5 flex flex-wrap items-end justify-between gap-3">
               <div>
                 <h2 class="text-lg font-bold">{{ post.pair }}</h2>
@@ -690,10 +1075,12 @@ onUnmounted(() => {
                   {{ post.direction === 'buy' ? 'Buy' : 'Sell' }}
                 </p>
               </div>
+
               <p class="text-2xl font-bold tabular-nums" :class="resultClass(post.result)">
                 {{ money(post) }}
               </p>
             </div>
+
             <p
               v-if="post.notes"
               class="mt-4 whitespace-pre-wrap break-words text-sm leading-7 opacity-80"
@@ -701,6 +1088,7 @@ onUnmounted(() => {
               {{ post.notes }}
             </p>
           </div>
+
           <div v-if="post.imageUrl">
             <div
               v-if="imageErrors[post._id]"
@@ -716,6 +1104,7 @@ onUnmounted(() => {
                 Retry screenshot
               </button>
             </div>
+
             <button
               v-else
               type="button"
@@ -734,6 +1123,7 @@ onUnmounted(() => {
               <span class="block py-2 text-xs opacity-60">View screenshot</span>
             </button>
           </div>
+
           <footer class="border-t border-slate-500/15 px-4 py-3 sm:px-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div
@@ -758,11 +1148,12 @@ onUnmounted(() => {
                   @click="reactToPost(post, reaction.type)"
                 >
                   <span aria-hidden="true" class="text-lg">{{ reaction.emoji }}</span>
-                  <span class="min-w-4 text-center tabular-nums">{{
-                    post.reactionsReady ? post[reaction.type + 'Count'] : '—'
-                  }}</span>
+                  <span class="min-w-4 text-center tabular-nums">
+                    {{ post.reactionsReady ? post[reaction.type + 'Count'] : '—' }}
+                  </span>
                 </button>
               </div>
+
               <div v-if="mine(post)" class="flex items-center gap-4">
                 <button
                   type="button"
@@ -780,6 +1171,7 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
+
             <p
               v-if="post.reactionError"
               role="alert"
@@ -798,6 +1190,7 @@ onUnmounted(() => {
           </footer>
         </article>
       </section>
+
       <div v-if="nextCursor" class="mt-7 text-center">
         <button
           type="button"
@@ -809,6 +1202,8 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- Create / edit trade dialog -->
     <dialog
       ref="editor"
       class="journal-dialog w-[calc(100%-2rem)] max-w-xl rounded-2xl border border-slate-500/25 bg-(--page-bg) p-0 text-(--text-color) shadow-2xl"
@@ -830,42 +1225,52 @@ onUnmounted(() => {
             ×
           </button>
         </div>
+
         <fieldset :disabled="saving" class="space-y-4 disabled:opacity-60">
           <div class="grid gap-4 sm:grid-cols-2">
-            <label class="block text-sm font-medium"
-              >Trading pair<input
+            <label class="block text-sm font-medium">
+              Trading pair
+              <input
                 v-model="form.pair"
                 required
                 maxlength="30"
                 placeholder="XAUUSD"
                 class="journal-input uppercase"
-            /></label>
-            <label class="block text-sm font-medium"
-              >Direction<select v-model="form.direction" class="journal-input">
+              />
+            </label>
+
+            <label class="block text-sm font-medium">
+              Direction
+              <select v-model="form.direction" class="journal-input">
                 <option value="buy">Buy</option>
                 <option value="sell">Sell</option>
-              </select></label
-            >
+              </select>
+            </label>
           </div>
+
           <div class="grid grid-cols-2 gap-4">
-            <label class="block text-sm font-medium"
-              >Result<select v-model="form.result" class="journal-input">
+            <label class="block text-sm font-medium">
+              Result
+              <select v-model="form.result" class="journal-input">
                 <option value="profit">Profit</option>
                 <option value="loss">Loss</option>
                 <option value="breakeven">Breakeven</option>
-              </select></label
-            >
-            <label class="block text-sm font-medium"
-              >Currency<select v-model="form.currency" class="journal-input">
+              </select>
+            </label>
+
+            <label class="block text-sm font-medium">
+              Currency
+              <select v-model="form.currency" class="journal-input">
                 <option v-for="currency in ['USD', 'KHR', 'EUR', 'GBP', 'INR']" :key="currency">
                   {{ currency }}
                 </option>
-              </select></label
-            >
+              </select>
+            </label>
           </div>
-          <label v-if="form.result !== 'breakeven'" class="block text-sm font-medium"
-            >{{ form.result === 'loss' ? 'Loss amount' : 'Profit amount'
-            }}<input
+
+          <label v-if="form.result !== 'breakeven'" class="block text-sm font-medium">
+            {{ form.result === 'loss' ? 'Loss amount' : 'Profit amount' }}
+            <input
               v-model="form.amount"
               type="number"
               min="0.01"
@@ -875,45 +1280,52 @@ onUnmounted(() => {
               required
               placeholder="0.00"
               class="journal-input"
-            /><span class="mt-1 block text-xs font-normal opacity-60"
-              >Enter a positive amount. The result determines the + or − sign.</span
-            ></label
-          >
-          <label class="block text-sm font-medium"
-            >Notes<textarea
+            />
+            <span class="mt-1 block text-xs font-normal opacity-60">
+              Enter a positive amount. The result determines the + or − sign.
+            </span>
+          </label>
+
+          <label class="block text-sm font-medium">
+            Notes
+            <textarea
               v-model="form.notes"
               maxlength="2000"
               rows="4"
               placeholder="Why did you enter? What did you learn?"
               class="journal-input resize-y"
-            ></textarea
-            ><span class="mt-1 block text-right text-xs font-normal opacity-50"
-              >{{ form.notes.length }}/2000</span
-            ></label
-          >
-          <label class="block text-sm font-medium"
-            >Screenshot <span class="font-normal opacity-50">(optional)</span
-            ><input
+            ></textarea>
+            <span class="mt-1 block text-right text-xs font-normal opacity-50">
+              {{ form.notes.length }}/2000
+            </span>
+          </label>
+
+          <label class="block text-sm font-medium">
+            Screenshot <span class="font-normal opacity-50">(optional)</span>
+            <input
               ref="fileInput"
               type="file"
               accept="image/jpeg,image/png,image/webp"
               class="journal-input text-xs"
               @change="chooseFile"
-            /><span class="mt-1 block text-xs font-normal opacity-60"
-              >JPG, PNG, or WebP · Maximum 5 MB. Hide account numbers and personal details before
-              uploading.</span
-            ></label
-          >
+            />
+            <span class="mt-1 block text-xs font-normal opacity-60">
+              JPG, PNG, or WebP · Maximum 5 MB. Hide account numbers and personal details before uploading.
+            </span>
+          </label>
+
           <img
             v-if="imagePreview"
             :src="imagePreview"
             alt="Trade screenshot preview"
             class="max-h-60 w-full rounded-xl bg-black/10 object-contain"
           />
+
           <p v-if="editingId && imagePreview" class="text-xs opacity-60">
             Choose a new screenshot to replace the current one. Otherwise it stays attached.
           </p>
         </fieldset>
+
         <p
           v-if="formError"
           role="alert"
@@ -921,6 +1333,7 @@ onUnmounted(() => {
         >
           {{ formError }}
         </p>
+
         <div class="mt-6 flex justify-end gap-3">
           <button
             type="button"
@@ -928,8 +1341,9 @@ onUnmounted(() => {
             class="rounded-xl border border-slate-500/25 px-4 py-2.5 text-sm disabled:opacity-40"
             @click="closeEditor()"
           >
-            Cancel</button
-          ><button
+            Cancel
+          </button>
+          <button
             type="submit"
             :disabled="saving"
             class="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
@@ -939,6 +1353,8 @@ onUnmounted(() => {
         </div>
       </form>
     </dialog>
+
+    <!-- Screenshot viewer -->
     <dialog
       ref="viewer"
       class="journal-dialog w-[calc(100%-2rem)] max-w-5xl rounded-2xl bg-slate-950 p-4 text-white"
@@ -958,6 +1374,7 @@ onUnmounted(() => {
           ×
         </button>
       </div>
+
       <template v-if="selectedImage">
         <p
           v-if="viewerLoading && !viewerError"
@@ -966,6 +1383,7 @@ onUnmounted(() => {
         >
           Loading screenshot…
         </p>
+
         <div v-if="viewerError" role="status" class="py-8 text-center">
           <p>Screenshot could not load.</p>
           <button
@@ -976,6 +1394,7 @@ onUnmounted(() => {
             Retry screenshot
           </button>
         </div>
+
         <img
           v-else
           :key="selectedImage.imageUrl"
@@ -987,6 +1406,8 @@ onUnmounted(() => {
         />
       </template>
     </dialog>
+
+    <!-- Delete confirmation -->
     <dialog
       ref="deleteDialog"
       class="journal-dialog w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-slate-500/25 bg-(--page-bg) p-6 text-(--text-color)"
@@ -997,6 +1418,7 @@ onUnmounted(() => {
       <p class="mt-3 text-sm opacity-65">
         Your post and its screenshot will be removed permanently.
       </p>
+
       <div class="mt-6 flex justify-end gap-3">
         <button
           type="button"
@@ -1004,8 +1426,9 @@ onUnmounted(() => {
           class="rounded-lg border border-slate-500/25 px-4 py-2 text-sm"
           @click="deleteDialog.close()"
         >
-          Cancel</button
-        ><button
+          Cancel
+        </button>
+        <button
           type="button"
           :disabled="deleting"
           class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
@@ -1017,16 +1440,19 @@ onUnmounted(() => {
     </dialog>
   </main>
 </template>
+
 <style scoped>
 .journal-dialog {
   margin: auto;
   max-height: 90dvh;
   overflow-y: auto;
 }
+
 .journal-dialog::backdrop {
   background: rgb(2 6 23 / 75%);
   backdrop-filter: blur(4px);
 }
+
 .journal-input {
   display: block;
   width: 100%;
@@ -1038,13 +1464,16 @@ onUnmounted(() => {
   color: inherit;
   font: inherit;
 }
+
 .journal-input:focus {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
+
 button {
   cursor: pointer;
 }
+
 button:disabled {
   cursor: wait;
 }
