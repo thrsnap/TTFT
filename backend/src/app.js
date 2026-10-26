@@ -17,7 +17,6 @@ import paymentRoutes from './routes/payment.route.js'
 import investingNewsRouter from './routes/investingNews.routes.js'
 import mediaRoutes from './routes/media.routes.js'
 import dailySignalRoutes from './routes/dailySignal.routes.js'
-
 import {
   publicSupportRouter,
   adminSupportRouter,
@@ -25,9 +24,7 @@ import {
 
 import { requireUser } from './controllers/auth.controller.js'
 import requireAdmin from './middleware/requireAdmin.js'
-
 import { connectRedis } from './config/redis.js'
-
 import {
   createApiLimiter,
   createLoginLimiter,
@@ -36,23 +33,20 @@ import {
 import journalRoutes from './routes/journal.routes.js'
 import adminJournalRoutes from './routes/adminJournal.routes.js'
 import Journal from './models/journal.model.js'
-
 import {
   createJournalReactionRouter,
 } from './routes/journalReaction.routes.js'
-
 import tradeJournalRoutes from './routes/tradeJournal.routes.js'
 import profilePhotoRoutes from './routes/profilePhoto.routes.js'
+import pushRoutes from './routes/push.routes.js'
+
 const app = express()
 
 app.set('trust proxy', 1)
 app.disable('x-powered-by')
 
 const production = process.env.NODE_ENV === 'production'
-
-const sameSite = (
-  process.env.COOKIE_SAME_SITE || 'lax'
-).trim()
+const sameSite = (process.env.COOKIE_SAME_SITE || 'lax').trim()
 
 for (const name of [
   'MONGODB_URI',
@@ -61,20 +55,13 @@ for (const name of [
   'OTP_SECRET',
 ]) {
   if (!process.env[name]?.trim()) {
-    throw new Error(
-      `${name} is missing from your backend .env`,
-    )
+    throw new Error(`${name} is missing from your backend .env`)
   }
 }
 
-for (const name of [
-  'SESSION_SECRET',
-  'OTP_SECRET',
-]) {
+for (const name of ['SESSION_SECRET', 'OTP_SECRET']) {
   if (process.env[name].length < 32) {
-    throw new Error(
-      `${name} must contain at least 32 characters`,
-    )
+    throw new Error(`${name} must contain at least 32 characters`)
   }
 }
 
@@ -82,21 +69,15 @@ for (const name of [
 const calendarApiKey = process.env.CALENDAR_API_KEY?.trim()
 
 if (calendarApiKey && calendarApiKey.length < 32) {
-  throw new Error(
-    'CALENDAR_API_KEY must contain at least 32 characters',
-  )
+  throw new Error('CALENDAR_API_KEY must contain at least 32 characters')
 }
 
 if (!['lax', 'strict', 'none'].includes(sameSite)) {
-  throw new Error(
-    'COOKIE_SAME_SITE must be lax, strict, or none',
-  )
+  throw new Error('COOKIE_SAME_SITE must be lax, strict, or none')
 }
 
 if (sameSite === 'none' && !production) {
-  throw new Error(
-    'Use COOKIE_SAME_SITE=lax for local HTTP development.',
-  )
+  throw new Error('Use COOKIE_SAME_SITE=lax for local HTTP development.')
 }
 
 const frontendUrls = [
@@ -105,19 +86,13 @@ const frontendUrls = [
 ].filter(Boolean)
 
 const allowedOrigins = [
-  ...new Set(
-    frontendUrls.map(value => {
-      const url = new URL(value)
-
-      if (!['http:', 'https:'].includes(url.protocol)) {
-        throw new Error(
-          'Frontend URLs must use HTTP or HTTPS',
-        )
-      }
-
-      return url.origin
-    }),
-  ),
+  ...new Set(frontendUrls.map(value => {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      throw new Error('Frontend URLs must use HTTP or HTTPS')
+    }
+    return url.origin
+  })),
 ]
 
 console.log('Auth configuration:', {
@@ -132,9 +107,7 @@ app.use(cors({
   credentials: true,
 }))
 
-app.use(express.json({
-  limit: '20kb',
-}))
+app.use(express.json({ limit: '20kb' }))
 
 const sessionStore = MongoStore.create({
   mongoUrl: process.env.MONGODB_URI,
@@ -151,7 +124,6 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   store: sessionStore,
-
   cookie: {
     httpOnly: true,
     secure: production,
@@ -167,15 +139,10 @@ app.use('/api/daily-signals', dailySignalRoutes)
 await connectRedis()
 
 app.use('/api', createApiLimiter())
-
-app.post(
-  '/api/auth/login',
-  createLoginLimiter(),
-)
+app.post('/api/auth/login', createLoginLimiter())
 
 function trustedMutation(req) {
   const origin = req.get('Origin')
-
   return (
     req.get('X-CMM-Request') === '1' &&
     (!origin || allowedOrigins.includes(origin))
@@ -187,46 +154,29 @@ function protectJsonMutations(req, res, next) {
 
   if (
     !['GET', 'HEAD', 'OPTIONS'].includes(req.method) &&
-    (
-      !trustedMutation(req) ||
-      !req.is('application/json')
-    )
+    (!trustedMutation(req) || !req.is('application/json'))
   ) {
-    return res.status(403).json({
-      message: 'Request not allowed.',
-    })
+    return res.status(403).json({ message: 'Request not allowed.' })
   }
 
   return next()
 }
 
 function protectNewsMutations(req, res, next) {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
-    return next()
-  }
-
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next()
   if (!trustedMutation(req)) {
-    return res.status(403).json({
-      message: 'Request not allowed.',
-    })
+    return res.status(403).json({ message: 'Request not allowed.' })
   }
-
   return requireUser(req, res, next)
 }
 
 function protectCalendarMutations(req, res, next) {
   res.set('Cache-Control', 'no-store')
-
-  // Reset this internal flag for every calendar request.
   req.calendarApiAuthenticated = false
 
-  // Match POST / and POST /bulk, including a trailing slash.
   const path = req.path.replace(/\/+$/, '') || '/'
-
   const canCreateWithKey =
-    req.method === 'POST' &&
-    ['/', '/bulk'].includes(path)
-
+    req.method === 'POST' && ['/', '/bulk'].includes(path)
   const providedKey = req.get('X-API-Key')
 
   if (canCreateWithKey && providedKey !== undefined) {
@@ -236,18 +186,11 @@ function protectCalendarMutations(req, res, next) {
       })
     }
 
-    const hash = value =>
-      createHash('sha256').update(value).digest()
-
-    const valid = timingSafeEqual(
-      hash(providedKey),
-      hash(calendarApiKey),
-    )
+    const hash = value => createHash('sha256').update(value).digest()
+    const valid = timingSafeEqual(hash(providedKey), hash(calendarApiKey))
 
     if (!valid) {
-      return res.status(401).json({
-        message: 'Invalid calendar API key.',
-      })
+      return res.status(401).json({ message: 'Invalid calendar API key.' })
     }
 
     if (!req.is('application/json')) {
@@ -257,11 +200,9 @@ function protectCalendarMutations(req, res, next) {
     }
 
     req.calendarApiAuthenticated = true
-
     return next()
   }
 
-  // Public reads and existing admin session flow.
   return protectNewsMutations(req, res, next)
 }
 
@@ -269,31 +210,30 @@ function protectCalendarMutations(req, res, next) {
 app.use('/api/investing-news', investingNewsRouter)
 
 // Login, registration and password reset.
-app.use(
-  '/api/auth',
-  protectJsonMutations,
-  authRoutes,
-)
-//profile
-app.use('/api/profile', profilePhotoRoutes)
-//trder post
-app.use('/api/journals', journalRoutes)
+app.use('/api/auth', protectJsonMutations, authRoutes)
 
+// Account-scoped Web Push subscriptions and test notifications.
+app.use(
+  '/api/push',
+  protectJsonMutations,
+  requireUser,
+  pushRoutes,
+)
+
+// Profile and community.
+app.use('/api/profile', profilePhotoRoutes)
+app.use('/api/journals', journalRoutes)
 app.use('/api/admin/journals', adminJournalRoutes)
 
-app.use('/api/journals', journalRoutes)
 app.use(
   '/api/journal-reactions',
   protectJsonMutations,
-  createJournalReactionRouter({
-    Journal,
-    requireUser,
-  }),
+  createJournalReactionRouter({ Journal, requireUser }),
 )
-//journal trader
+
 app.use('/api/trade-journal', tradeJournalRoutes)
-// Shared admin mutation protection.
-// Allows multipart uploads through to their own routes.
+
+// Shared admin mutation protection. Upload routes handle their own bodies.
 app.use('/api/admin', (req, res, next) => {
   res.set('Cache-Control', 'no-store')
 
@@ -301,25 +241,17 @@ app.use('/api/admin', (req, res, next) => {
     !['GET', 'HEAD', 'OPTIONS'].includes(req.method) &&
     !trustedMutation(req)
   ) {
-    return res.status(403).json({
-      message: 'Request not allowed.',
-    })
+    return res.status(403).json({ message: 'Request not allowed.' })
   }
 
   return next()
 })
 
 // Payments.
-app.use(
-  '/api/payments',
-  protectJsonMutations,
-  requireUser,
-  paymentRoutes,
-)
+app.use('/api/payments', protectJsonMutations, requireUser, paymentRoutes)
 
 // Support.
 app.use('/api/support', publicSupportRouter)
-
 app.use(
   '/api/admin/support',
   requireUser,
@@ -327,34 +259,17 @@ app.use(
   adminSupportRouter,
 )
 
-// Analysis.
+// Analysis and courses.
 app.use('/api/analysis', analysisRoutes)
-
-// Courses and protected lesson videos.
 app.use('/api/courses', courseRoutes)
 
-// Generic uploads must precede the admin JSON router.
-app.use(
-  '/api/admin/upload',
-  requireUser,
-  requireAdmin,
-)
-
-// Keep the original prefix expected by mediaRoutes.
+// Generic uploads precede the admin JSON router.
+app.use('/api/admin/upload', requireUser, requireAdmin)
 app.use('/api/admin', mediaRoutes)
-
-// This router checks the session and admin role itself.
 app.use('/api/admin', adminRouter)
 
-// News Signals.
-app.use(
-  '/api/signals',
-  protectNewsMutations,
-  signalRoutes,
-)
-
-// News and Daily Signal history.
-// Public reads; the history router checks admin access for result updates.
+// Signals and history.
+app.use('/api/signals', protectNewsMutations, signalRoutes)
 app.use(
   '/api/signal-history',
   protectJsonMutations,
@@ -362,48 +277,31 @@ app.use(
 )
 
 // Economic calendar.
-app.use(
-  '/api/calendar',
-  protectCalendarMutations,
-  economicEventRoutes,
-)
+app.use('/api/calendar', protectCalendarMutations, economicEventRoutes)
 
 // User dashboard.
 app.get('/api/dashboard', requireUser, (req, res) => {
   res.set('Cache-Control', 'no-store')
-
-  return res.json({
-    message: `Welcome, ${req.user.username}!`,
-  })
+  return res.json({ message: `Welcome, ${req.user.username}!` })
 })
 
 // 404: keep after all routes.
 app.use((req, res) => {
-  return res.status(404).json({
-    message: 'Route not found',
-  })
+  return res.status(404).json({ message: 'Route not found' })
 })
 
 // Global errors.
 app.use((error, req, res, next) => {
-  if (res.headersSent) {
-    return next(error)
-  }
+  if (res.headersSent) return next(error)
 
   if (error.code === 11000) {
     return res.status(409).json({
-      message:
-        'A record with these unique details already exists.',
+      message: 'A record with these unique details already exists.',
     })
   }
 
-  if (
-    error.name === 'ValidationError' ||
-    error.name === 'CastError'
-  ) {
-    return res.status(400).json({
-      message: error.message,
-    })
+  if (error.name === 'ValidationError' || error.name === 'CastError') {
+    return res.status(400).json({ message: error.message })
   }
 
   if (error.name === 'VersionError') {
@@ -420,12 +318,17 @@ app.use((error, req, res, next) => {
     })
   }
 
-  // Log the full error in the backend terminal.
-  console.error('Server error:', error.stack || error)
+  // Push configuration and provider failures have deliberate public messages.
+  if (
+    [502, 503].includes(error.status) &&
+    typeof error.code === 'string' &&
+    error.code.startsWith('PUSH_')
+  ) {
+    return res.status(error.status).json({ message: error.message })
+  }
 
-  return res.status(500).json({
-    message: 'Internal server error',
-  })
+  console.error('Server error:', error.stack || error)
+  return res.status(500).json({ message: 'Internal server error' })
 })
 
 export default app

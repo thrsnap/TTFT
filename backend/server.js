@@ -1,9 +1,9 @@
 import 'dotenv/config'
 
 import mongoose from 'mongoose'
-
 import User from './src/models/user.model.js'
 import Payment from './src/models/payment.model.js'
+import PushSubscription from './src/models/pushSubscription.model.js'
 
 async function startServer() {
   try {
@@ -21,12 +21,7 @@ async function startServer() {
     }
 
     const port = Number(process.env.PORT || 5000)
-
-    if (
-      !Number.isInteger(port) ||
-      port < 1 ||
-      port > 65535
-    ) {
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new Error('PORT must be between 1 and 65535')
     }
 
@@ -36,18 +31,19 @@ async function startServer() {
 
     await User.init()
     await Payment.init()
+    // Ensure the unique endpoint hash index exists before accepting requests.
+    await PushSubscription.init()
 
     console.log('MongoDB connected')
 
-    
-    // Keep existing app initialization, including Redis setup.
+    // Preserve the existing app initialization, including Redis setup.
     const { default: app } = await import('./src/app.js')
 
-console.log('Node.js version:', process.version)
+    console.log('Node.js version:', process.version)
 
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`API listening on port ${port}`)
-  })
+    const server = app.listen(port, '0.0.0.0', () => {
+      console.log(`API listening on port ${port}`)
+    })
 
     server.on('error', error => {
       console.error('Server error:', error.message)
