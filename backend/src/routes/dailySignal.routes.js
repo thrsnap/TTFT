@@ -7,6 +7,11 @@ import sharp from 'sharp'
 import DailySignal from '../models/dailySignal.model.js'
 
 import { sendSignalReleasedAlert } from '../services/telegram.service.js'
+import {
+  queueSignalPushAlert,
+  signalPushState,
+  startSignalPushDelivery,
+} from '../services/signalPush.service.js'
 
 import { requireUser } from '../controllers/auth.controller.js'
 
@@ -46,6 +51,7 @@ import {
 const router = Router()
 
 startSignalLifecycle()
+startSignalPushDelivery()
 // Move overdue cards into history before returning active cards.
 router.use(signalLifecycleMiddleware)
 
@@ -537,6 +543,7 @@ router.post(
       ...images,
     })
 
+    await queueSignalPushAlert(signal, 'daily')
     await alertDailyRelease(signal)
 
     res.status(201).json({
@@ -573,6 +580,7 @@ router.patch(
     const images = await imageFields(req.file)
 
     const wasReleased = isPublishedRelease(signal)
+    const previousPushState = signalPushState(signal, 'daily')
 
     Object.assign(signal, data, images)
 
@@ -580,6 +588,7 @@ router.patch(
 
     await signal.save()
 
+    await queueSignalPushAlert(signal, 'daily', previousPushState)
     await alertDailyRelease(signal, wasReleased)
 
     res.json({

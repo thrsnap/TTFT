@@ -5,6 +5,11 @@ import mongoose from 'mongoose'
 
 import Signal from '../models/signal.model.js'
 import { sendSignalReleasedAlert } from '../services/telegram.service.js'
+import {
+  queueSignalPushAlert,
+  signalPushState,
+  startSignalPushDelivery,
+} from '../services/signalPush.service.js'
 import NewsSignalGrant from '../models/newsSignalGrant.model.js'
 import User from '../models/user.model.js'
 
@@ -41,6 +46,7 @@ const router = Router()
 // Start the periodic rollover check.
 // Repeated calls from other routers do not create duplicate timers.
 startSignalLifecycle()
+startSignalPushDelivery()
 
 // Archive overdue cards before returning active signals.
 router.use(signalLifecycleMiddleware)
@@ -310,6 +316,7 @@ router.post(
         ...images,
       })
 
+      await queueSignalPushAlert(signal, 'news')
       await alertNewsRelease(signal)
 
       res.status(201).json({
@@ -818,6 +825,7 @@ router.patch(
       }
 
       const wasReleased = isSignalReleased(signal)
+      const previousPushState = signalPushState(signal, 'news')
 
       Object.assign(signal, fields)
 
@@ -833,6 +841,7 @@ router.patch(
 
       await signal.save()
 
+      await queueSignalPushAlert(signal, 'news', previousPushState)
       await alertNewsRelease(signal, wasReleased)
 
       res.json({
