@@ -1,6 +1,5 @@
-
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
 import { useProfilePhoto } from '../composable/useProfilePhoto.js'
@@ -15,7 +14,6 @@ const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000')
   .replace(/\/+$/, '')
 
 const MIN_SKELETON_MS = 600
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 const reactionOptions = [
   {
@@ -46,6 +44,8 @@ const posts = ref([])
 const tab = ref('all')
 const resultFilter = ref('all')
 const loading = ref(true)
+const loadingMore = ref(false)
+const skeletonCount = computed(() => loading.value ? (loadingMore.value ? 2 : 3) : 0)
 const saving = ref(false)
 const deleting = ref(false)
 const error = ref('')
@@ -82,6 +82,7 @@ let noticeTimer
 let loadController
 let loadId = 0
 let disposed = false
+let firstActivation = true
 
 const myId = computed(() => String(auth.user?._id || auth.user?.id || ''))
 
@@ -427,7 +428,7 @@ function applyReaction(post, value) {
   })
 }
 
-async function loadReactions(pagePosts, current = loadId, signal) {
+async function loadReactions(pagePosts, current = loadId, signal, targetPosts = posts.value) {
   if (!pagePosts.length) return
 
   try {
@@ -450,7 +451,7 @@ async function loadReactions(pagePosts, current = loadId, signal) {
 
     const targets = new Set(pagePosts.map((post) => String(post._id)))
 
-    for (const post of posts.value) {
+    for (const post of targetPosts) {
       if (!targets.has(String(post._id))) continue
 
       const value = byId.get(String(post._id))
@@ -467,7 +468,7 @@ async function loadReactions(pagePosts, current = loadId, signal) {
 
     const targets = new Set(pagePosts.map((post) => String(post._id)))
 
-    for (const post of posts.value) {
+    for (const post of targetPosts) {
       if (targets.has(String(post._id))) {
         post.reactionError = 'Reactions unavailable. Please retry.'
       }
@@ -527,13 +528,30 @@ async function reactToPost(post, type) {
   }
 }
 
-/*
- * Skeleton-loading fix:
- * - Uses a local AbortController for each request.
- * - Keeps skeletons visible for at least MIN_SKELETON_MS.
- * - Only the latest request may change loading/error state.
- * - Preserves existing cards when loading the next page.
- */
+function waitForSkeleton(startedAt, signal) {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Request cancelled.', 'AbortError'))
+  }
+
+  const remaining = Math.ceil(MIN_SKELETON_MS - (performance.now() - startedAt))
+  if (remaining <= 0) return Promise.resolve()
+
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', abort)
+      reject(new DOMException('Request cancelled.', 'AbortError'))
+    }
+
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort)
+      resolve()
+    }, remaining)
+
+    signal.addEventListener('abort', abort, { once: true })
+  })
+}
+
 async function loadPosts(append = false) {
   if (disposed) return
 
@@ -542,10 +560,10 @@ async function loadPosts(append = false) {
   const current = ++loadId
   const controller = new AbortController()
   loadController = controller
-
-  const startedAt = Date.now()
+  const startedAt = performance.now()
 
   loading.value = true
+  loadingMore.value = append && posts.value.length > 0
   error.value = ''
 
   if (!append) {
@@ -553,10 +571,7 @@ async function loadPosts(append = false) {
     nextCursor.value = null
   }
 
-  const params = new URLSearchParams({
-    scope: tab.value,
-    limit: '12',
-  })
+  const params = new URLSearchParams({ scope: tab.value, limit: '12' })
 
   if (resultFilter.value !== 'all') {
     params.set('result', resultFilter.value)
@@ -567,6 +582,10 @@ async function loadPosts(append = false) {
   }
 
   try {
+    // Render the loading cards before starting the API request.
+    await nextTick()
+    if (current !== loadId || disposed || controller.signal.aborted) return
+
     const data = await request(`/api/journals?${params}`, {
       signal: controller.signal,
     })
@@ -586,45 +605,30 @@ async function loadPosts(append = false) {
       reactionError: '',
     }))
 
-    const combined = append
-      ? [...posts.value, ...incoming]
-      : incoming
+    // Prepare the cards before replacing the visible skeletons.
+    await loadReactions(incoming, current, controller.signal, incoming)
+    if (current !== loadId || disposed) return
+    await waitForSkeleton(startedAt, controller.signal)
+    if (current !== loadId || disposed) return
 
+    const combined = append ? [...posts.value, ...incoming] : incoming
     if (!append) imageErrors.value = {}
 
     posts.value = [
-      ...new Map(
-        combined.map((post) => [String(post._id), post]),
-      ).values(),
+      ...new Map(combined.map((post) => [String(post._id), post])).values(),
     ]
-
     nextCursor.value = data.nextCursor || null
 
     pruneAuthorPhotos()
     void loadAuthorPhotos(incoming, !append)
-
-    await loadReactions(incoming, current, controller.signal)
   } catch (err) {
-    if (
-      err.name !== 'AbortError' &&
-      current === loadId &&
-      !disposed
-    ) {
+    if (err.name !== 'AbortError' && current === loadId && !disposed) {
       error.value = err.message || 'Unable to load trades.'
     }
   } finally {
     if (current === loadId && !disposed) {
-      const elapsed = Date.now() - startedAt
-      const remaining = Math.max(0, MIN_SKELETON_MS - elapsed)
-
-      if (remaining > 0) {
-        await wait(remaining)
-      }
-
-      // A newer request may have started while this one was waiting.
-      if (current === loadId && !disposed) {
-        loading.value = false
-      }
+      loading.value = false
+      loadingMore.value = false
     }
   }
 }
@@ -811,6 +815,15 @@ onMounted(() => {
   }, 30000)
 })
 
+onActivated(() => {
+  // KeepAlive also activates on mount; avoid fetching twice the first time.
+  if (firstActivation) {
+    firstActivation = false
+    return
+  }
+  void loadPosts()
+})
+
 onUnmounted(() => {
   disposed = true
   photosDisposed = true
@@ -912,57 +925,9 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Initial skeleton loading cards -->
-      <div
-        v-if="loading && posts.length === 0"
-        role="status"
-        aria-label="Loading trades"
-        aria-busy="true"
-        class="flex w-full min-w-0 flex-col gap-5 sm:gap-6"
-      >
-        <span class="sr-only">Loading trades...</span>
-
-        <article
-          v-for="n in 3"
-          :key="`skeleton-${n}`"
-          class="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-500/20 bg-slate-500/5"
-        >
-          <div class="animate-pulse p-4 sm:p-5">
-            <div class="flex items-start justify-between gap-3">
-              <div class="flex min-w-0 items-center gap-3">
-                <div class="h-10 w-10 shrink-0 rounded-full bg-slate-500/20"></div>
-
-                <div class="min-w-0 flex-1 space-y-2">
-                  <div class="h-4 w-28 max-w-full rounded bg-slate-500/20"></div>
-                  <div class="h-3 w-20 rounded bg-slate-500/15"></div>
-                </div>
-              </div>
-
-              <div class="h-6 w-16 shrink-0 rounded-full bg-slate-500/20"></div>
-            </div>
-
-            <div class="mt-5 flex flex-wrap items-end justify-between gap-3">
-              <div class="space-y-2">
-                <div class="h-5 w-24 rounded bg-slate-500/20"></div>
-                <div class="h-3 w-12 rounded bg-slate-500/15"></div>
-              </div>
-
-              <div class="h-8 w-28 max-w-full rounded bg-slate-500/20"></div>
-            </div>
-
-            <div class="mt-5 space-y-2">
-              <div class="h-3 w-full rounded bg-slate-500/15"></div>
-              <div class="h-3 w-4/5 rounded bg-slate-500/15"></div>
-            </div>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2 border-t border-slate-500/15 px-4 py-3 sm:px-5">
-            <div class="h-10 w-20 rounded-xl bg-slate-500/15"></div>
-            <div class="h-10 w-20 rounded-xl bg-slate-500/15"></div>
-            <div class="h-10 w-20 rounded-xl bg-slate-500/15"></div>
-          </div>
-        </article>
-      </div>
+      <p v-if="loading" role="status" class="sr-only">
+        {{ loadingMore ? 'Loading more trades…' : 'Loading trades…' }}
+      </p>
 
       <div
         v-if="!loading && !error && !posts.length"
@@ -989,7 +954,11 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <section aria-label="Trade posts" class="flex w-full min-w-0 flex-col gap-5 sm:gap-6">
+      <section
+        aria-label="Trade posts"
+        :aria-busy="loading"
+        class="flex w-full min-w-0 flex-col gap-5 sm:gap-6"
+      >
         <article
           v-for="post in posts"
           :key="post._id"
@@ -1148,8 +1117,14 @@ onUnmounted(() => {
                   @click="reactToPost(post, reaction.type)"
                 >
                   <span aria-hidden="true" class="text-lg">{{ reaction.emoji }}</span>
-                  <span class="min-w-4 text-center tabular-nums">
-                    {{ post.reactionsReady ? post[reaction.type + 'Count'] : '—' }}
+                  <span class="inline-flex min-w-4 items-center justify-center tabular-nums">
+                    <span v-if="post.reactionsReady">{{ post[reaction.type + 'Count'] }}</span>
+                    <span
+                      v-else-if="!post.reactionError"
+                      aria-hidden="true"
+                      class="journal-skeleton block h-3 w-4 rounded"
+                    ></span>
+                    <span v-else>—</span>
                   </span>
                 </button>
               </div>
@@ -1189,6 +1164,50 @@ onUnmounted(() => {
             </p>
           </footer>
         </article>
+
+        <div
+          v-for="n in skeletonCount"
+          :key="`skeleton-${n}`"
+          aria-hidden="true"
+          class="w-full min-w-0 overflow-hidden rounded-2xl border border-slate-500/20 bg-slate-500/5"
+        >
+          <div class="p-4 sm:p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-3">
+                <div class="h-10 w-10 shrink-0 rounded-full journal-skeleton"></div>
+
+                <div class="min-w-0 flex-1 space-y-2">
+                  <div class="h-4 w-28 max-w-full rounded journal-skeleton"></div>
+                  <div class="h-3 w-20 rounded journal-skeleton"></div>
+                </div>
+              </div>
+
+              <div class="h-6 w-16 shrink-0 rounded-full journal-skeleton"></div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap items-end justify-between gap-3">
+              <div class="space-y-2">
+                <div class="h-5 w-24 rounded journal-skeleton"></div>
+                <div class="h-3 w-12 rounded journal-skeleton"></div>
+              </div>
+
+              <div class="h-8 w-28 max-w-full rounded journal-skeleton"></div>
+            </div>
+
+            <div class="mt-5 space-y-2">
+              <div class="h-3 w-full rounded journal-skeleton"></div>
+              <div class="h-3 w-4/5 rounded journal-skeleton"></div>
+            </div>
+          </div>
+
+          <div class="journal-skeleton h-48 w-full sm:h-56"></div>
+
+          <div class="flex flex-wrap items-center gap-2 border-t border-slate-500/15 px-4 py-3 sm:px-5">
+            <div class="h-10 w-20 rounded-xl journal-skeleton"></div>
+            <div class="h-10 w-20 rounded-xl journal-skeleton"></div>
+            <div class="h-10 w-20 rounded-xl journal-skeleton"></div>
+          </div>
+        </div>
       </section>
 
       <div v-if="nextCursor" class="mt-7 text-center">
@@ -1468,6 +1487,34 @@ onUnmounted(() => {
 .journal-input:focus {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
+}
+
+.journal-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgb(100 116 139 / 24%);
+}
+
+.journal-skeleton::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgb(148 163 184 / 32%), transparent);
+  transform: translateX(-100%);
+  animation: journal-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes journal-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journal-skeleton::after {
+    animation: none;
+    background: none;
+  }
 }
 
 button {
