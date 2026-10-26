@@ -35,9 +35,7 @@ const upload = multer({
 
     if (!allowed.includes(file.mimetype)) {
       return callback(
-        new Error(
-          'Only JPG, PNG, and WebP screenshots are allowed.',
-        ),
+        new Error('Only JPG, PNG, and WebP screenshots are allowed.'),
       )
     }
 
