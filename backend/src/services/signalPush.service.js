@@ -48,11 +48,8 @@ export function signalPushState(signal, kind) {
 export async function queueSignalPushAlert(signal, kind, previous = { active: false, released: false }) {
   if (!['news', 'daily'].includes(kind)) return false
   const state = signalPushState(signal, kind)
-  if (!state.active) return false
-  const event = state.released && !previous.released
-    ? 'released'
-    : !state.released && !previous.active ? 'published' : null
-  if (!event) return false
+  if (!state.released || previous.released) return false
+  const event = 'released'
 
   try {
     const now = new Date()
@@ -82,10 +79,8 @@ export async function queueSignalPushAlert(signal, kind, previous = { active: fa
 function notificationFor(job) {
   const label = job.kind === 'daily' ? 'Daily Signal' : 'News Signal'
   return {
-    title: job.event === 'released' ? `${label} released` : `New ${label}`,
-    body: job.event === 'released'
-      ? `A ${label} is ready. Open CMM-FT to view it.`
-      : `A new ${label} has been posted. Open CMM-FT to check the schedule.`,
+    title: `${label} released`,
+    body: `A ${label} is ready. Open CMM-FT to view it.`,
     url: '/signal',
     tag: `cmm-${job.kind}-${String(job.signalId)}-${job.event}`,
   }
@@ -93,6 +88,8 @@ function notificationFor(job) {
 
 async function deliver(job) {
   const stats = { accepted: 0, expired: 0, skipped: 0, failed: 0 }
+  // Discard any upcoming-post events left in the queue by the previous version.
+  if (job.event !== 'released') return { ...stats, obsolete: true }
   if (new Date(job.expiresAt).getTime() <= Date.now()) return { ...stats, obsolete: true }
   const Model = job.kind === 'daily' ? DailySignal : Signal
   const signal = await Model.findById(job.signalId).select('+image +details').lean()
