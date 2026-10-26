@@ -8,6 +8,7 @@ import {
 } from '@aws-sdk/client-s3'
 
 import Journal from '../models/journal.model.js'
+import User from '../models/user.model.js'
 
 import {
   getR2,
@@ -15,7 +16,7 @@ import {
   deleteR2File,
 } from '../config/r2.js'
 
-// ─── Validation helpers ──────────────────────────────────────
+// Validation helpers
 
 function getUserId(req) {
   const id =
@@ -66,9 +67,7 @@ function readTrade(body = {}) {
     )
   }
 
-  if (
-    !['USD', 'KHR', 'EUR', 'GBP', 'INR'].includes(currency)
-  ) {
+  if (!['USD', 'KHR', 'EUR', 'GBP', 'INR'].includes(currency)) {
     throw journalError('Unsupported currency.')
   }
 
@@ -112,7 +111,7 @@ function readTrade(body = {}) {
   }
 }
 
-// ─── R2 screenshots ──────────────────────────────────────────
+// R2 screenshots
 
 async function uploadScreenshot(file, ownerId) {
   if (!file) return null
@@ -133,9 +132,7 @@ async function uploadScreenshot(file, ownerId) {
 
     const metadata = await image.metadata()
 
-    if (
-      !['jpeg', 'png', 'webp'].includes(metadata.format)
-    ) {
+    if (!['jpeg', 'png', 'webp'].includes(metadata.format)) {
       throw new Error('Unsupported image format.')
     }
 
@@ -155,8 +152,7 @@ async function uploadScreenshot(file, ownerId) {
     )
   }
 
-  const key =
-    `journals/${ownerId}/${randomUUID()}.webp`
+  const key = `journals/${ownerId}/${randomUUID()}.webp`
 
   await getR2().send(
     new PutObjectCommand({
@@ -181,8 +177,6 @@ async function cleanupScreenshot(key) {
   try {
     await deleteR2File(key)
   } catch (error) {
-    // The database operation may already have succeeded.
-    // Log the key so failed cleanup can be retried later.
     console.error(
       'Journal screenshot cleanup failed:',
       key,
@@ -191,19 +185,21 @@ async function cleanupScreenshot(key) {
   }
 }
 
-// ─── Response helpers ────────────────────────────────────────
+// Response helpers
 
 function serializeJournal(post) {
   return {
     _id: String(post._id),
 
     author: {
-  id: post.userId?._id
-    ? String(post.userId._id)
-    : '',
-  username: post.userId?.username || 'Trader',
-  role: post.userId?.role === 'admin' ? 'admin' : 'user',
-},
+      id: post.userId?._id
+        ? String(post.userId._id)
+        : '',
+      username: post.userId?.username || 'Trader',
+      role: post.userId?.role === 'admin'
+        ? 'admin'
+        : 'user',
+    },
 
     pair: post.pair,
     direction: post.direction,
@@ -242,7 +238,7 @@ function handleError(res, error) {
   })
 }
 
-// ─── GET /api/journals ───────────────────────────────────────
+// GET /api/journals
 
 export async function listJournals(req, res) {
   try {
@@ -269,14 +265,15 @@ export async function listJournals(req, res) {
     }
 
     if (result) {
-      if (
-        !['profit', 'loss', 'breakeven'].includes(result)
-      ) {
+      if (!['profit', 'loss', 'breakeven'].includes(result)) {
         throw journalError('Invalid result filter.')
       }
 
       filter.result = result
     }
+
+    // The pin respects the result filter but ignores pagination.
+    const pinFilter = { ...filter }
 
     if (cursor) {
       if (!validId(cursor)) {
@@ -288,19 +285,38 @@ export async function listJournals(req, res) {
       }
     }
 
-    const requestedLimit = Number(
-      req.query.limit || 12,
-    )
+    const requestedLimit = Number(req.query.limit || 12)
 
     const limit = Number.isInteger(requestedLimit)
       ? Math.min(Math.max(requestedLimit, 1), 24)
       : 12
 
-    const rows = await Journal.find(filter)
+    const pageQuery = Journal.find(filter)
       .sort({ _id: -1 })
       .limit(limit + 1)
       .populate('userId', 'username role')
       .lean()
+
+    const pinnedQuery = scope === 'all'
+      ? User.distinct('_id', { role: 'admin' }).then(
+          adminIds => {
+            if (!adminIds.length) return null
+
+            return Journal.findOne({
+              ...pinFilter,
+              userId: { $in: adminIds },
+            })
+              .sort({ createdAt: -1, _id: -1 })
+              .populate('userId', 'username role')
+              .lean()
+          },
+        )
+      : Promise.resolve(null)
+
+    const [rows, pinnedPost] = await Promise.all([
+      pageQuery,
+      pinnedQuery,
+    ])
 
     const hasMore = rows.length > limit
     const page = rows.slice(0, limit)
@@ -309,6 +325,11 @@ export async function listJournals(req, res) {
 
     return res.json({
       posts: page.map(serializeJournal),
+
+      // Separate from the page so pagination remains unchanged.
+      pinnedPost: pinnedPost
+        ? serializeJournal(pinnedPost)
+        : null,
 
       nextCursor: hasMore
         ? String(page[page.length - 1]._id)
@@ -319,7 +340,7 @@ export async function listJournals(req, res) {
   }
 }
 
-// ─── POST /api/journals ──────────────────────────────────────
+// POST /api/journals
 
 export async function createJournal(req, res) {
   let uploaded = null
@@ -362,7 +383,7 @@ export async function createJournal(req, res) {
   }
 }
 
-// ─── PATCH /api/journals/:id ─────────────────────────────────
+// PATCH /api/journals/:id
 
 export async function updateJournal(req, res) {
   let uploaded = null
@@ -416,7 +437,8 @@ export async function updateJournal(req, res) {
         },
       },
       {
-         returnDocument: 'after', runValidators: true,
+        returnDocument: 'after',
+        runValidators: true,
       },
     )
 
@@ -445,7 +467,7 @@ export async function updateJournal(req, res) {
   }
 }
 
-// ─── DELETE /api/journals/:id ────────────────────────────────
+// DELETE /api/journals/:id
 
 export async function deleteJournal(req, res) {
   try {
@@ -483,7 +505,7 @@ export async function deleteJournal(req, res) {
   }
 }
 
-// ─── GET /api/journals/:id/image ──────────────────────────────
+// GET /api/journals/:id/image
 
 export async function getJournalImage(req, res) {
   try {
@@ -497,17 +519,12 @@ export async function getJournalImage(req, res) {
       throw journalError('Invalid trade ID.')
     }
 
-    const post = await Journal.findById(
-      req.params.id,
-    )
+    const post = await Journal.findById(req.params.id)
       .select('imageKey')
       .lean()
 
     if (!post?.imageKey) {
-      throw journalError(
-        'Screenshot not found.',
-        404,
-      )
+      throw journalError('Screenshot not found.', 404)
     }
 
     const object = await getR2().send(
@@ -518,10 +535,7 @@ export async function getJournalImage(req, res) {
     )
 
     if (!object.Body) {
-      throw journalError(
-        'Screenshot not found.',
-        404,
-      )
+      throw journalError('Screenshot not found.', 404)
     }
 
     res.set({
@@ -537,7 +551,7 @@ export async function getJournalImage(req, res) {
       )
     }
 
-    object.Body.on('error', (error) => {
+    object.Body.on('error', error => {
       console.error(
         'Journal image stream failed:',
         error.message,
@@ -568,6 +582,9 @@ export async function getJournalImage(req, res) {
     return handleError(res, error)
   }
 }
+
+// Admin deletion
+
 export async function adminDeleteJournal(req, res) {
   try {
     if (!validId(req.params.id)) {
