@@ -1,5 +1,6 @@
 
 import { randomUUID } from 'node:crypto'
+import mongoose from 'mongoose'
 import {
   S3Client,
   PutObjectCommand,
@@ -29,6 +30,7 @@ export class ProfilePhotoError extends Error {
 }
 
 let s3Client
+let s3ConfigFingerprint
 
 function getStorage() {
   const accountId = process.env.R2_ACCOUNT_ID?.trim()
@@ -49,11 +51,13 @@ function getStorage() {
 
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
     throw new Error(
-      'Cloudflare R2 configuration is incomplete. Check R2_ENDPOINT or R2_ACCOUNT_ID, R2_BUCKET_NAME or R2_BUCKET, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.',
+      'Cloudflare R2 configuration is incomplete. Check your R2 environment variables.',
     )
   }
 
-  if (!s3Client) {
+  const fingerprint = `${endpoint}|${bucket}|${accessKeyId}`
+
+  if (!s3Client || s3ConfigFingerprint !== fingerprint) {
     s3Client = new S3Client({
       region: 'auto',
       endpoint,
@@ -63,6 +67,8 @@ function getStorage() {
       },
       maxAttempts: 2,
     })
+
+    s3ConfigFingerprint = fingerprint
   }
 
   return { client: s3Client, bucket }
@@ -71,7 +77,7 @@ function getStorage() {
 function validateUserId(userId) {
   const id = String(userId ?? '').trim()
 
-  if (!/^[a-fA-F0-9]{24}$/.test(id)) {
+  if (!mongoose.isObjectIdOrHexString(id)) {
     throw new ProfilePhotoError(
       400,
       'A valid user ID is required.',
@@ -79,15 +85,36 @@ function validateUserId(userId) {
     )
   }
 
-  return id
+  return new mongoose.Types.ObjectId(id)
+}
+
+function ensureDatabase() {
+  if (ProfilePhoto.db?.readyState !== 1) {
+    throw new ProfilePhotoError(
+      503,
+      'The profile photo database is temporarily unavailable.',
+      'PROFILE_PHOTO_DATABASE_UNAVAILABLE',
+    )
+  }
 }
 
 function isMissingR2Object(error) {
   return (
     error?.name === 'NoSuchKey' ||
     error?.name === 'NotFound' ||
+    error?.Code === 'NoSuchKey' ||
     error?.$metadata?.httpStatusCode === 404
   )
+}
+
+function logMongo(action, userId, details = {}) {
+  console.info(`[PROFILE PHOTO] ${action}:`, {
+    database: ProfilePhoto.db?.name || null,
+    collection: ProfilePhoto.collection?.name || null,
+    model: ProfilePhoto.modelName,
+    userId: userId ? String(userId) : null,
+    ...details,
+  })
 }
 
 async function prepareProfilePhoto(file) {
@@ -123,29 +150,19 @@ async function prepareProfilePhoto(file) {
     )
   }
 
-  let metadata
-
   try {
-    metadata = await sharp(file.buffer, {
+    const metadata = await sharp(file.buffer, {
       failOn: 'error',
     }).metadata()
-  } catch {
-    throw new ProfilePhotoError(
-      400,
-      'The image is invalid or cannot be processed.',
-      'PROFILE_PHOTO_INVALID_IMAGE',
-    )
-  }
 
-  if (!['jpeg', 'png', 'webp'].includes(metadata.format)) {
-    throw new ProfilePhotoError(
-      400,
-      'The uploaded file is not a supported image.',
-      'PROFILE_PHOTO_INVALID_IMAGE',
-    )
-  }
+    if (!['jpeg', 'png', 'webp'].includes(metadata.format)) {
+      throw new ProfilePhotoError(
+        400,
+        'The uploaded file is not a supported image.',
+        'PROFILE_PHOTO_INVALID_IMAGE',
+      )
+    }
 
-  try {
     return await sharp(file.buffer, {
       failOn: 'error',
     })
@@ -157,7 +174,11 @@ async function prepareProfilePhoto(file) {
       })
       .webp({ quality: 85 })
       .toBuffer()
-  } catch {
+  } catch (error) {
+    if (error instanceof ProfilePhotoError) {
+      throw error
+    }
+
     throw new ProfilePhotoError(
       400,
       'The image is invalid or cannot be processed.',
@@ -179,25 +200,28 @@ async function deleteR2Object(key) {
   )
 }
 
-// Read the stored photo from MongoDB and Cloudflare R2.
+// Read a photo using its MongoDB record and R2 storage key.
 export async function readProfilePhoto(userId) {
   const id = validateUserId(userId)
   const startedAt = Date.now()
 
   try {
+    ensureDatabase()
+
     const photo = await ProfilePhoto.findOne({
       userId: id,
     }).lean()
 
-    console.log('[PROFILE PHOTO] MongoDB lookup:', {
+    logMongo('Lookup', id, {
       found: Boolean(photo),
-      durationMs: Date.now() - startedAt,
-      requestedUserId: id,
-      savedUserId: photo?.userId ? String(photo.userId) : null,
+      savedUserId: photo?.userId
+        ? String(photo.userId)
+        : null,
       hasKey: Boolean(photo?.key),
+      durationMs: Date.now() - startedAt,
     })
 
-    // No saved photo is a normal condition for a new user.
+    // No profile photo is a normal condition.
     if (!photo) return null
 
     if (!photo.key) {
@@ -228,7 +252,16 @@ export async function readProfilePhoto(userId) {
     const bytes = await result.Body.transformToByteArray()
     const body = Buffer.from(bytes)
 
-    console.log('[PROFILE PHOTO] R2 read successful:', {
+    if (!body.length) {
+      throw new ProfilePhotoError(
+        502,
+        'Cloudflare R2 returned an empty image.',
+        'PROFILE_PHOTO_R2_EMPTY',
+      )
+    }
+
+    console.info('[PROFILE PHOTO] R2 read successful:', {
+      userId: String(id),
       durationMs: Date.now() - startedAt,
       sizeBytes: body.length,
     })
@@ -236,9 +269,12 @@ export async function readProfilePhoto(userId) {
     return body
   } catch (error) {
     console.error('[PROFILE PHOTO] Read failed:', {
-      userId: id,
+      userId: String(id),
+      database: ProfilePhoto.db?.name || null,
+      collection: ProfilePhoto.collection?.name || null,
       errorName: error?.name,
       errorCode: error?.code,
+      errorMessage: error?.message,
       statusCode: error?.$metadata?.httpStatusCode,
     })
 
@@ -258,15 +294,17 @@ export async function readProfilePhoto(userId) {
   }
 }
 
-// Save or replace the signed-in user's photo.
+// Upload and save a new photo, preserving the previous photo if upload fails.
 export async function saveProfilePhoto(userId, file) {
   const id = validateUserId(userId)
   const body = await prepareProfilePhoto(file)
+
+  ensureDatabase()
+
   const { client, bucket } = getStorage()
+  const key = `profile-photos/${id.toString()}/${randomUUID()}.webp`
 
-  const key = `profile-photos/${id}/${randomUUID()}.webp`
-
-  // Upload first so the existing photo stays intact if upload fails.
+  // Upload to R2 first.
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -301,58 +339,73 @@ export async function saveProfilePhoto(userId, file) {
       },
     ).lean()
   } catch (error) {
-    // Clean up the new object if MongoDB did not save its reference.
+    // Try to clean up the new object if saving its reference fails.
     try {
       await deleteR2Object(key)
     } catch (cleanupError) {
-      console.error(
-        '[PROFILE PHOTO] New-object cleanup failed:',
-        cleanupError?.name,
-      )
+      console.error('[PROFILE PHOTO] New-object cleanup failed:', {
+        errorName: cleanupError?.name,
+        errorMessage: cleanupError?.message,
+      })
     }
+
+    console.error('[PROFILE PHOTO] MongoDB save failed:', {
+      userId: String(id),
+      database: ProfilePhoto.db?.name || null,
+      collection: ProfilePhoto.collection?.name || null,
+      errorName: error?.name,
+      errorCode: error?.code,
+      errorMessage: error?.message,
+    })
 
     throw error
   }
 
-  // Remove the old image only after MongoDB points to the new image.
+  logMongo('Saved successfully', id, {
+    sizeBytes: body.length,
+    hadPreviousPhoto: Boolean(previous?.key),
+  })
+
+  // Delete the old image only after MongoDB points to the new one.
   if (previous?.key && previous.key !== key) {
     try {
       await deleteR2Object(previous.key)
     } catch (error) {
-      console.error(
-        '[PROFILE PHOTO] Old-object cleanup failed:',
-        error?.name,
-      )
+      console.error('[PROFILE PHOTO] Old-object cleanup failed:', {
+        userId: String(id),
+        errorName: error?.name,
+        errorMessage: error?.message,
+      })
     }
   }
-
-  console.log('[PROFILE PHOTO] Saved successfully:', {
-    userId: id,
-    sizeBytes: body.length,
-  })
 
   return body
 }
 
-// Remove the signed-in user's photo.
+// Remove the photo record and best-effort delete its R2 object.
 export async function removeProfilePhoto(userId) {
   const id = validateUserId(userId)
+
+  ensureDatabase()
 
   const photo = await ProfilePhoto.findOneAndDelete({
     userId: id,
   }).lean()
 
-  if (!photo?.key) {
-    return
-  }
+  logMongo('Removed database record', id, {
+    found: Boolean(photo),
+    hadKey: Boolean(photo?.key),
+  })
+
+  if (!photo?.key) return
 
   try {
     await deleteR2Object(photo.key)
   } catch (error) {
-    // The database record is already deleted; log any orphaned R2 object.
-    console.error(
-      '[PROFILE PHOTO] R2 deletion failed:',
-      error?.name,
-    )
+    console.error('[PROFILE PHOTO] R2 deletion failed:', {
+      userId: String(id),
+      errorName: error?.name,
+      errorMessage: error?.message,
+    })
   }
 }
