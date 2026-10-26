@@ -1,6 +1,6 @@
 import mongoose from 'mongoose'
 
-export const JOURNAL_REACTION_TYPES = ['like', 'love', 'wow', 'laugh', 'cry']
+export const JOURNAL_REACTION_TYPES = ['like', 'love','smile']
 
 const journalReactionSchema = new mongoose.Schema(
   {

@@ -24,22 +24,10 @@ const reactionOptions = [
     activeClass: 'border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300',
   },
   {
-    type: 'wow',
-    label: 'Wow',
-    emoji: '😮',
+    type: 'smile',
+    label: 'Smile',
+    emoji: '😊',
     activeClass: 'border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  },
-  {
-    type: 'laugh',
-    label: 'Laugh',
-    emoji: '😂',
-    activeClass: 'border-orange-500/40 bg-orange-500/15 text-orange-700 dark:text-orange-300',
-  },
-  {
-    type: 'cry',
-    label: 'Cry',
-    emoji: '😢',
-    activeClass: 'border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-300',
   },
 ]
 const reactionTypes = reactionOptions.map((option) => option.type)
