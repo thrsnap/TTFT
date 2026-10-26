@@ -13,7 +13,6 @@ import {
   faHouse,
   faNewspaper,
   faBook,
-  faBookOpen,
   faSquarePollVertical,
   faMagnifyingGlassChart,
   faHandshake,
@@ -104,6 +103,12 @@ function localizedPath(path) {
 function close() {
   open.value = false
 }
+function openSettings() {
+  close()
+  trigger.value?.focus()
+  window.dispatchEvent(new Event('cmm-ft:open-settings'))
+}
+
 function toggle() {
   error.value = ''
   open.value = !open.value
@@ -314,6 +319,32 @@ onUnmounted(() => {
             </svg>
             My Dashboard
           </RouterLink>
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            class="flex min-h-11 w-full cursor-pointer items-center gap-3
+                   rounded-lg px-3 py-2.5
+                   text-left text-sm font-medium text-white
+                   transition-colors hover:bg-white/10
+                   focus-visible:outline-2
+                   focus-visible:outline-emerald-400"
+            @click="openSettings"
+          >
+            <svg
+              class="size-5 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" />
+              <path d="M10 21h4" />
+            </svg>
+            {{ route.params.lang === 'km' ? 'ការជូនដំណឹង' : 'Notifications' }}
+          </button>
         </nav>
         <!-- Log out: always last -->
         <div class="border-t border-white/10 p-2">
