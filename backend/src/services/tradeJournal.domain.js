@@ -56,6 +56,26 @@ export function readEntry(body) {
   }
 }
 
+export function readJournalDetails(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw journalError('Send a journal object.')
+  return {
+    name: shortText(body.name, 'Journal name', 80, true),
+    broker: shortText(body.broker, 'Broker', 80),
+    accountLabel: shortText(body.accountLabel, 'Account label', 80),
+  }
+}
+
+export function serializeJournal(journal) {
+  return {
+    _id: journal.isDefault ? 'default' : String(journal._id),
+    name: journal.name,
+    broker: journal.broker || '',
+    accountLabel: journal.accountLabel || '',
+    isDefault: Boolean(journal.isDefault),
+    version: journal.__v ?? 0,
+  }
+}
+
 export function readVersion(value) {
   const text = String(value ?? '')
   if (!/^\d{1,10}$/.test(text) || !Number.isSafeInteger(Number(text))) throw journalError('Refresh the journal before editing this trade.')
@@ -156,6 +176,7 @@ export function readCursor(value) {
 export function serializeEntry(entry) {
   return {
     _id: String(entry._id),
+    journalId: entry.journalId == null ? 'default' : String(entry.journalId),
     tradeDate: entry.tradeDate,
     symbol: entry.symbol,
     side: entry.side,

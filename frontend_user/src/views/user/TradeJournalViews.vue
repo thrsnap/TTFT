@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../../store/user/authStore.js'
 import en from '../../locales/langs/journal/tradingJournal.en.js'
 import km from '../../locales/langs/journal/tradingJournal.km.js'
+import { brokerJournalEn, brokerJournalKm } from '../../locales/langs/journal/brokerJournals.js'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -11,9 +12,7 @@ const BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000').trim
 const API = '/api/trade-journal'
 const isKhmer = computed(() => route.params.lang === 'km')
 const locale = computed(() => isKhmer.value ? 'km-KH' : 'en-US')
-
-
-const c = computed(() => isKhmer.value ? { ...en, ...km } : en)
+const c = computed(() => isKhmer.value ? { ...en, ...km, ...brokerJournalKm } : { ...en, ...brokerJournalEn })
 const clock = ref(new Date())
 const dateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 const today = computed(() => dateKey(clock.value))
@@ -43,6 +42,20 @@ const saving = ref(false)
 const deleting = ref(false)
 const formError = ref('')
 const form = reactive({ tradeDate: today.value, symbol: '', side: 'buy', pnl: '', emotion: '', strategy: '', notes: '' })
+const journals = ref([])
+const activeJournalId = ref('default')
+const activeJournal = computed(() => journals.value.find((item) => item._id === activeJournalId.value) || null)
+const journalsReady = ref(false)
+const journalsLoading = ref(false)
+const journalsError = ref('')
+const journalDialog = ref(null)
+const journalEditing = ref(null)
+const journalSaving = ref(false)
+const journalFormError = ref('')
+const journalForm = reactive({ name: '', broker: '', accountLabel: '' })
+const editingJournalId = ref('default')
+const userKey = computed(() => String(auth.user?._id ?? auth.user?.id ?? ''))
+const journalBusy = computed(() => saving.value || deleting.value || journalSaving.value)
 const emotionValues = ['calm', 'confident', 'focused', 'neutral', 'anxious', 'frustrated', 'impulsive']
 const presetValues = ['thisMonth', 'lastMonth', 'lastQuarter', 'lastYear', 'all']
 let overviewController
@@ -53,7 +66,9 @@ let searchTimer
 let noticeTimer
 let clockTimer
 let disposed = false
-
+let journalsController
+let journalsRequestId = 0
+let contextEpoch = 0
 const utcKey = (year, month, day = 1) => new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10)
 function monthBounds(month) {
     const [year, index] = month.split('-').map(Number)
@@ -83,7 +98,14 @@ const cells = computed(() => {
     return Array.from({ length: Math.ceil((offset + days) / 7) * 7 }, (_, index) => {
         const key = utcKey(year, month - 1, index - offset + 1)
         const inRange = !isCustomRange.value || (key >= range.value.from && key <= range.value.to)
-        return { key, day: Number(key.slice(8)), inMonth: key.startsWith(calendarMonth.value), inRange, data: inRange ? byDate.value.get(key) : undefined }
+        return {
+            key,
+            day: Number(key.slice(8)),
+            isWeekend: index % 7 === 0 || index % 7 === 6,
+            inMonth: key.startsWith(calendarMonth.value),
+            inRange,
+            data: inRange ? byDate.value.get(key) : undefined,
+        }
     })
 })
 const weeks = computed(() => Array.from({ length: cells.value.length / 7 }, (_, index) => {
@@ -104,7 +126,6 @@ const sparkline = computed(() => {
 })
 const emotionBars = computed(() => (summary.value?.days || []).slice(-15).map((day) => ({ date: day.date, height: day.tagged ? Math.max(8, day.positive / day.tagged * 100) : 8, tagged: day.tagged > 0 })))
 const factor = computed(() => !summary.value?.tradeCount ? '—' : summary.value.grossLossCents ? (summary.value.grossProfitCents / summary.value.grossLossCents).toFixed(2) : summary.value.grossProfitCents ? '∞' : '—')
-
 function formatDate(key, short = false) {
     if (!key) return ''
     return new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: short ? 'short' : 'short', ...(short ? {} : { year: 'numeric' }), timeZone: 'UTC' }).format(new Date(`${key}T12:00:00Z`))
@@ -116,7 +137,6 @@ const percent = (value) => value == null ? '—' : `${value.toFixed(1)}%`
 const tone = (value) => value > 0 ? 'text-emerald-600 dark:text-emerald-400' : value < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'
 const countLabel = (count) => `${count} ${count === 1 ? c.value.trade : c.value.trades}`
 const emotionLabel = (value) => value ? c.value[value] || value : '—'
-
 function choosePreset(value) {
     customRangeOpen.value = false
     customError.value = ''
@@ -173,6 +193,7 @@ function moveMonth(delta) {
 }
 function queryString(forEntries = false) {
     const params = new URLSearchParams({ month: calendarMonth.value, today: today.value })
+    params.set('journalId', activeJournalId.value)
     if (forEntries && selectedDate.value) { params.set('from', selectedDate.value); params.set('to', selectedDate.value) }
     else if (range.value.from) { params.set('from', range.value.from); params.set('to', range.value.to) }
     else params.set('all', '1')
@@ -181,14 +202,29 @@ function queryString(forEntries = false) {
 }
 const overviewQuery = computed(() => queryString())
 const entriesQuery = computed(() => queryString(true))
-function clearPrivateData() {
+function clearTradeData() {
+    overviewController?.abort(); listController?.abort(); overviewId++; listId++
     summary.value = null; calendarDays.value = []; trades.value = []; nextCursor.value = null
     overviewLoading.value = false; listLoading.value = false
     overviewError.value = ''; listError.value = ''; notice.value = ''
     editing.value = null; deletingTrade.value = null
     editor.value?.close(); deleteDialog.value?.close()
+    selectedDate.value = ''
+}
+function clearPrivateData() {
+    contextEpoch++; journalsRequestId++; journalsController?.abort()
+    clearTradeData()
+    journals.value = []; activeJournalId.value = 'default'; journalsReady.value = false
+    journalsLoading.value = false; journalsError.value = ''
+    saving.value = false; deleting.value = false; journalSaving.value = false
+    journalEditing.value = null; journalFormError.value = ''; editingJournalId.value = 'default'
+    Object.assign(journalForm, { name: '', broker: '', accountLabel: '' })
+    Object.assign(form, { tradeDate: today.value, symbol: '', side: 'buy', pnl: '', emotion: '', strategy: '', notes: '' })
+    clearTimeout(searchTimer); search.value = ''; searchQuery.value = ''
+    journalDialog.value?.close()
 }
 async function request(path, options = {}) {
+    const epoch = contextEpoch
     const timeoutController = new AbortController()
     let timedOut = false
     const cancel = () => timeoutController.abort()
@@ -199,12 +235,14 @@ async function request(path, options = {}) {
         const headers = new Headers(options.headers)
         if (options.method && options.method !== 'GET') headers.set('X-CMM-Request', '1')
         const response = await fetch(`${BASE}${API}${path}`, { ...options, headers, signal: timeoutController.signal, credentials: 'include' })
+        if (disposed || epoch !== contextEpoch) throw new DOMException('Request cancelled.', 'AbortError')
         if (response.status === 401) {
             clearPrivateData()
             await router.replace({ name: 'login', params: isKhmer.value ? { lang: 'km' } : {}, query: { redirect: route.fullPath } })
             throw new Error(c.value.signIn)
         }
         const data = await response.json().catch(() => null)
+        if (disposed || epoch !== contextEpoch) throw new DOMException('Request cancelled.', 'AbortError')
         if (!response.ok) throw new Error(data?.message || c.value.error)
         if (!data) throw new Error(c.value.error)
         return data
@@ -216,8 +254,92 @@ async function request(path, options = {}) {
         options.signal?.removeEventListener('abort', cancel)
     }
 }
+function validJournalId(value) {
+    return value === 'default' || (typeof value === 'string' && /^[a-f\d]{24}$/i.test(value))
+}
+function rememberedJournal() {
+    if (!userKey.value) return 'default'
+    try { return localStorage.getItem(`cmm:trade-journal:${userKey.value}:active`) || 'default' }
+    catch { return 'default' }
+}
+function rememberJournal() {
+    if (!userKey.value) return
+    try { localStorage.setItem(`cmm:trade-journal:${userKey.value}:active`, activeJournalId.value) }
+    catch { /* The journal still works when browser storage is unavailable. */ }
+}
+function activateJournal(id) {
+    if (id === activeJournalId.value || !journals.value.some((item) => item._id === id)) return
+    clearTradeData()
+    activeJournalId.value = id
+    rememberJournal()
+}
+function chooseJournal(id) {
+    if (!journalsReady.value || journalBusy.value) return
+    activateJournal(id)
+}
+async function loadJournals() {
+    if (disposed || auth.isAuthenticated === false) return
+    journalsController?.abort()
+    const current = ++journalsRequestId
+    const epoch = contextEpoch
+    journalsController = new AbortController()
+    journalsReady.value = false; journalsLoading.value = true; journalsError.value = ''
+    clearTradeData()
+    try {
+        const data = await request('/journals', { signal: journalsController.signal })
+        if (current !== journalsRequestId || epoch !== contextEpoch || disposed) return
+        if (!Array.isArray(data.journals) || !data.journals.some((item) => item?._id === 'default') ||
+            !data.journals.every((item) => item && validJournalId(item._id) && typeof item.name === 'string')) {
+            throw new Error(c.value.journalError)
+        }
+        journals.value = data.journals
+        const desired = rememberedJournal()
+        activeJournalId.value = journals.value.some((item) => item._id === desired) ? desired : 'default'
+        rememberJournal()
+        journalsReady.value = true
+    } catch (error) {
+        if (error.name !== 'AbortError' && current === journalsRequestId && epoch === contextEpoch && !disposed) journalsError.value = error.message || c.value.journalError
+    } finally {
+        if (current === journalsRequestId && epoch === contextEpoch && !disposed) journalsLoading.value = false
+    }
+}
+async function openJournalEditor(item = null) {
+    if (!journalsReady.value || journalBusy.value) return
+    journalEditing.value = item
+    journalFormError.value = ''
+    Object.assign(journalForm, { name: item?.name || '', broker: item?.broker || '', accountLabel: item?.accountLabel || '' })
+    await nextTick()
+    journalDialog.value?.showModal()
+}
+function closeJournalEditor() {
+    if (!journalSaving.value) journalDialog.value?.close()
+}
+async function saveJournal() {
+    if (journalSaving.value || !journalsReady.value) return
+    journalFormError.value = ''
+    const details = { name: journalForm.name.trim(), broker: journalForm.broker.trim(), accountLabel: journalForm.accountLabel.trim() }
+    if (!details.name || details.name.length > 80) { journalFormError.value = c.value.journalNameRequired; return }
+    if (details.broker.length > 80 || details.accountLabel.length > 80) { journalFormError.value = c.value.journalFieldLength; return }
+    const original = journalEditing.value
+    const epoch = contextEpoch
+    journalSaving.value = true
+    try {
+        const data = await request(original ? `/journals/${encodeURIComponent(original._id)}` : '/journals', {
+            method: original ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...details, ...(original ? { version: original.version } : {}) }),
+        })
+        if (epoch !== contextEpoch || disposed) return
+        if (!data.journal || !validJournalId(data.journal._id) || typeof data.journal.name !== 'string') throw new Error(c.value.journalError)
+        journals.value = original ? journals.value.map((item) => item._id === original._id ? data.journal : item) : [...journals.value, data.journal]
+        journalDialog.value?.close()
+        if (!original) activateJournal(data.journal._id)
+        notify(original ? c.value.journalUpdated : c.value.journalCreated)
+    } catch (error) {
+        if (error.name !== 'AbortError' && epoch === contextEpoch && !disposed) journalFormError.value = error.message || c.value.error
+    } finally { if (epoch === contextEpoch && !disposed) journalSaving.value = false }
+}
 async function loadOverview() {
-    if (disposed) return
+    if (disposed || !journalsReady.value) return
     overviewController?.abort()
     const current = ++overviewId
     overviewController = new AbortController()
@@ -232,7 +354,7 @@ async function loadOverview() {
     } finally { if (current === overviewId) overviewLoading.value = false }
 }
 async function loadEntries(append = false) {
-    if (disposed || (append && !nextCursor.value)) return
+    if (disposed || !journalsReady.value || (append && !nextCursor.value)) return
     listController?.abort()
     const current = ++listId
     listController = new AbortController()
@@ -258,6 +380,8 @@ function notify(message) {
     noticeTimer = setTimeout(() => { notice.value = '' }, 5000)
 }
 async function openEditor(entry = null) {
+    if (!journalsReady.value || journalBusy.value) return
+    editingJournalId.value = entry?.journalId || activeJournalId.value
     editing.value = entry
     formError.value = ''
     Object.assign(form, { tradeDate: entry?.tradeDate || selectedDate.value || today.value, symbol: entry?.symbol || '', side: entry?.side || 'buy', pnl: entry ? (entry.pnlCents / 100).toFixed(2) : '', emotion: entry?.emotion || '', strategy: entry?.strategy || '', notes: entry?.notes || '' })
@@ -266,50 +390,53 @@ async function openEditor(entry = null) {
 }
 function closeEditor() { if (!saving.value) editor.value?.close() }
 async function saveEntry() {
-    if (saving.value) return
+    if (saving.value || !journalsReady.value) return
+    const epoch = contextEpoch
     saving.value = true; formError.value = ''
     const original = editing.value
     try {
-        await request(original ? `/${original._id}` : '', { method: original ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, pnl: String(form.pnl), ...(original ? { version: original.version } : {}) }) })
+        const path = original ? `/${original._id}?${new URLSearchParams({ journalId: editingJournalId.value })}` : ''
+        await request(path, { method: original ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...form, pnl: String(form.pnl), ...(original ? { version: original.version } : { journalId: editingJournalId.value }) }) })
+        if (epoch !== contextEpoch || disposed) return
         editor.value?.close()
         notify(original ? c.value.updated : c.value.saved)
         await refreshAll()
-    } catch (error) { formError.value = error.message || c.value.error }
-    finally { saving.value = false }
+    } catch (error) { if (error.name !== 'AbortError' && epoch === contextEpoch && !disposed) formError.value = error.message || c.value.error }
+    finally { if (epoch === contextEpoch && !disposed) saving.value = false }
 }
 async function askDelete(entry) { deletingTrade.value = entry; formError.value = ''; await nextTick(); deleteDialog.value?.showModal() }
 async function deleteEntry() {
     if (!deletingTrade.value || deleting.value) return
+    const epoch = contextEpoch
     deleting.value = true; formError.value = ''
     const entry = deletingTrade.value
     try {
-        await request(`/${entry._id}?${new URLSearchParams({ version: entry.version })}`, { method: 'DELETE' })
+        await request(`/${entry._id}?${new URLSearchParams({ version: entry.version, journalId: entry.journalId || activeJournalId.value })}`, { method: 'DELETE' })
+        if (epoch !== contextEpoch || disposed) return
         deleteDialog.value?.close(); notify(c.value.deleted); await refreshAll()
-    } catch (error) { formError.value = error.message || c.value.error }
-    finally { deleting.value = false }
+    } catch (error) { if (error.name !== 'AbortError' && epoch === contextEpoch && !disposed) formError.value = error.message || c.value.error }
+    finally { if (epoch === contextEpoch && !disposed) deleting.value = false }
 }
-
 watch(search, (value) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { searchQuery.value = value.trim() }, 300) })
-watch(overviewQuery, () => { void loadOverview() })
-watch(entriesQuery, () => { void loadEntries() })
+watch([journalsReady, overviewQuery], ([ready]) => { if (ready) void loadOverview() })
+watch([journalsReady, entriesQuery], ([ready]) => { if (ready) void loadEntries() })
 watch(() => auth.user?._id ?? auth.user?.id, (next, previous) => {
     if (next === previous) return
-    overviewController?.abort(); listController?.abort(); overviewId++; listId++
     clearPrivateData()
-    if (next) void refreshAll()
+    if (next && auth.isAuthenticated !== false) void loadJournals()
 })
 watch(() => auth.isAuthenticated, (value) => {
-    if (!value) { overviewController?.abort(); listController?.abort(); overviewId++; listId++; clearPrivateData() }
+    if (!value) clearPrivateData()
+    else if (!journalsReady.value && !journalsLoading.value) void loadJournals()
 })
 watch(today, () => { if (preset.value === 'thisMonth' || preset.value === 'lastMonth') choosePreset(preset.value) })
-onMounted(() => { void refreshAll(); clockTimer = setInterval(() => { clock.value = new Date() }, 60000) })
+onMounted(() => { void loadJournals(); clockTimer = setInterval(() => { clock.value = new Date() }, 60000) })
 onUnmounted(() => {
-    disposed = true; overviewId++; listId++
-    overviewController?.abort(); listController?.abort()
+    disposed = true; contextEpoch++; overviewId++; listId++; journalsRequestId++
+    overviewController?.abort(); listController?.abort(); journalsController?.abort()
     clearTimeout(searchTimer); clearTimeout(noticeTimer); clearInterval(clockTimer)
 })
 </script>
-
 <template>
   <section
     class="min-w-0 rounded-2xl bg-slate-50 p-4 text-slate-900 scheme-light sm:p-5 lg:p-7 dark:bg-[#0d1422] dark:text-slate-100 dark:scheme-dark"
@@ -327,15 +454,36 @@ onUnmounted(() => {
           <svg class="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3" /></svg>
           {{ c.private }}
         </span>
-        <button type="button" class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-violet-400 hover:text-violet-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-400" :aria-label="c.refresh" :disabled="overviewLoading || listLoading" @click="refreshAll">
+        <button type="button" class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:border-violet-400 hover:text-violet-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-400" :aria-label="c.refresh" :disabled="!journalsReady || overviewLoading || listLoading || journalBusy" @click="refreshAll">
           <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5m-4-3a7 7 0 0 1 12-4l3 3M4 16l3 3a7 7 0 0 0 12-4" /></svg>
         </button>
-        <button type="button" class="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-violet-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500" data-testid="add-trade" @click="openEditor()"><span class="text-lg leading-none" aria-hidden="true">＋</span>{{ c.add }}</button>
+        <button type="button" class="inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-violet-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!journalsReady || journalBusy" data-testid="add-trade" @click="openEditor()"><span class="text-lg leading-none" aria-hidden="true">＋</span>{{ c.add }}</button>
       </div>
     </header>
-
+    <section class="mb-6 min-w-0 rounded-xl border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-700 dark:bg-[#111b2d]" aria-labelledby="tj-journals-title" :aria-busy="journalsLoading">
+      <div class="mb-4">
+        <h2 id="tj-journals-title" class="text-sm font-semibold">{{ c.journalsTitle }}</h2>
+        <p class="mt-1 text-[11px] leading-6 text-slate-500 dark:text-slate-400">{{ c.journalsHint }}</p>
+      </div>
+      <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end">
+        <label for="tj-active-journal" class="block min-w-0 flex-1 text-[11px] font-semibold leading-5">
+          {{ c.journalSelect }}
+          <select id="tj-active-journal" :value="activeJournalId" class="mt-1.5 block w-full min-w-0 truncate rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-[#111d30]" :disabled="!journalsReady || journalsLoading || journalBusy" @change="chooseJournal($event.target.value)">
+            <option v-if="!journalsReady" value="default">{{ journalsLoading ? c.journalsLoading : c.journalSelect }}</option>
+            <option v-for="item in (journalsReady ? journals : [])" :key="item._id" :value="item._id">{{ item.name }}</option>
+          </select>
+        </label>
+        <div class="flex flex-wrap gap-2 sm:shrink-0">
+          <button type="button" class="flex-1 cursor-pointer rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs font-semibold hover:border-violet-400 focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none dark:border-slate-700 dark:bg-[#111d30]" :disabled="!activeJournal || !journalsReady || journalBusy" @click="openJournalEditor(activeJournal)">{{ c.journalEdit }}</button>
+          <button type="button" class="flex-1 cursor-pointer rounded-lg bg-violet-600 px-3.5 py-2.5 text-xs font-semibold text-white hover:bg-violet-500 focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 sm:flex-none" :disabled="!journalsReady || journalBusy" @click="openJournalEditor()">＋ {{ c.journalAdd }}</button>
+        </div>
+      </div>
+      <p v-if="activeJournal && (activeJournal.broker || activeJournal.accountLabel)" class="mt-3 break-words text-[11px] leading-6 text-slate-500 dark:text-slate-400">{{ [activeJournal.broker, activeJournal.accountLabel].filter(Boolean).join(' · ') }}</p>
+      <p v-if="journalsLoading" class="mt-3 text-[11px] text-slate-500 dark:text-slate-400" role="status">{{ c.journalsLoading }}</p>
+      <p v-if="journalsError" class="mt-3 break-words rounded-lg border border-rose-500/20 bg-rose-500/5 px-3.5 py-3 text-xs leading-6 text-rose-600 dark:text-rose-400" role="alert">{{ journalsError }} <button type="button" class="ml-2 cursor-pointer underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-violet-500" :disabled="journalsLoading" @click="loadJournals">{{ c.retry }}</button></p>
+    </section>
+    <template v-if="journalsReady">
     <p v-if="notice" class="mb-3.5 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3.5 py-3 text-xs leading-6 text-emerald-700 dark:text-emerald-300" role="status">{{ notice }}</p>
-
     <div class="flex flex-col gap-3.5 lg:flex-row lg:items-start lg:justify-between">
       <div class="flex min-w-0 flex-wrap gap-1.5" :aria-label="c.periodTrades">
         <button v-for="item in presetValues" :key="item" type="button" class="cursor-pointer rounded-lg border px-3 py-2 text-[11px] font-semibold leading-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500" :class="preset === item ? 'border-violet-500 bg-violet-600 text-white' : 'border-slate-200 bg-white text-slate-500 hover:border-violet-400 dark:border-slate-700 dark:bg-[#111b2d] dark:text-slate-400'" :aria-pressed="preset === item" @click="choosePreset(item)">{{ c[item] }}</button>
@@ -346,7 +494,6 @@ onUnmounted(() => {
         <input v-model="search" class="w-full min-w-0 border-0 bg-transparent text-[11px] text-slate-900 outline-none placeholder:text-slate-400 dark:text-slate-100" type="search" maxlength="80" :placeholder="c.search" :aria-label="c.search">
       </label>
     </div>
-
     <form v-if="customRangeOpen" id="tj-custom-range" class="mt-3.5 grid grid-cols-1 items-end gap-3.5 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] dark:border-slate-700 dark:bg-[#111b2d]" aria-labelledby="tj-custom-range-toggle" novalidate @submit.prevent="applyCustomRange" @input="customError = ''">
       <label for="tj-range-from" class="block min-w-0 text-[11px] font-semibold leading-5">{{ c.fromDate }}
         <input id="tj-range-from" v-model="customDraft.from" class="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-900 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15 aria-invalid:border-rose-500 dark:border-slate-700 dark:bg-[#111d30] dark:text-slate-100" type="date" min="1900-01-01" :max="customDraft.to || '9999-12-31'" required :aria-invalid="Boolean(customError)" :aria-describedby="customError ? 'tj-range-error' : undefined">
@@ -360,10 +507,8 @@ onUnmounted(() => {
       </div>
       <p v-if="customError" id="tj-range-error" class="col-span-full text-[11px] leading-6 text-rose-600 dark:text-rose-400" role="alert">{{ c[customError] }}</p>
     </form>
-
     <div class="mb-4 mt-3 flex flex-col gap-1 text-[10px] leading-5 text-slate-500 sm:flex-row sm:justify-between sm:gap-3 dark:text-slate-400"><span>{{ rangeLabel }}</span><span v-if="overviewLoading" role="status">{{ c.updating }}</span><span v-else-if="searchQuery">{{ c.searchResults }}</span><span v-else>{{ c.usd }}</span></div>
     <div v-if="overviewError" class="mb-3.5 rounded-lg border border-rose-500/20 bg-rose-500/5 px-3.5 py-3 text-xs leading-6 text-rose-600 dark:text-rose-400" role="alert">{{ overviewError }} <button type="button" class="ml-2 cursor-pointer underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-violet-500" @click="loadOverview">{{ c.retry }}</button></div>
-
     <div class="mb-5 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 xl:grid-cols-4" :class="{ 'opacity-60': overviewLoading }" :aria-busy="overviewLoading">
       <article class="min-w-0 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-[#111b2d]">
         <p class="mb-4 flex items-center justify-between gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">{{ c.netPnl }} <span class="text-base text-violet-600 dark:text-violet-300" aria-hidden="true">$</span></p>
@@ -395,7 +540,6 @@ onUnmounted(() => {
         <p class="mt-2 text-[9px] leading-5 text-slate-500 dark:text-slate-400">{{ summary?.activeDays || 0 }} {{ c.activeDays }} · {{ c.best }} {{ summary?.longestStreak || 0 }}</p>
       </article>
     </div>
-
     <div class="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_170px]" :class="{ 'opacity-60': overviewLoading }">
       <section class="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white p-3 sm:p-5 dark:border-slate-700 dark:bg-[#111b2d]" :aria-label="c.calendar">
         <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -408,12 +552,37 @@ onUnmounted(() => {
         </div>
         <div class="overflow-x-auto p-1">
           <div class="grid min-w-[420px] grid-cols-7 gap-2">
-            <div v-for="(day, index) in weekdays" :key="index" class="pb-2 text-center text-[10px] font-semibold text-slate-500 dark:text-slate-400">{{ day }}</div>
+            <div
+              v-for="(day, index) in weekdays"
+              :key="index"
+              class="pb-2 text-center text-[10px] font-semibold"
+              :class="index === 0 || index === 6
+                ? 'text-red-600 dark:text-red-400'
+                : 'text-slate-500 dark:text-slate-400'"
+            >
+              {{ day }}
+            </div>
             <button v-for="day in cells" :key="day.key" type="button" class="relative flex min-h-22 min-w-0 cursor-pointer flex-col items-center justify-end gap-1 rounded-lg border px-1 pb-2 pt-6 text-center transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-default motion-reduce:transition-none" :class="[
               !day.inMonth || !day.inRange ? 'border-dashed border-slate-200 bg-transparent opacity-35 dark:border-slate-700' : day.data?.pnlCents > 0 ? 'border-emerald-500/35 bg-emerald-50 hover:border-violet-400 dark:bg-emerald-500/5' : day.data?.pnlCents < 0 ? 'border-rose-500/35 bg-rose-50 hover:border-violet-400 dark:bg-rose-500/5' : 'border-slate-200 bg-slate-50 hover:border-violet-400 dark:border-slate-700 dark:bg-[#111d30]',
               day.key === selectedDate ? 'ring-2 ring-violet-500' : '',
             ]" :disabled="!day.inMonth || !day.inRange" :aria-pressed="day.key === selectedDate" :aria-current="day.key === today ? 'date' : undefined" :aria-label="`${formatDate(day.key)}: ${day.data ? `${money(day.data.pnlCents, true)}, ${countLabel(day.data.tradeCount)}` : c.noActivity}`" :title="day.data ? money(day.data.pnlCents, true) : ''" @click="selectedDate = selectedDate === day.key ? '' : day.key">
-              <span class="absolute right-2 top-1.5 text-[10px]" :class="day.key === today ? 'rounded bg-violet-600 px-1.5 py-0.5 text-white' : 'text-slate-500 dark:text-slate-400'">{{ day.day }}</span>
+              <span
+                class="absolute right-2 top-1.5 text-[10px]"
+                :class="[
+                  day.key === today
+                    ? (day.isWeekend
+                      ? 'rounded bg-red-100 px-1.5 py-0.5 dark:bg-red-500/15'
+                      : 'rounded bg-violet-600 px-1.5 py-0.5')
+                    : '',
+                  day.isWeekend
+                    ? 'font-semibold text-red-600 dark:text-red-400'
+                    : day.key === today
+                      ? 'text-white'
+                      : 'text-slate-500 dark:text-slate-400',
+                ]"
+              >
+                {{ day.day }}
+              </span>
               <template v-if="day.inMonth && day.data"><strong class="whitespace-nowrap text-[11px] leading-5 tracking-tight tabular-nums" :class="tone(day.data.pnlCents)">{{ money(day.data.pnlCents, true, true) }}</strong><span class="whitespace-nowrap text-[8px] text-slate-500 dark:text-slate-400">{{ countLabel(day.data.tradeCount) }}</span></template>
               <span v-else-if="day.inMonth" class="text-xl text-slate-200 dark:text-slate-700" aria-hidden="true">·</span>
             </button>
@@ -429,14 +598,12 @@ onUnmounted(() => {
         </article>
       </aside>
     </div>
-
     <div class="my-5 flex flex-wrap items-center gap-x-6 gap-y-3 px-1 text-[11px] text-slate-500 dark:text-slate-400">
       <span>{{ c.total }} <strong class="ml-1 text-slate-900 dark:text-slate-100">{{ summary?.tradeCount || 0 }}</strong></span>
       <span>{{ c.average }} <strong class="ml-1 tabular-nums" :class="tone(summary?.averageCents || 0)">{{ money(summary?.averageCents || 0) }}</strong></span>
       <span>{{ c.factor }} <strong class="ml-1 text-slate-900 dark:text-slate-100">{{ factor }}</strong></span>
       <small class="w-full text-[9px] leading-5">{{ c.statsHint }}</small>
     </div>
-
     <section class="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-[#111b2d]">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-4 sm:p-5 dark:border-slate-700">
         <div><h2 class="text-base font-semibold">{{ c.ledger }}</h2><p class="mt-1 text-[10px] leading-5 text-slate-500 dark:text-slate-400">{{ selectedDate ? `${c.dayTrades} ${formatDate(selectedDate)}` : c.periodTrades }}</p></div>
@@ -463,10 +630,34 @@ onUnmounted(() => {
       </div>
       <div v-if="nextCursor" class="flex justify-center border-t border-slate-200 p-4 dark:border-slate-700"><button type="button" class="cursor-pointer rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold hover:border-violet-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-[#111d30]" :disabled="listLoading" @click="loadEntries(true)">{{ listLoading ? c.loading : c.more }}</button></div>
     </section>
-
+    </template>
+    <dialog ref="journalDialog" class="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-950/75 backdrop:backdrop-blur-sm sm:p-6 dark:border-slate-700 dark:bg-[#111b2d] dark:text-slate-100" aria-labelledby="tj-journal-editor-title" @cancel="journalSaving ? $event.preventDefault() : closeJournalEditor()">
+      <form @submit.prevent="saveJournal">
+        <header class="mb-5 flex items-start justify-between gap-4">
+          <div><h2 id="tj-journal-editor-title" class="text-xl font-semibold">{{ journalEditing ? c.journalEditTitle : c.journalCreateTitle }}</h2><p class="mt-2 text-xs leading-6 text-slate-500 dark:text-slate-400">{{ c.journalsHint }}</p></div>
+          <button type="button" class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-2xl text-slate-500 focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-400" :disabled="journalSaving" :aria-label="c.close" @click="closeJournalEditor()">×</button>
+        </header>
+        <fieldset :disabled="journalSaving" class="space-y-4 disabled:opacity-60">
+          <label for="tj-journal-name" class="block min-w-0 text-[11px] font-semibold leading-5">{{ c.journalName }}
+            <input id="tj-journal-name" v-model="journalForm.name" type="text" required maxlength="80" :placeholder="c.journalNamePlaceholder" class="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15 dark:border-slate-700 dark:bg-[#111d30]">
+          </label>
+          <label for="tj-journal-broker" class="block min-w-0 text-[11px] font-semibold leading-5">{{ c.journalBroker }} <small class="font-normal text-slate-500 dark:text-slate-400">({{ c.optional }})</small>
+            <input id="tj-journal-broker" v-model="journalForm.broker" type="text" maxlength="80" :placeholder="c.journalBrokerPlaceholder" class="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15 dark:border-slate-700 dark:bg-[#111d30]">
+          </label>
+          <label for="tj-journal-account" class="block min-w-0 text-[11px] font-semibold leading-5">{{ c.journalAccount }} <small class="font-normal text-slate-500 dark:text-slate-400">({{ c.optional }})</small>
+            <input id="tj-journal-account" v-model="journalForm.accountLabel" type="text" maxlength="80" :placeholder="c.journalAccountPlaceholder" class="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15 dark:border-slate-700 dark:bg-[#111d30]">
+          </label>
+        </fieldset>
+        <p v-if="journalFormError" class="mt-4 break-words rounded-lg border border-rose-500/20 bg-rose-500/5 px-3.5 py-3 text-xs leading-6 text-rose-600 dark:text-rose-400" role="alert">{{ journalFormError }}</p>
+        <footer class="mt-6 flex flex-wrap justify-end gap-2">
+          <button type="button" class="cursor-pointer rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-[#111d30]" :disabled="journalSaving" @click="closeJournalEditor()">{{ c.cancel }}</button>
+          <button type="submit" class="cursor-pointer rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-violet-500 focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="journalSaving">{{ journalSaving ? c.saving : journalEditing ? c.journalSave : c.journalCreate }}</button>
+        </footer>
+      </form>
+    </dialog>
     <dialog ref="editor" class="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-xl backdrop:bg-slate-950/75 backdrop:backdrop-blur-sm sm:p-6 dark:border-slate-700 dark:bg-[#111b2d] dark:text-slate-100" aria-labelledby="tj-editor-title" @cancel="saving ? $event.preventDefault() : closeEditor()">
       <form @submit.prevent="saveEntry">
-        <header class="mb-6 flex items-center justify-between gap-4"><div><p class="mb-2 text-[10px] font-bold tracking-wider text-violet-600 dark:text-violet-300">{{ c.private }}</p><h2 id="tj-editor-title" class="text-xl font-semibold">{{ editing ? c.editTrade : c.add }}</h2></div><button type="button" class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-2xl text-slate-500 hover:border-violet-400 focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-400" :disabled="saving" :aria-label="c.close" @click="closeEditor()">×</button></header>
+        <header class="mb-6 flex items-center justify-between gap-4"><div class="min-w-0"><p class="mb-2 text-[10px] font-bold tracking-wider text-violet-600 dark:text-violet-300">{{ c.private }}</p><h2 id="tj-editor-title" class="text-xl font-semibold">{{ editing ? c.editTrade : c.add }}</h2><p class="mt-2 break-words text-[11px] leading-6 text-slate-500 dark:text-slate-400">{{ c.journalSavingTo }} {{ activeJournal?.name }}</p></div><button type="button" class="inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-2xl text-slate-500 hover:border-violet-400 focus-visible:outline-2 focus-visible:outline-violet-500 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-400" :disabled="saving" :aria-label="c.close" @click="closeEditor()">×</button></header>
         <fieldset :disabled="saving" class="m-0 grid min-w-0 gap-4 border-0 p-0 disabled:opacity-60">
           <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
             <label class="block min-w-0 text-[11px] font-semibold leading-5">{{ c.date }}<input v-model="form.tradeDate" class="mt-1.5 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-normal outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15 dark:border-slate-700 dark:bg-[#111d30]" name="tradeDate" type="date" min="1900-01-01" max="9999-12-31" required autofocus></label>

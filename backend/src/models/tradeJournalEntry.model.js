@@ -1,9 +1,10 @@
-
 import mongoose from 'mongoose'
 import { EMOTIONS, MAX_PNL_CENTS, validDate } from '../services/tradeJournal.domain.js'
 
 const schema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, immutable: true },
+  // null also matches older entries where journalId is absent: the main journal.
+  journalId: { type: mongoose.Schema.Types.ObjectId, ref: 'TradeJournalBook', default: null, immutable: true },
   tradeDate: { type: String, required: true, validate: { validator: validDate, message: 'Invalid trade date.' } },
   symbol: { type: String, required: true, trim: true, uppercase: true, maxlength: 30 },
   side: { type: String, enum: ['buy', 'sell'], required: true },
@@ -15,5 +16,6 @@ const schema = new mongoose.Schema({
 }, { timestamps: true, strict: 'throw' })
 
 schema.index({ userId: 1, tradeDate: -1, _id: -1 })
+schema.index({ userId: 1, journalId: 1, tradeDate: -1, _id: -1 })
 
 export default mongoose.models.TradeJournalEntry || mongoose.model('TradeJournalEntry', schema)
