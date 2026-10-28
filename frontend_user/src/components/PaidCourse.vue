@@ -13,7 +13,6 @@ const router = useRouter()
 
 const courses = ref([])
 const access = ref([])
-const signedIn = ref(false)
 const admin = ref(false)
 const loading = ref(true)
 const error = ref('')
@@ -50,7 +49,6 @@ async function loadCourses() {
   failedCovers.value = {}
   access.value = []
   admin.value = false
-  signedIn.value = false
 
   try {
     const data = await courseApi()
@@ -81,7 +79,6 @@ async function loadCourses() {
 
       access.value = grants.courseIds.map(String)
       admin.value = grants.isAdmin === true
-      signedIn.value = true
     } catch (err) {
       if (err.status !== 401) throw err
     }
@@ -94,22 +91,11 @@ async function loadCourses() {
 }
 
 function openCourse(course) {
-  const destination = localizedPath(
-    hasAccess(course)
-      ? `/academy/course/${course.id}/lessons`
-      : `/payment/course/${course.id}`,
+  return router.push(
+    localizedPath(
+      `/academy/course/${encodeURIComponent(course.id)}/lessons`,
+    ),
   )
-
-  if (!signedIn.value) {
-    return router.push({
-      path: localizedPath('/login'),
-      query: {
-        redirect: destination,
-      },
-    })
-  }
-
-  return router.push(destination)
 }
 
 onMounted(loadCourses)
@@ -151,7 +137,7 @@ onMounted(loadCourses)
           class="mt-2 text-sm leading-relaxed text-(--muted-color)
                  max-[480px]:text-xs max-[320px]:mt-1"
         >
-          Learn through structured video lessons.
+          One video per day. Open a course to view its content and preview Day 1 free.
         </p>
       </div>
 
@@ -225,21 +211,6 @@ onMounted(loadCourses)
                 class="h-6 w-3/4 rounded bg-slate-400/30"
               ></div>
 
-              <!-- Description -->
-              <div class="mt-4 space-y-2">
-                <div
-                  class="h-3 w-full rounded bg-slate-400/30"
-                ></div>
-
-                <div
-                  class="h-3 w-full rounded bg-slate-400/30"
-                ></div>
-
-                <div
-                  class="h-3 w-2/3 rounded bg-slate-400/30"
-                ></div>
-              </div>
-
               <!-- Mentor and lessons -->
               <div class="mt-5 space-y-3">
                 <div
@@ -302,6 +273,12 @@ onMounted(loadCourses)
             >
               Course Cover
             </div>
+            <span
+              class="absolute left-3 top-3 rounded-full bg-(--surface-bg) px-3 py-1
+                     text-xs font-semibold text-(--text-color) shadow-sm"
+            >
+              {{ hasAccess(course) ? 'Enrolled' : 'Day 1 free preview' }}
+            </span>
           </div>
 
           <div
@@ -312,7 +289,7 @@ onMounted(loadCourses)
                    max-[320px]:p-3"
           >
             <h3
-              class="text-xl font-bold leading-snug text-indigo-400
+              class="min-h-[2.75em] line-clamp-2 text-xl font-bold leading-snug text-indigo-400
                      in-[.ligh-mode]:text-indigo-700
                      max-[768px]:text-lg max-[600px]:text-base
                      max-[480px]:text-lg max-[414px]:text-base
@@ -320,18 +297,6 @@ onMounted(loadCourses)
             >
               {{ course.title }}
             </h3>
-
-            <p
-              v-if="course.description"
-              class="mt-3 line-clamp-3 text-sm leading-6
-                     text-(--muted-color)
-                     max-[600px]:text-xs max-[600px]:leading-5
-                     max-[480px]:text-sm max-[480px]:leading-6
-                     max-[414px]:text-xs max-[414px]:leading-5
-                     max-[320px]:mt-2"
-            >
-              {{ course.description }}
-            </p>
 
             <div
               class="mt-4 space-y-2 text-sm
@@ -347,16 +312,17 @@ onMounted(loadCourses)
               </p>
 
               <p class="text-(--muted-color)">
-                {{ course.videoCount ?? 0 }} video lessons
+                {{ course.videoCount ?? 0 }} day{{ course.videoCount === 1 ? '' : 's' }}
+                · {{ course.videoCount ?? 0 }} video{{ course.videoCount === 1 ? '' : 's' }}
               </p>
             </div>
 
             <p
-              class="mb-5 mt-5 text-2xl font-bold text-(--text-color)
+              class="mb-5 mt-auto pt-5 text-2xl font-bold text-(--text-color)
                      max-[768px]:text-xl
-                     max-[600px]:mb-4 max-[600px]:mt-4
+                     max-[600px]:mb-4 max-[600px]:pt-4
                      max-[480px]:text-2xl max-[414px]:text-xl
-                     max-[320px]:mb-3 max-[320px]:mt-3
+                     max-[320px]:mb-3 max-[320px]:pt-3
                      max-[320px]:text-lg"
             >
               {{ coursePrice(course) }}
@@ -364,7 +330,7 @@ onMounted(loadCourses)
 
             <button
               type="button"
-              class="mt-auto inline-flex min-h-11 w-full cursor-pointer
+              class="inline-flex min-h-11 w-full cursor-pointer
                      items-center justify-center gap-2 rounded-lg
                      bg-emerald-600 px-4 py-3 text-center
                      text-sm font-semibold leading-snug text-white
@@ -377,7 +343,7 @@ onMounted(loadCourses)
                      max-[320px]:gap-1 max-[320px]:px-2"
               @click="openCourse(course)"
             >
-              {{ hasAccess(course) ? 'Study now' : 'Purchase now' }}
+              Study now
               <span aria-hidden="true">→</span>
             </button>
           </div>

@@ -1,51 +1,101 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { courseApi, BASE } from '../api/courseApi.js'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
+import { courseApi, courseFileUrl, coursePrice } from '../api/courseApi.js'
 
 const route = useRoute()
-const router = useRouter()
 
 const course = ref(null)
 const lessons = ref([])
+const hasAccess = ref(false)
 const selectedId = ref('')
 const error = ref('')
 const videoError = ref('')
 const loading = ref(false)
+const lessonList = ref(null)
 
 let requestVersion = 0
+let controller
 
-const selected = computed(() =>
-  lessons.value.find(
-    (lesson) => String(lesson.id) === selectedId.value,
-  ),
+function descriptionLines(value) {
+  const text = String(value ?? '').replace(/\r\n?/g, '\n')
+  // Also display legacy one-line Details / Time / Date text as separate rows.
+  // Keep any emoji prefix with its label and preserve existing line breaks.
+  return text.replace(
+    /[^\S\r\n]+((?:[^\p{L}\p{N}\s]+[^\S\r\n]*)?(?:Details|Time|Date)[^\S\r\n]*[:៖])/giu,
+    (match, label, offset) => {
+      const prefix = text.slice(text.lastIndexOf('\n', offset - 1) + 1, offset).trim()
+      // Do not separate a line's leading emoji from its own label.
+      return !prefix || /^[^\p{L}\p{N}\s]+$/u.test(prefix) ? match : `\n${label}`
+    },
+  ).split('\n')
+}
+
+const selectedIndex = computed(() =>
+  lessons.value.findIndex(lesson => String(lesson.id) === selectedId.value),
 )
-
-const videoUrl = computed(() => {
-  if (!selected.value?.videoUrl) return ''
-
-  try {
-    const url = new URL(selected.value.videoUrl, `${BASE}/`)
-
-    return ['http:', 'https:'].includes(url.protocol)
-      ? url.href
-      : ''
-  } catch {
-    return ''
-  }
-})
+const selected = computed(() => lessons.value[selectedIndex.value])
+const nextLesson = computed(() =>
+  selectedIndex.value >= 0 ? lessons.value[selectedIndex.value + 1] : undefined,
+)
+const previewLesson = computed(() =>
+  lessons.value.find(lesson => lesson.isPreview === true && !isLocked(lesson)),
+)
+const selectedLocked = computed(() => isLocked(selected.value))
+const videoUrl = computed(() =>
+  selectedLocked.value ? '' : courseFileUrl(selected.value?.videoUrl),
+)
+const paymentPath = computed(() => localized(
+  `/payment/course/${encodeURIComponent(String(route.params.courseId || ''))}`,
+))
 
 function localized(path) {
   return route.params.lang === 'km' ? `/km${path}` : path
 }
 
-function selectLesson(lesson) {
+function lessonTitle(lesson) {
+  const title = String(lesson?.title || 'Video lesson')
+  return title.replace(/^day\s*\d+\s*(?:[-–—:.]\s*|$)/i, '').trim() || title
+}
+
+function isLocked(lesson) {
+  // Only explicit permission from the API enables playback.
+  return lesson?.locked !== false
+}
+
+async function selectLesson(lesson, { reveal = false } = {}) {
+  if (!lesson) return
   selectedId.value = String(lesson.id)
   videoError.value = ''
+
+  if (!reveal) return
+  const version = requestVersion
+  await nextTick()
+  if (version !== requestVersion || selectedId.value !== String(lesson.id)) return
+  const button = lessonList.value?.querySelector('[aria-expanded="true"]')
+  button?.focus({ preventScroll: true })
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  button?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+}
+
+function toggleLesson(lesson) {
+  if (selectedId.value === String(lesson.id)) {
+    selectedId.value = ''
+    videoError.value = ''
+    return
+  }
+  selectLesson(lesson, { reveal: true })
+}
+
+function selectNextLesson() {
+  selectLesson(nextLesson.value, { reveal: true })
 }
 
 async function load() {
   const version = ++requestVersion
+  controller?.abort()
+  controller = new AbortController()
+  const signal = controller.signal
   const courseId = String(route.params.courseId || '')
 
   loading.value = true
@@ -53,53 +103,57 @@ async function load() {
   videoError.value = ''
   course.value = null
   lessons.value = []
+  hasAccess.value = false
   selectedId.value = ''
 
   try {
-    if (!courseId) {
-      throw new Error('Invalid course ID.')
-    }
+    if (!courseId) throw new Error('Invalid course ID.')
 
-    const data = await courseApi(
-      `/${encodeURIComponent(courseId)}/lessons`,
-    )
+    const path = `/${encodeURIComponent(courseId)}`
+    // The public response contains only the preview URL. The protected
+    // response supplies all lesson URLs after the backend verifies access.
+    const [previewResult, accessResult] = await Promise.allSettled([
+      courseApi(`${path}/preview`, { signal }),
+      courseApi(`${path}/lessons`, { signal }),
+    ])
 
     if (version !== requestVersion) return
+
+    let data
+    if (accessResult.status === 'fulfilled') {
+      data = accessResult.value
+      if (data?.hasAccess !== true) {
+        throw new Error('Invalid course access response.')
+      }
+    } else {
+      // Missing sessions and missing enrollment both allow the free preview.
+      // Unexpected server failures remain visible and can be retried.
+      if (![401, 403].includes(accessResult.reason?.status)) {
+        throw accessResult.reason
+      }
+      if (previewResult.status === 'rejected') throw previewResult.reason
+      data = previewResult.value
+      if (data?.hasAccess !== false) {
+        throw new Error('Invalid course preview response.')
+      }
+    }
 
     if (!data.course || !Array.isArray(data.lessons)) {
       throw new Error('Invalid course lessons response.')
     }
+    if (data.lessons.some(lesson => !lesson?.id || typeof lesson.locked !== 'boolean')) {
+      throw new Error('Invalid lesson access information.')
+    }
 
     course.value = data.course
+    hasAccess.value = data.hasAccess === true
     lessons.value = data.lessons
-
-    if (lessons.value.length > 0) {
-      selectLesson(lessons.value[0])
-    }
+    selectLesson(lessons.value[0])
   } catch (err) {
     if (version !== requestVersion) return
-
-    if (err.status === 401) {
-      await router.replace({
-        path: localized('/login'),
-        query: {
-          redirect: route.fullPath,
-        },
-      })
-    } else if (err.status === 403) {
-      await router.replace({
-        path: localized('/payment'),
-        query: {
-          product: `course:${courseId}`,
-        },
-      })
-    } else {
-      error.value = err.message || 'Unable to load lessons.'
-    }
+    error.value = err?.message || 'Unable to load lessons.'
   } finally {
-    if (version === requestVersion) {
-      loading.value = false
-    }
+    if (version === requestVersion) loading.value = false
   }
 }
 
@@ -111,191 +165,217 @@ watch(
 
 onBeforeUnmount(() => {
   requestVersion++
+  controller?.abort()
 })
 </script>
 
 <template>
-  <main
-    class="min-h-screen bg-(--page-bg) px-6 py-10
-           text-(--text-color)
-           max-[768px]:py-8
-           max-[600px]:px-4
-           max-[480px]:py-6
-           max-[414px]:px-3
-           max-[320px]:px-2"
-  >
-    <div class="mx-auto max-w-6xl">
-      <!-- Loading -->
-      <p
-        v-if="loading"
-        role="status"
-        class="text-sm text-(--muted-color)"
-      >
-        Loading lessons…
-      </p>
+  <main class="course-lesson-page">
+    <div class="lesson-container">
+      <RouterLink :to="localized('/academy')" class="academy-back">← Back to academy</RouterLink>
 
-      <!-- Request error -->
-      <div
-        v-else-if="error"
-        role="alert"
-        class="rounded-xl bg-red-500/10 p-4
-               text-sm text-red-500"
-      >
+      <p v-if="loading" role="status" class="page-message">Loading course…</p>
+      <div v-else-if="error" role="alert" class="course-error">
         <p>{{ error }}</p>
-
-        <button
-          type="button"
-          @click="load"
-          class="mt-3 min-h-11 cursor-pointer
-                 font-semibold underline"
-        >
-          Try again
-        </button>
+        <button type="button" @click="load" class="text-button">Try again</button>
       </div>
 
-      <!-- Course -->
       <template v-else-if="course">
-        <h1
-          class="mb-2 break-words text-3xl font-bold
-                 max-[768px]:text-[28px]
-                 max-[600px]:text-2xl
-                 max-[414px]:text-xl
-                 max-[320px]:text-lg"
-        >
-          {{ course.title }}
-        </h1>
+        <header class="course-header">
+          <h1>{{ course.title }}</h1>
+          <div class="course-meta">
+            <p>Mentor: <strong>{{ course.mentor }}</strong></p>
+            <p>{{ lessons.length }} day{{ lessons.length === 1 ? '' : 's' }} · {{ lessons.length }} video{{ lessons.length === 1 ? '' : 's' }}</p>
+          </div>
+          <p class="course-price">Full course <strong>{{ coursePrice(course) }}</strong></p>
+        </header>
 
-        <p
-          class="mb-6 text-sm text-(--muted-color)
-                 max-[480px]:mb-5
-                 max-[414px]:text-xs"
-        >
-          Mentor: {{ course.mentor }}
-        </p>
+        <section v-if="course.description" aria-labelledby="course-details-heading" class="course-details">
+          <h2 id="course-details-heading">Course details</h2>
+          <div class="description-lines">
+            <p v-for="(line, lineIndex) in descriptionLines(course.description)" :key="lineIndex">{{ line || '\u00A0' }}</p>
+          </div>
+        </section>
 
-        <div
-          class="grid grid-cols-[minmax(0,1fr)_280px] gap-6
-                 max-[768px]:grid-cols-1 max-[768px]:gap-5
-                 max-[600px]:gap-4
-                 max-[414px]:gap-3"
-        >
-          <!-- Video player -->
-          <section class="min-w-0">
-            <template v-if="selected">
-              <video
-                v-if="videoUrl"
-                :key="`${selectedId}:${videoUrl}`"
-                :src="videoUrl"
-                controls
-                playsinline
-                preload="metadata"
-                crossorigin="use-credentials"
-                class="aspect-video w-full rounded-xl bg-black
-                       max-[320px]:rounded-lg"
-                @error="
-                  videoError =
-                    'Unable to play this video. Please refresh or check your connection.'
-                "
-              >
-                Your browser does not support video playback.
-              </video>
+        <section id="course-content" aria-labelledby="course-content-heading" class="content-panel">
+          <div class="content-heading">
+            <h2 id="course-content-heading">Course content</h2>
+            <p v-if="hasAccess">All days unlocked. Tap a day to watch.</p>
+            <p v-else-if="previewLesson">Watch Day 1 free. Purchase the course to unlock the other days.</p>
+            <p v-else>Tap a day to see its video.</p>
+          </div>
 
-              <div
-                v-else
-                class="flex aspect-video items-center justify-center
-                       rounded-xl bg-(--surface-bg) p-4
-                       text-center text-sm text-(--muted-color)"
-              >
-                Video unavailable for this lesson.
-              </div>
+          <nav ref="lessonList" aria-label="Course lessons">
+            <ol v-if="lessons.length" class="lesson-list">
+              <li v-for="(lesson, index) in lessons" :key="lesson.id" class="lesson-item">
+                <h3 class="lesson-heading">
+                  <button
+                    :id="`day-${index + 1}-button`"
+                    type="button"
+                    :aria-label="`Day ${index + 1}: ${lessonTitle(lesson)} — ${isLocked(lesson) ? 'Purchase required' : lesson.isPreview ? 'Free preview' : 'Watch video'}`"
+                    :aria-controls="`day-${index + 1}-panel`"
+                    :aria-expanded="selectedId === String(lesson.id)"
+                    :aria-current="selectedId === String(lesson.id) ? 'true' : undefined"
+                    class="lesson-toggle"
+                    @click="toggleLesson(lesson)"
+                  >
+                    <span class="lesson-icon" aria-hidden="true">
+                      <svg v-if="isLocked(lesson)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="5" y="10" width="14" height="11" rx="2" />
+                        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                      </svg>
+                      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="16" rx="2" />
+                        <path d="m10 8 6 4-6 4V8Z" />
+                      </svg>
+                    </span>
+                    <span class="lesson-copy">
+                      <span class="day-meta">
+                        <span class="day-label">Day {{ index + 1 }}</span>
+                        <span v-if="isLocked(lesson)" class="lesson-status">Locked</span>
+                        <span v-else-if="lesson.isPreview && !hasAccess" class="lesson-status preview-status">Free preview</span>
+                        <span v-else class="lesson-status">Watch</span>
+                      </span>
+                      <span class="lesson-title">{{ lessonTitle(lesson) }}</span>
+                    </span>
+                    <svg class="lesson-chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                </h3>
 
-              <p
-                v-if="videoError"
-                role="alert"
-                class="mt-3 text-sm text-red-500"
-              >
-                {{ videoError }}
-              </p>
-
-              <h2
-                class="mt-4 break-words text-xl font-semibold
-                       max-[480px]:text-lg
-                       max-[320px]:text-base"
-              >
-                {{ selected.title }}
-              </h2>
-
-              <p class="mt-2 text-sm text-(--muted-color)">
-                Lesson
-                {{
-                  lessons.findIndex(
-                    (lesson) => String(lesson.id) === selectedId,
-                  ) + 1
-                }}
-                of {{ lessons.length }}
-              </p>
-            </template>
-
-            <div
-              v-else
-              class="rounded-xl border border-(--border-color)
-                     bg-(--surface-bg) p-6
-                     text-center text-sm text-(--muted-color)"
-            >
-              No lessons available yet.
-            </div>
-          </section>
-
-          <!-- Lesson list -->
-          <nav
-            aria-label="Course lessons"
-            class="min-w-0 self-start rounded-xl
-                   border border-(--border-color)
-                   bg-(--surface-bg) p-4
-                   max-[414px]:p-3"
-          >
-            <h2 class="mb-3 font-bold">
-              Lessons · {{ lessons.length }}
-            </h2>
-
-            <div class="space-y-2">
-              <button
-                v-for="(lesson, index) in lessons"
-                :key="lesson.id"
-                type="button"
-                :aria-current="
-                  selectedId === String(lesson.id)
-                    ? 'true'
-                    : undefined
-                "
-                @click="selectLesson(lesson)"
-                class="min-h-11 w-full cursor-pointer
-                       rounded-lg px-3 py-3 text-left
-                       text-sm leading-6 transition-colors
-                       [overflow-wrap:anywhere]
-                       focus-visible:outline-2
-                       focus-visible:outline-offset-2
-                       focus-visible:outline-indigo-500
-                       max-[320px]:px-2 max-[320px]:text-xs"
-                :class="
-                  selectedId === String(lesson.id)
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-(--text-color) hover:bg-(--hover-bg)'
-                "
-              >
-                {{ index + 1 }}. {{ lesson.title }}
-              </button>
-            </div>
-
-            <p
-              v-if="lessons.length === 0"
-              class="text-sm text-(--muted-color)"
-            >
-              Lessons will appear here once published.
-            </p>
+                <div
+                  v-show="selectedId === String(lesson.id)"
+                  :id="`day-${index + 1}-panel`"
+                  role="region"
+                  :aria-labelledby="`day-${index + 1}-button`"
+                  class="lesson-panel"
+                >
+                  <template v-if="selectedId === String(lesson.id)">
+                    <div v-if="selectedLocked" class="locked-panel">
+                      <h4 id="locked-lesson-heading">Unlock Day {{ index + 1 }}</h4>
+                      <p>Purchase this course to watch this video and the other paid lessons.</p>
+                      <RouterLink :to="paymentPath" class="payment-button">Go to payment · {{ coursePrice(course) }}</RouterLink>
+                      <button v-if="previewLesson" type="button" class="text-button" @click="selectLesson(previewLesson, { reveal: true })">Back to free preview</button>
+                    </div>
+                    <template v-else>
+                      <video
+                        v-if="videoUrl"
+                        :key="`${selectedId}:${videoUrl}`"
+                        :src="videoUrl"
+                        :aria-label="`Day ${index + 1}: ${lessonTitle(lesson)}`"
+                        controls playsinline preload="metadata" crossorigin="use-credentials"
+                        class="lesson-video"
+                        @ended="selectNextLesson"
+                        @error="videoError = 'Unable to play this video. Please refresh or check your connection.'"
+                      >Your browser does not support video playback.</video>
+                      <div v-else class="video-unavailable">Video unavailable for this day.</div>
+                      <p v-if="videoError" role="alert" class="video-error">{{ videoError }}</p>
+                      <div class="lesson-footer">
+                        <p>Day {{ index + 1 }} of {{ lessons.length }}</p>
+                        <button v-if="nextLesson" type="button" class="next-button" @click="selectNextLesson">Next day →</button>
+                      </div>
+                    </template>
+                  </template>
+                </div>
+              </li>
+            </ol>
+            <p v-else class="page-message">No lessons available yet.</p>
           </nav>
-        </div>
+        </section>
+
       </template>
     </div>
   </main>
 </template>
+
+<style scoped>
+.course-lesson-page {
+  --page-bg: #0f172a;
+  --surface-bg: #0f172a;
+  --input-bg: #050b17;
+  --hover-bg: #1e293b;
+  --border-color: #283345;
+  --text-color: #e2e8f0;
+  --muted-color: #94a3b8;
+  min-height: 100vh;
+  padding: 20px clamp(12px, 4vw, 24px) 40px;
+  background: var(--page-bg);
+  color: var(--text-color);
+  color-scheme: dark;
+}
+.lesson-container { width: 100%; max-width: 960px; min-width: 0; margin: 0 auto; }
+.course-lesson-page, .course-lesson-page * { box-sizing: border-box; }
+.course-lesson-page :is(button, a) { -webkit-tap-highlight-color: transparent; }
+.course-lesson-page :is(button, a):focus-visible { outline: 2px solid #94a3b8; outline-offset: 3px; }
+.academy-back { display: inline-flex; align-items: center; min-height: 44px; color: #cbd5e1; font-size: 14px; text-decoration: none; }
+.academy-back:hover { text-decoration: underline; }
+.course-header { margin: 12px 0 24px; overflow-wrap: anywhere; }
+.course-header h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.25; font-weight: 700; }
+.course-meta { display: flex; flex-wrap: wrap; gap: 6px 24px; margin-top: 12px; color: var(--muted-color); font-size: 14px; line-height: 1.65; }
+.course-meta p, .course-price { margin: 0; }
+.course-meta strong { color: var(--text-color); font-weight: 600; }
+.course-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-top: 12px; color: var(--muted-color); font-size: 14px; }
+.course-price strong { color: var(--text-color); font-size: 20px; font-weight: 700; }
+.content-panel { min-width: 0; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface-bg); }
+.content-heading { padding: 20px; }
+.course-lesson-page h2 { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 700; }
+.content-heading p { margin: 6px 0 0; color: var(--muted-color); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.lesson-list { margin: 0; padding: 0; list-style: none; }
+.lesson-item { min-width: 0; border-top: 1px solid var(--border-color); }
+.lesson-item:last-child { border-radius: 0 0 14px 14px; }
+.lesson-heading { margin: 0; font-size: inherit; }
+.lesson-toggle { display: grid; grid-template-columns: 36px minmax(0, 1fr) 20px; align-items: center; gap: 12px; width: 100%; min-height: 84px; padding: 16px 20px; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; cursor: pointer; scroll-margin-top: 90px; }
+.lesson-toggle:hover { background: var(--hover-bg); }
+.lesson-toggle[aria-expanded="true"] { background: rgb(255 255 255 / 4%); }
+.course-lesson-page .lesson-toggle:focus-visible { outline-offset: -3px; }
+.lesson-icon { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border: 1px solid var(--border-color); border-radius: 9px; color: #cbd5e1; }
+.lesson-icon svg { width: 20px; height: 20px; }
+.lesson-copy { min-width: 0; }
+.day-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.day-label { font-size: 13px; line-height: 1.5; font-weight: 700; }
+.lesson-status { color: var(--muted-color); font-size: 12px; line-height: 1.5; font-weight: 400; }
+.preview-status { color: #cbd5e1; }
+.lesson-title { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: 15px; line-height: 1.5; font-weight: 500; }
+.lesson-chevron { width: 20px; height: 20px; color: var(--muted-color); }
+.lesson-toggle[aria-expanded="true"] .lesson-chevron { transform: rotate(180deg); }
+.lesson-panel { min-width: 0; padding: 0 20px 16px; }
+.lesson-video, .video-unavailable { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; border-radius: 9px; background: var(--input-bg); }
+.lesson-video { height: auto; object-fit: contain; }
+.video-unavailable { display: flex; align-items: center; justify-content: center; padding: 16px; color: var(--muted-color); text-align: center; font-size: 14px; }
+.lesson-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 10px; }
+.lesson-footer p { margin: 0; color: var(--muted-color); font-size: 13px; }
+.next-button, .payment-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border: 1px solid #475569; border-radius: 8px; background: var(--input-bg); color: var(--text-color); font-size: 14px; line-height: 1.5; font-weight: 600; text-decoration: none; text-align: center; cursor: pointer; overflow-wrap: anywhere; }
+.next-button:hover, .payment-button:hover { background: var(--hover-bg); }
+.locked-panel { padding: 24px 16px 12px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--input-bg); text-align: center; }
+.locked-panel h4 { margin: 0; font-size: 18px; line-height: 1.5; font-weight: 700; }
+.locked-panel p { max-width: 420px; margin: 8px auto 18px; color: var(--muted-color); font-size: 14px; line-height: 1.65; }
+.locked-panel .payment-button { width: 100%; max-width: 360px; }
+.text-button { display: block; min-height: 44px; margin: 8px auto 0; padding: 10px 4px; border: 0; background: transparent; color: #cbd5e1; font-size: 14px; line-height: 1.5; text-decoration: underline; cursor: pointer; }
+.course-details { min-width: 0; margin-bottom: 24px; padding: 20px; border: 1px solid var(--border-color); border-radius: 14px; background: var(--surface-bg); }
+.description-lines { margin-top: 12px; color: var(--muted-color); font-size: 14px; line-height: 1.85; }
+.description-lines p { min-height: 1.5em; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.page-message { margin: 0; padding: 24px 20px; color: var(--muted-color); font-size: 14px; line-height: 1.6; }
+.course-error, .video-error { padding: 14px; border-radius: 9px; background: rgb(239 68 68 / 10%); color: #fca5a5; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.course-error p { margin: 0; }
+.course-error .text-button { margin-left: 0; }
+.video-error { margin: 12px 0 0; }
+@media (max-width: 600px) {
+  .course-lesson-page { padding-top: 12px; }
+  .course-header { margin-bottom: 20px; }
+  .course-meta { display: block; }
+  .course-meta p + p { margin-top: 4px; }
+  .content-heading, .course-details { padding: 16px; }
+  .lesson-toggle { gap: 10px; padding: 14px 12px; }
+  .lesson-panel { padding: 0 10px 12px; }
+  .locked-panel { padding: 20px 12px 8px; }
+  .lesson-footer { padding: 0 2px; }
+}
+@media (max-width: 359px) {
+  .lesson-toggle { grid-template-columns: 30px minmax(0, 1fr) 16px; gap: 8px; }
+  .lesson-icon { width: 30px; height: 30px; }
+  .lesson-chevron { width: 16px; height: 16px; }
+  .lesson-title { font-size: 14px; }
+  .next-button { padding-right: 12px; padding-left: 12px; }
+}
+</style>

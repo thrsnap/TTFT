@@ -87,7 +87,7 @@ const upload = multer({
   storage: temporaryStorage,
 
   limits: {
-    fileSize: 500 * 1024 * 1024,
+    fileSize: 1024 * 1024 * 1024,
     files: 1,
     fields: 1,
     parts: 2,
@@ -1108,6 +1108,53 @@ router.get("/:courseId", async (req, res, next) => {
   }
 });
 
+// Public course outline. Only the first lesson includes a preview URL.
+router.get("/:courseId/preview", async (req, res, next) => {
+  try {
+    const course = await Course.findOne({
+      _id: id(req.params.courseId),
+      status: "published",
+    });
+
+    if (!course) throw inputError("Course not found.", 404);
+
+    res.json({
+      course: summary(course),
+      hasAccess: false,
+      lessons: course.lessons.map((lesson, index) => ({
+        id: String(lesson._id),
+        title: lesson.title,
+        isPreview: index === 0,
+        locked: index !== 0,
+        videoUrl: index === 0
+          ? `/api/courses/${course._id}/preview/video`
+          : null,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Public preview streaming. No client-supplied lesson ID or storage key is
+// accepted here: the server always chooses the first published-course lesson.
+router.get("/:courseId/preview/video", async (req, res, next) => {
+  try {
+    const course = await Course.findOne({
+      _id: id(req.params.courseId),
+      status: "published",
+    });
+
+    if (!course) throw inputError("Course not found.", 404);
+    const lesson = course.lessons[0];
+    if (!lesson) throw inputError("Preview video not found.", 404);
+
+    await sendLessonVideo(lesson, req, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Submit a payment reference for review.
 router.post(
   "/:courseId/payment-request",
@@ -1175,7 +1222,7 @@ router.post(
   },
 );
 
-// Protected lesson list.
+// Full lesson list: enrollment or admin access is still required.
 router.get(
   "/:courseId/lessons",
   requireUser,
@@ -1199,10 +1246,12 @@ router.get(
       res.json({
         course: summary(course),
 
-        lessons: course.lessons.map((lesson) => ({
+        hasAccess: true,
+        lessons: course.lessons.map((lesson, index) => ({
           id: String(lesson._id),
           title: lesson.title,
-
+          isPreview: index === 0,
+          locked: false,
           videoUrl:
             `/api/courses/${course._id}` +
             `/lessons/${lesson._id}/video`,
@@ -1213,6 +1262,177 @@ router.get(
     }
   },
 );
+
+// Shared streaming implementation. Call only after selecting the public
+// first lesson or after checking authenticated course access.
+async function sendLessonVideo(lesson, req, res) {
+  const isR2 = lesson.videoStorage === "r2";
+
+  let filename;
+  let size;
+
+  if (isR2) {
+    const info = await getR2().send(
+      new HeadObjectCommand({
+        Bucket: getR2Bucket(),
+        Key: lesson.videoFile,
+      }),
+    );
+
+    size = info.ContentLength;
+  } else {
+    filename = path.join(
+      uploadDirectory,
+      path.basename(lesson.videoFile),
+    );
+
+    const info = await stat(filename).catch(
+      (error) => {
+        if (error.code === "ENOENT") {
+          throw inputError(
+            "Video file not found.",
+            404,
+          );
+        }
+
+        throw error;
+      },
+    );
+
+    size = info.size;
+  }
+
+  if (
+    !Number.isSafeInteger(size) ||
+    size < 1
+  ) {
+    throw inputError(
+      "Video file is empty or unavailable.",
+      404,
+    );
+  }
+
+  res.set("Accept-Ranges", "bytes");
+  res.set("Content-Type", lesson.contentType);
+  res.set("X-Content-Type-Options", "nosniff");
+
+  let start = 0;
+  let end = size - 1;
+  let partial = false;
+
+  const range = req.headers.range;
+
+  if (range) {
+    const match =
+      /^bytes=(\d*)-(\d*)$/.exec(range);
+
+    if (
+      !match ||
+      (!match[1] && !match[2])
+    ) {
+      res.set(
+        "Content-Range",
+        `bytes */${size}`,
+      );
+
+      return res.sendStatus(416);
+    }
+
+    if (!match[1]) {
+      const suffix = Number(match[2]);
+
+      if (
+        !Number.isSafeInteger(suffix) ||
+        suffix <= 0
+      ) {
+        res.set(
+          "Content-Range",
+          `bytes */${size}`,
+        );
+
+        return res.sendStatus(416);
+      }
+
+      start = Math.max(0, size - suffix);
+    } else {
+      start = Number(match[1]);
+
+      if (match[2]) {
+        end = Math.min(
+          Number(match[2]),
+          size - 1,
+        );
+      }
+    }
+
+    if (
+      !Number.isSafeInteger(start) ||
+      !Number.isSafeInteger(end) ||
+      start < 0 ||
+      start >= size ||
+      end < start
+    ) {
+      res.set(
+        "Content-Range",
+        `bytes */${size}`,
+      );
+
+      return res.sendStatus(416);
+    }
+
+    partial = true;
+  }
+
+  res.status(partial ? 206 : 200);
+
+  if (partial) {
+    res.set(
+      "Content-Range",
+      `bytes ${start}-${end}/${size}`,
+    );
+  }
+
+  res.set(
+    "Content-Length",
+    String(end - start + 1),
+  );
+
+  if (req.method === "HEAD") {
+    return res.end();
+  }
+
+  let stream;
+
+  if (isR2) {
+    const object = await getR2().send(
+      new GetObjectCommand({
+        Bucket: getR2Bucket(),
+        Key: lesson.videoFile,
+
+        ...(partial
+          ? {
+              Range: `bytes=${start}-${end}`,
+            }
+          : {}),
+      }),
+    );
+
+    stream = object.Body;
+  } else {
+    stream = createReadStream(filename, {
+      start,
+      end,
+    });
+  }
+
+  stream.on("error", (error) => res.destroy(error));
+
+  res.on("close", () => {
+    stream.destroy();
+  });
+
+  stream.pipe(res);
+}
 
 // Protected R2/local video streaming with range support.
 router.get(
@@ -1243,172 +1463,7 @@ router.get(
         throw inputError("Lesson not found.", 404);
       }
 
-      const isR2 = lesson.videoStorage === "r2";
-
-      let filename;
-      let size;
-
-      if (isR2) {
-        const info = await getR2().send(
-          new HeadObjectCommand({
-            Bucket: getR2Bucket(),
-            Key: lesson.videoFile,
-          }),
-        );
-
-        size = info.ContentLength;
-      } else {
-        filename = path.join(
-          uploadDirectory,
-          path.basename(lesson.videoFile),
-        );
-
-        const info = await stat(filename).catch(
-          (error) => {
-            if (error.code === "ENOENT") {
-              throw inputError(
-                "Video file not found.",
-                404,
-              );
-            }
-
-            throw error;
-          },
-        );
-
-        size = info.size;
-      }
-
-      if (
-        !Number.isSafeInteger(size) ||
-        size < 1
-      ) {
-        throw inputError(
-          "Video file is empty or unavailable.",
-          404,
-        );
-      }
-
-      res.set("Accept-Ranges", "bytes");
-      res.set("Content-Type", lesson.contentType);
-      res.set("X-Content-Type-Options", "nosniff");
-
-      let start = 0;
-      let end = size - 1;
-      let partial = false;
-
-      const range = req.headers.range;
-
-      if (range) {
-        const match =
-          /^bytes=(\d*)-(\d*)$/.exec(range);
-
-        if (
-          !match ||
-          (!match[1] && !match[2])
-        ) {
-          res.set(
-            "Content-Range",
-            `bytes */${size}`,
-          );
-
-          return res.sendStatus(416);
-        }
-
-        if (!match[1]) {
-          const suffix = Number(match[2]);
-
-          if (
-            !Number.isSafeInteger(suffix) ||
-            suffix <= 0
-          ) {
-            res.set(
-              "Content-Range",
-              `bytes */${size}`,
-            );
-
-            return res.sendStatus(416);
-          }
-
-          start = Math.max(0, size - suffix);
-        } else {
-          start = Number(match[1]);
-
-          if (match[2]) {
-            end = Math.min(
-              Number(match[2]),
-              size - 1,
-            );
-          }
-        }
-
-        if (
-          !Number.isSafeInteger(start) ||
-          !Number.isSafeInteger(end) ||
-          start < 0 ||
-          start >= size ||
-          end < start
-        ) {
-          res.set(
-            "Content-Range",
-            `bytes */${size}`,
-          );
-
-          return res.sendStatus(416);
-        }
-
-        partial = true;
-      }
-
-      res.status(partial ? 206 : 200);
-
-      if (partial) {
-        res.set(
-          "Content-Range",
-          `bytes ${start}-${end}/${size}`,
-        );
-      }
-
-      res.set(
-        "Content-Length",
-        String(end - start + 1),
-      );
-
-      if (req.method === "HEAD") {
-        return res.end();
-      }
-
-      let stream;
-
-      if (isR2) {
-        const object = await getR2().send(
-          new GetObjectCommand({
-            Bucket: getR2Bucket(),
-            Key: lesson.videoFile,
-
-            ...(partial
-              ? {
-                  Range: `bytes=${start}-${end}`,
-                }
-              : {}),
-          }),
-        );
-
-        stream = object.Body;
-      } else {
-        stream = createReadStream(filename, {
-          start,
-          end,
-        });
-      }
-
-      stream.on("error", next);
-
-      res.on("close", () => {
-        stream.destroy();
-      });
-
-      stream.pipe(res);
+      await sendLessonVideo(lesson, req, res);
     } catch (error) {
       next(error);
     }
@@ -1446,7 +1501,7 @@ router.use((error, req, res, next) => {
       message: tooLarge
         ? req.path.endsWith("/cover")
           ? "Maximum cover size is 2 MB."
-          : "Maximum video size is 500 MB."
+          : "Maximum video size is 1 GB."
         : error.message,
     });
   }

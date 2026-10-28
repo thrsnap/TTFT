@@ -4,7 +4,6 @@ const { Schema } = mongoose
 
 const lessonSchema = new Schema({
   title: { type: String, required: true, trim: true, maxlength: 200 },
-  // R2 object key for new uploads; filename for legacy local lessons.
   videoFile: { type: String, required: true },
   videoStorage: { type: String, enum: ['local', 'r2'], default: 'local' },
   contentType: { type: String, enum: ['video/mp4', 'video/webm'], required: true },
@@ -23,12 +22,9 @@ const courseSchema = new Schema({
     },
   },
   currency: { type: String, enum: ['USD'], default: 'USD' },
-  // New cover uploads store only an R2 key in MongoDB.
   coverKey: { type: String, default: '' },
   coverMimeType: { type: String, enum: ['image/jpeg', 'image/png'] },
   coverUpdatedAt: Date,
-  // Read-only compatibility: the new upload route never writes this field.
-  // Replacing a legacy cover removes its old Buffer from MongoDB.
   coverImage: { type: Buffer, select: false },
   thumbnail: {
     type: String, default: '',
@@ -50,11 +46,18 @@ const courseSchema = new Schema({
 const enrollmentSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   courseId: { type: Schema.Types.ObjectId, ref: 'PaidCourse', required: true },
-  grantedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  // Manual grants retain their admin; automated grants reference the paid receipt.
+  grantSource: { type: String, enum: ['admin', 'bakong'], default: 'admin' },
+  grantedBy: {
+    type: Schema.Types.ObjectId, ref: 'User',
+    required: function () { return this.grantSource !== 'bakong' },
+  },
+  paymentId: { type: Schema.Types.ObjectId, ref: 'Payment' },
   grantedAt: { type: Date, default: Date.now },
 }, { timestamps: true })
 enrollmentSchema.index({ userId: 1, courseId: 1 }, { unique: true })
 
+// Retain the existing separate manual-payment request model and admin workflow.
 const paymentSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   courseId: { type: Schema.Types.ObjectId, ref: 'PaidCourse', required: true },
