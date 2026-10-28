@@ -49,7 +49,7 @@
     </p>
 
     <a
-  href="https://t.me/ThunTulaFT"
+  href="https://cmm-ft.com/academy/course/6adf1472b6c3aa59e1174aeb/lessons"
   target="_blank"
   rel="noopener noreferrer"
   class="mt-8 inline-flex items-center justify-center
