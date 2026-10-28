@@ -360,6 +360,14 @@ onBeforeUnmount(() => {
 .course-error p { margin: 0; }
 .course-error .text-button { margin-left: 0; }
 .video-error { margin: 12px 0 0; }
+@media (min-width: 1024px) {
+  .lesson-video, .video-unavailable, .lesson-footer {
+    max-width: 640px;
+    margin-right: auto;
+    margin-left: auto;
+  }
+}
+.lesson-video:fullscreen { width: 100%; max-width: none; height: 100%; aspect-ratio: auto; border-radius: 0; }
 @media (max-width: 600px) {
   .course-lesson-page { padding-top: 12px; }
   .course-header { margin-bottom: 20px; }
