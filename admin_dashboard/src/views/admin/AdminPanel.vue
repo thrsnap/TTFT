@@ -1586,7 +1586,7 @@ onUnmounted(() => {
               <Plus :size="17" />Add reference document
             </button>
             <button
-              v-if="currentKind && page !== 'Academy' && !(page === 'News' && tab === 'Daily')"
+              v-if="currentKind && page !== 'Academy' && !(page === 'News' && ['Daily', 'History'].includes(tab))"
               class="btn-primary inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-wait disabled:opacity-50 bg-emerald-700 text-white hover:bg-emerald-800 max-[768px]:min-h-11 max-[414px]:px-3"
               @click="open(currentKind)"
             >
@@ -2138,10 +2138,18 @@ onUnmounted(() => {
             >
               <TrendingUp :size="17" />Daily signals
             </button>
+            <button
+              type="button"
+              :class="{ selected: tab === 'History' }"
+              :aria-pressed="tab === 'History'"
+              @click="tab = 'History'; filter = 'All'"
+            >
+              <FileText :size="17" />Signal history
+            </button>
           </div>
 
-          <SignalHistoryAdmin v-if="page === 'News'" class="mb-6" />
-          <DailySignalAdmin v-if="page === 'News' && tab === 'Daily'" />
+          <SignalHistoryAdmin v-if="page === 'News' && tab === 'History'" class="mb-6" />
+          <DailySignalAdmin v-else-if="page === 'News' && tab === 'Daily'" />
           <template v-else>
           <!-- Only economic calendar records are filtered by this selected day. -->
           <section
