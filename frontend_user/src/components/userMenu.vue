@@ -28,6 +28,10 @@ const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n({ useScope: 'global' })
+const backtestText = computed(() => ({
+  title: t('nav.backtestTools'),
+  status: t('nav.comingSoon'),
+}))
 const root = ref(null)
 const trigger = ref(null)
 const open = ref(false)
@@ -270,15 +274,15 @@ onUnmounted(() => {
               v-if="link.to === '/about'"
               type="button"
               disabled
-              aria-label="Backtest Tools — Coming soon"
-              title="Backtest Tools — Coming soon"
+              :aria-label="backtestText.title + ' — ' + backtestText.status"
+              :title="backtestText.title + ' — ' + backtestText.status"
               class="flex min-h-11 w-full cursor-not-allowed items-center gap-2
                      rounded-lg px-3 py-2.5 text-left text-[13px]
                      font-medium text-slate-400 opacity-100"
             >
               <FontAwesomeIcon :icon="faChartLine" class="w-5 shrink-0" />
-              <span class="inline-flex items-center gap-1 whitespace-nowrap">
-                Backtest Tools
+              <span class="inline-flex min-w-0 flex-1 items-center gap-1">
+                <span class="min-w-0 whitespace-normal break-words">{{ backtestText.title }}</span>
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 12 12"
@@ -300,7 +304,7 @@ onUnmounted(() => {
                        px-2 py-1 text-[10px] leading-none
                        font-medium text-amber-200"
               >
-                Coming soon
+                {{ backtestText.status }}
               </span>
             </button>
           </template>

@@ -72,19 +72,19 @@
               <button
                 type="button"
                 disabled
-                aria-label="Backtest Tools — Coming soon"
-                title="Backtest Tools — Coming soon"
+                :aria-label="backtestText.title + ' — ' + backtestText.status"
+                :title="backtestText.title + ' — ' + backtestText.status"
                 class="flex cursor-not-allowed flex-col items-start gap-0.5
                   whitespace-nowrap rounded-lg px-1.5 py-1 text-xs
                   font-medium text-slate-400 opacity-100
                   min-[1280px]:px-2"
               >
-                <span class="inline-flex items-center gap-1.5">
+                <span class="inline-flex min-w-0 max-w-40 items-center gap-1.5">
                   <FontAwesomeIcon
                     :icon="faChartLine"
                     class="w-3.5 shrink-0"
                   />
-                  Backtest Tools
+                  <span class="min-w-0 whitespace-normal break-words">{{ backtestText.title }}</span>
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 12 12"
@@ -105,7 +105,7 @@
                     bg-amber-400/10 px-1.5 py-0.5 text-[8px]
                     leading-none font-medium text-amber-200"
                 >
-                  Coming soon
+                  {{ backtestText.status }}
                 </span>
               </button>
             </li>
@@ -325,8 +325,8 @@
               v-if="link.to === '/about'"
               type="button"
               disabled
-              aria-label="Backtest Tools — Coming soon"
-              title="Backtest Tools — Coming soon"
+              :aria-label="backtestText.title + ' — ' + backtestText.status"
+              :title="backtestText.title + ' — ' + backtestText.status"
               class="flex min-h-11 cursor-not-allowed items-center gap-3
                 rounded-lg px-4 py-4 text-[13px] text-white opacity-100
                 max-[768px]:py-3
@@ -337,8 +337,8 @@
                 :icon="faChartLine"
                 class="w-5 shrink-0 text-slate-400"
               />
-              <span class="inline-flex items-center gap-1 text-slate-400">
-                Backtest Tools
+              <span class="inline-flex min-w-0 flex-1 items-center gap-1 text-slate-400">
+                <span class="min-w-0 whitespace-normal break-words">{{ backtestText.title }}</span>
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 12 12"
@@ -359,7 +359,7 @@
                   bg-amber-400/10 px-2 py-1 text-[10px]
                   leading-none font-medium text-amber-200"
               >
-                Coming soon
+                {{ backtestText.status }}
               </span>
             </button>
           </template>
@@ -405,7 +405,7 @@
   </header>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import { useI18n } from 'vue-i18n'
@@ -433,6 +433,10 @@ const auth = useAuthStore()
 const { t, locale: language } = useI18n({
   useScope: 'global',
 })
+const backtestText = computed(() => ({
+  title: t('nav.backtestTools'),
+  status: t('nav.comingSoon'),
+}))
 const joinOpen = ref(false)
 const isMenuOpen = ref(false)
 const isLightMode = ref(false)
