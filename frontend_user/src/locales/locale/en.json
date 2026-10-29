@@ -10,7 +10,10 @@
     "about": "About",
     "joinNow": "Join Now",
     "login":"Login",
-    "register":"Register"
+    "register":"Register",
+    "backtestTools": "Backtest Tools",
+    "comingSoon": "Coming soon"
+    
   },
   "hero": {
   "title": "Creator of Money Mentorship-FT",
