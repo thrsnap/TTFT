@@ -18,10 +18,12 @@ import {
   faHandshake,
   faHeadset,
   faCircleUser,
-  faBoltLightning
+  faBoltLightning,
+  faChartLine,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuthStore } from '../store/user/authStore.js'
 import UserAvatar from './UserAvatar.vue'
+
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -108,7 +110,6 @@ function openSettings() {
   trigger.value?.focus()
   window.dispatchEvent(new Event('cmm-ft:open-settings'))
 }
-
 function toggle() {
   error.value = ''
   open.value = !open.value
@@ -166,11 +167,12 @@ onUnmounted(() => {
   desktopQuery?.removeEventListener('change', close)
 })
 </script>
+
 <template>
   <div
     v-if="auth.isAuthenticated"
     ref="root"
-    class="relative shrink-0 text-white"
+    class="relative shrink-0 text-xs text-white"
     :class="{ 'font-khmer': route.params.lang === 'km' }"
   >
     <button
@@ -189,9 +191,9 @@ onUnmounted(() => {
       <!-- Profile circle -->
       <UserAvatar
         variant="dark"
-        class="size-10   text-base
-               max-[768px]:size-8 max-[768px]:text-sm
-               max-[320px]:size-7 max-[320px]:text-xs"
+        class="size-10 text-sm
+               max-[768px]:size-8 max-[768px]:text-xs
+               max-[320px]:size-7 max-[320px]:text-[11px]"
         decorative
       />
       <!-- Dropdown arrow -->
@@ -231,10 +233,10 @@ onUnmounted(() => {
         <div class="border-b border-white/10 px-4 py-4">
           <div class="flex min-w-0 items-center gap-3">
             <div class="min-w-0 flex-1">
-              <p class="break-words text-sm font-semibold text-white">
+              <p class="break-words text-xs font-semibold text-white">
                 {{ username }}
               </p>
-              <p class="mt-1 break-all text-xs leading-5 text-slate-400">
+              <p class="mt-1 break-all text-[11px] leading-5 text-slate-400">
                 {{ email }}
               </p>
             </div>
@@ -245,26 +247,63 @@ onUnmounted(() => {
           aria-label="Mobile navigation"
           class="border-b border-white/10 p-2 min-[1024px]:hidden"
         >
-          <RouterLink
-            v-for="link in navLinks"
-            :key="link.to"
-            :to="localizedPath(link.to)"
-            class="flex min-h-11 items-center gap-3
-                   rounded-lg px-3 py-2.5
-                   text-sm font-medium text-white
-                   no-underline transition-colors
-                   hover:bg-white/10
-                   focus-visible:outline-2
-                   focus-visible:outline-emerald-400"
-            exact-active-class="bg-white/10 text-emerald-300"
-            @click="close"
-          >
-            <FontAwesomeIcon
-              :icon="link.icon"
-              class="w-5 shrink-0"
-            />
-            {{ linkLabel(link) }}
-          </RouterLink>
+          <template v-for="link in navLinks" :key="link.to">
+            <RouterLink
+              :to="localizedPath(link.to)"
+              class="flex min-h-11 items-center gap-3
+                     rounded-lg px-3 py-2.5
+                     text-[13px] font-medium text-white
+                     no-underline transition-colors
+                     hover:bg-white/10
+                     focus-visible:outline-2
+                     focus-visible:outline-emerald-400"
+              exact-active-class="bg-white/10 text-emerald-300"
+              @click="close"
+            >
+              <FontAwesomeIcon
+                :icon="link.icon"
+                class="w-5 shrink-0"
+              />
+              {{ linkLabel(link) }}
+            </RouterLink>
+            <button
+              v-if="link.to === '/about'"
+              type="button"
+              disabled
+              aria-label="Backtest Tools — Coming soon"
+              title="Backtest Tools — Coming soon"
+              class="flex min-h-11 w-full cursor-not-allowed items-center gap-2
+                     rounded-lg px-3 py-2.5 text-left text-[13px]
+                     font-medium text-slate-400 opacity-100"
+            >
+              <FontAwesomeIcon :icon="faChartLine" class="w-5 shrink-0" />
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                Backtest Tools
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  class="h-2.5 w-2.5 shrink-0 self-start"
+                >
+                  <path
+                    d="M3 9 9 3M3 3h6v6"
+                    stroke="currentColor"
+                    stroke-width="1.25"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span
+                class="ml-auto shrink-0 whitespace-nowrap rounded-sm
+                       border border-amber-400/20 bg-amber-400/10
+                       px-2 py-1 text-[10px] leading-none
+                       font-medium text-amber-200"
+              >
+                Coming soon
+              </span>
+            </button>
+          </template>
         </nav>
         <!-- Dashboard -->
         <nav aria-label="Your account" class="p-2">
@@ -272,7 +311,7 @@ onUnmounted(() => {
             :to="dashboardLink"
             class="flex min-h-11 items-center gap-3
                    rounded-lg px-3 py-2.5
-                   text-sm font-medium text-white
+                   text-xs font-medium text-white
                    no-underline transition-colors
                    hover:bg-white/10
                    focus-visible:outline-2
@@ -324,7 +363,7 @@ onUnmounted(() => {
             aria-haspopup="dialog"
             class="flex min-h-11 w-full cursor-pointer items-center gap-3
                    rounded-lg px-3 py-2.5
-                   text-left text-sm font-medium text-white
+                   text-left text-xs font-medium text-white
                    transition-colors hover:bg-white/10
                    focus-visible:outline-2
                    focus-visible:outline-emerald-400"
@@ -353,7 +392,7 @@ onUnmounted(() => {
             :disabled="busy"
             class="flex min-h-11 w-full cursor-pointer
                    items-center gap-3 rounded-lg px-3 py-2.5
-                   text-left text-sm font-medium text-red-300
+                   text-left text-xs font-medium text-red-300
                    transition-colors hover:bg-red-500/10
                    focus-visible:outline-2
                    focus-visible:outline-red-400
@@ -379,7 +418,7 @@ onUnmounted(() => {
           <p
             v-if="error"
             role="alert"
-            class="px-3 pb-2 text-xs leading-5 text-red-300"
+            class="px-3 pb-2 text-[11px] leading-5 text-red-300"
           >
             {{ error }}
           </p>

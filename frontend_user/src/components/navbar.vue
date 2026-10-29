@@ -2,7 +2,7 @@
   <header
     class="sticky top-0 z-1000 border-b border-white/10
       bg-[rgba(40,54,75,0.95)] px-4 py-4
-      text-white shadow-lg backdrop-blur-[10px]
+      text-sm text-white shadow-lg backdrop-blur-[10px]
       animate-[navbarEnter_0.8s_ease-out]
       max-[768px]:px-3 max-[768px]:py-3
       max-[600px]:px-2.5
@@ -33,10 +33,10 @@
         <span
           class="shrink-0 whitespace-nowrap
             bg-[linear-gradient(135deg,#667eea,#764ba2)]
-            bg-clip-text text-[base] font-bold tracking-tight
+            bg-clip-text text-sm font-bold tracking-tight
             text-transparent
-            max-[600px]:text-sm
-            max-[414px]:text-xs
+            max-[600px]:text-[13px]
+            max-[414px]:text-[11px]
             max-[320px]:text-[10px]"
         >
           CMM-FT
@@ -45,29 +45,71 @@
       <!-- Desktop navigation -->
       <nav
         aria-label="Main navigation"
-        class="hidden min-[1024px]:block"
+        class="hidden min-[1280px]:block"
         :class="{ 'font-khmer': language === 'km' }"
       >
         <ul class="flex list-none items-center">
-          <li v-for="link in navLinks" :key="link.to">
-            <RouterLink
-              :to="localizedPath(link.to)"
-              @click="closeMenus"
-              class="flex items-center gap-1.5 whitespace-nowrap
-                rounded-lg px-1.5 py-2 text-xs
-                font-medium text-white no-underline
-                transition-colors hover:bg-white/10
-                min-[1280px]:px-2 min-[1280px]:text-[13px]
-                min-[1536px]:text-sm"
-              exact-active-class="bg-white/10"
-            >
-              <FontAwesomeIcon
-                :icon="link.icon"
-                class="hidden min-[1536px]:inline-block"
-              />
-              {{ navLabel(link) }}
-            </RouterLink>
-          </li>
+          <template v-for="link in navLinks" :key="link.to">
+            <li>
+              <RouterLink
+                :to="localizedPath(link.to)"
+                @click="closeMenus"
+                class="flex items-center gap-1.5 whitespace-nowrap
+                  rounded-lg px-1.5 py-2 text-xs
+                  font-medium text-white no-underline
+                  transition-colors hover:bg-white/10
+                  min-[1280px]:px-2"
+                exact-active-class="bg-white/10"
+              >
+                <FontAwesomeIcon
+                  :icon="link.icon"
+                  class="hidden min-[1536px]:inline-block"
+                />
+                {{ navLabel(link) }}
+              </RouterLink>
+            </li>
+            <li v-if="link.to === '/about'">
+              <button
+                type="button"
+                disabled
+                aria-label="Backtest Tools — Coming soon"
+                title="Backtest Tools — Coming soon"
+                class="flex cursor-not-allowed flex-col items-start gap-0.5
+                  whitespace-nowrap rounded-lg px-1.5 py-1 text-xs
+                  font-medium text-slate-400 opacity-100
+                  min-[1280px]:px-2"
+              >
+                <span class="inline-flex items-center gap-1.5">
+                  <FontAwesomeIcon
+                    :icon="faChartLine"
+                    class="w-3.5 shrink-0"
+                  />
+                  Backtest Tools
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    class="h-2.5 w-2.5 self-start"
+                  >
+                    <path
+                      d="M3 9 9 3M3 3h6v6"
+                      stroke="currentColor"
+                      stroke-width="1.25"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span
+                  class="rounded-sm border border-amber-400/20
+                    bg-amber-400/10 px-1.5 py-0.5 text-[8px]
+                    leading-none font-medium text-amber-200"
+                >
+                  Coming soon
+                </span>
+              </button>
+            </li>
+          </template>
         </ul>
       </nav>
       <!-- Right-side controls -->
@@ -85,7 +127,7 @@
           class="flex h-10 w-10 shrink-0 items-center justify-center
             rounded-lg bg-white/10 text-white
             transition-colors hover:bg-white/20
-            min-[1024px]:hidden
+            min-[1280px]:hidden
             max-[480px]:h-9 max-[480px]:w-9
             max-[320px]:h-8 max-[320px]:w-8"
         >
@@ -119,7 +161,7 @@
             :aria-pressed="language === 'en'"
             aria-label="English"
             class="min-h-8 cursor-pointer rounded-md px-3 py-1.5
-              text-xs font-semibold transition-colors duration-200
+              text-[11px] font-semibold transition-colors duration-200
               max-[768px]:px-2.5
               max-[600px]:px-2
               max-[480px]:py-1
@@ -136,7 +178,7 @@
             :aria-pressed="language === 'km'"
             aria-label="ភាសាខ្មែរ"
             class="min-h-8 cursor-pointer rounded-md px-3 py-1.5
-              text-xs font-semibold transition-colors duration-200 font-khmer
+              text-[11px] font-semibold transition-colors duration-200 font-khmer
               max-[768px]:px-2.5
               max-[600px]:px-2
               max-[480px]:py-1
@@ -151,7 +193,7 @@
         <!-- Desktop account dropdown -->
         <div
           v-if="!auth.isAuthenticated"
-          class="relative hidden shrink-0 min-[1024px]:block"
+          class="relative hidden shrink-0 min-[1280px]:block"
           :class="{ 'font-khmer': language === 'km' }"
         >
           <button
@@ -162,7 +204,7 @@
             class="flex cursor-pointer items-center gap-2
               whitespace-nowrap rounded-xl
               bg-[linear-gradient(135deg,#667eea,#764ba2)]
-              px-3 py-2 text-sm font-semibold text-white
+              px-3 py-2 text-xs font-semibold text-white
               min-[1280px]:px-3 min-[1536px]:px-4"
           >
             <FontAwesomeIcon :icon="faUserPlus" />
@@ -174,7 +216,7 @@
             aria-label="Account"
             class="absolute right-0 top-full z-50 mt-2 w-40
               overflow-hidden rounded-xl border border-white/10
-              bg-slate-900 text-white shadow-xl"
+              bg-slate-900 text-xs text-white shadow-xl"
           >
             <RouterLink
               :to="localizedPath('/login')"
@@ -215,7 +257,7 @@
           class="flex h-10 w-10 shrink-0 cursor-pointer flex-col
             items-center justify-center gap-1.5 rounded-lg
             bg-white/10 transition-colors hover:bg-white/20
-            min-[1024px]:hidden
+            min-[1280px]:hidden
             max-[480px]:h-9 max-[480px]:w-9
             max-[320px]:h-8 max-[320px]:w-8"
         >
@@ -253,7 +295,7 @@
           max-h-[calc(100dvh-80px)] w-full overflow-y-auto
           overscroll-contain bg-[rgba(30,41,59,0.98)]
           px-3 pb-4 pt-3 text-white shadow-xl
-          backdrop-blur-md min-[1024px]:hidden
+          backdrop-blur-md min-[1280px]:hidden
           max-[768px]:px-2
           max-[480px]:pt-2
           max-[320px]:px-1.5"
@@ -263,24 +305,64 @@
           class="flex flex-col"
           :class="{ 'font-khmer': language === 'km' }"
         >
-          <RouterLink
-            v-for="link in navLinks"
-            :key="link.to"
-            :to="localizedPath(link.to)"
-            @click="closeMenus"
-            class="flex min-h-11 items-center gap-3 rounded-lg
-              px-4 py-4 text-white
-              transition-colors hover:bg-white/10
-              max-[768px]:py-3
-              max-[600px]:text-sm
-              max-[480px]:px-3
-              max-[414px]:gap-2
-              max-[320px]:px-2"
-            exact-active-class="bg-white/10"
-          >
-            <FontAwesomeIcon :icon="link.icon" class="w-5 shrink-0" />
-            {{ navLabel(link) }}
-          </RouterLink>
+          <template v-for="link in navLinks" :key="link.to">
+            <RouterLink
+              :to="localizedPath(link.to)"
+              @click="closeMenus"
+              class="flex min-h-11 items-center gap-3 rounded-lg
+                px-4 py-4 text-[13px] text-white
+                transition-colors hover:bg-white/10
+                max-[768px]:py-3
+                max-[480px]:px-3
+                max-[414px]:gap-2
+                max-[320px]:px-2"
+              exact-active-class="bg-white/10"
+            >
+              <FontAwesomeIcon :icon="link.icon" class="w-5 shrink-0" />
+              {{ navLabel(link) }}
+            </RouterLink>
+            <button
+              v-if="link.to === '/about'"
+              type="button"
+              disabled
+              aria-label="Backtest Tools — Coming soon"
+              title="Backtest Tools — Coming soon"
+              class="flex min-h-11 cursor-not-allowed items-center gap-3
+                rounded-lg px-4 py-4 text-[13px] text-white opacity-100
+                max-[768px]:py-3
+                max-[480px]:px-3 max-[414px]:gap-2
+                max-[320px]:px-2"
+            >
+              <FontAwesomeIcon
+                :icon="faChartLine"
+                class="w-5 shrink-0 text-slate-400"
+              />
+              <span class="inline-flex items-center gap-1 text-slate-400">
+                Backtest Tools
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  class="h-2.5 w-2.5 self-start"
+                >
+                  <path
+                    d="M3 9 9 3M3 3h6v6"
+                    stroke="currentColor"
+                    stroke-width="1.25"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span
+                class="ml-auto rounded-sm border border-amber-400/20
+                  bg-amber-400/10 px-2 py-1 text-[10px]
+                  leading-none font-medium text-amber-200"
+              >
+                Coming soon
+              </span>
+            </button>
+          </template>
         </nav>
         <!-- Mobile account buttons -->
         <div
@@ -295,7 +377,7 @@
             :to="localizedPath('/login')"
             @click="closeMenus"
             class="flex min-h-11 items-center justify-center gap-2
-              rounded-xl bg-gray-100 px-4 py-3 text-sm
+              rounded-xl bg-gray-100 px-4 py-3 text-xs
               font-semibold text-black transition-colors
               hover:bg-gray-300
               max-[414px]:px-3
@@ -308,7 +390,7 @@
             :to="localizedPath('/register')"
             @click="closeMenus"
             class="flex min-h-11 items-center justify-center gap-2
-              rounded-xl bg-gray-100 px-4 py-3 text-sm
+              rounded-xl bg-gray-100 px-4 py-3 text-xs
               font-semibold text-black transition-colors
               hover:bg-gray-300
               max-[414px]:px-3
@@ -343,6 +425,7 @@ import {
   faHandshake,
   faMagnifyingGlassChart,
   faBoltLightning,
+  faChartLine,
 } from '@fortawesome/free-solid-svg-icons'
 const route = useRoute()
 const router = useRouter()
@@ -439,7 +522,7 @@ onMounted(() => {
   isLightMode.value =
     document.documentElement.classList.contains('ligh-mode') ||
     document.body.classList.contains('ligh-mode')
-  desktopQuery = window.matchMedia('(min-width: 1024px)')
+  desktopQuery = window.matchMedia('(min-width: 1280px)')
   desktopQuery.addEventListener('change', closeMenus)
 })
 onUnmounted(() => {
