@@ -12,7 +12,7 @@ import { RouterLink, useRoute } from 'vue-router'
 
 import impactnews from '../components/impactnew.vue'
 import LoadingImage from '../components/LoadingImage.vue'
-
+import YouTubeLiveBanner from '../components/YouTubeLiveBanner.vue'
 const route = useRoute()
 
 const BASE_URL = (
@@ -509,6 +509,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+ <YouTubeLiveBanner />
   <main
     class="min-h-screen bg-(--page-bg) px-4 py-10
            text-(--text-color) transition-colors duration-300 sm:px-6
