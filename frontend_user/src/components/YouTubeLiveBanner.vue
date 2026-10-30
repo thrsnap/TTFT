@@ -11,7 +11,7 @@
           aria-label="Watch the livestream on YouTube (opens in a new tab)"
         >
           <span class="youtube-live-light" aria-hidden="true"></span>
-          <span class="youtube-live-label">Live on YouTube now</span>
+          <span class="youtube-live-label">Live Trade on YouTube now</span>
         </a>
       </div>
     </Transition>
