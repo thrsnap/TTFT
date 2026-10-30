@@ -1,4 +1,5 @@
 <template>
+   <YouTubeLiveBanner />
   <main
     class="bg-(--page-bg) text-(--text-color)
            transition-colors duration-800"
@@ -161,4 +162,5 @@
 import { courses } from '../store/course/coursename'
 import CourseHero from '../components/coursehero.vue'
 import PaidCourses from '../components/PaidCourse.vue'
+import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
 </script>

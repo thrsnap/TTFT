@@ -3,7 +3,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import NewsSignal from '../components/NewsSignal.vue'
 import DailySignal from '../components/DailySignal.vue'
 import SignalHistory from '../components/SignalHistory.vue'
-
+import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
 const signalGrid = ref(null)
 
 let resizeObserver
@@ -124,6 +124,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+   <YouTubeLiveBanner />
   <main class="min-w-0 bg-(--page-bg)">
     <!-- Active News and Daily Signals -->
     <div

@@ -3,7 +3,7 @@ import { computed, nextTick, onActivated, onMounted, onUnmounted, reactive, ref,
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
 import { useProfilePhoto } from '../composable/useProfilePhoto.js'
-
+import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -858,6 +858,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+   <YouTubeLiveBanner />
   <main class="min-h-[75vh] bg-(--page-bg) px-3 py-8 text-(--text-color) sm:px-6 sm:py-12">
     <div class="mx-auto w-full max-w-2xl">
       <header class="mb-7 flex flex-wrap items-center justify-between gap-4">

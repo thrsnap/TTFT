@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
 const BASE = (
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 ).trim().replace(/\/+$/, '')
@@ -91,6 +92,7 @@ async function loadAnalysis() {
 onMounted(loadAnalysis)
 </script>
 <template>
+   <YouTubeLiveBanner />
   <main
     class="min-h-screen bg-(--page-bg) px-6 py-10
            text-(--text-color) transition-colors duration-300

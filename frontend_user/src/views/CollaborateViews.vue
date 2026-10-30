@@ -1,4 +1,5 @@
 <template>
+   <YouTubeLiveBanner />
   <main class="min-h-screen bg-(--page-bg) px-5 py-12
            text-(--text-color) transition-colors duration-300
            sm:px-8 sm:py-16">
@@ -212,7 +213,7 @@ import exness from '../assets/static/partnerphoto/exness.jpg'
 import cxm from '../assets/static/partnerphoto/cxm.jpg'
 import lerunex from '../assets/static/partnerphoto/lerunex.jpg'
 import { faSnapchat } from '@fortawesome/free-brands-svg-icons'
-
+import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
 const search = ref('')
 const brokenLogos = ref({})
 
