@@ -115,7 +115,7 @@ onUnmounted(stop)
 <style scoped>
 .youtube-live-wrap {
   box-sizing: border-box;
-  padding: 18px 22px 10px;
+  padding: 12px 22px 12px;
 }
 .youtube-live-banner {
   box-sizing: border-box;
