@@ -39,6 +39,7 @@ import {
 import tradeJournalRoutes from './routes/tradeJournal.routes.js'
 import profilePhotoRoutes from './routes/profilePhoto.routes.js'
 import pushRoutes from './routes/push.routes.js'
+import youtubeRoutes from './routes/youtube.routes.js'
 
 const app = express()
 
@@ -219,6 +220,10 @@ app.use(
   requireUser,
   pushRoutes,
 )
+
+//youtube live status
+app.use('/api/youtube', youtubeRoutes)
+
 
 // Profile and community.
 app.use('/api/profile', profilePhotoRoutes)
