@@ -3,7 +3,7 @@ import { computed, nextTick, onActivated, onMounted, onUnmounted, reactive, ref,
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/user/authStore.js'
 import { useProfilePhoto } from '../composable/useProfilePhoto.js'
-import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
+import YouTubeLiveBanner from '../components/YouTubeLiveBanner.vue'
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()

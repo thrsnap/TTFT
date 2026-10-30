@@ -213,7 +213,7 @@ import exness from '../assets/static/partnerphoto/exness.jpg'
 import cxm from '../assets/static/partnerphoto/cxm.jpg'
 import lerunex from '../assets/static/partnerphoto/lerunex.jpg'
 import { faSnapchat } from '@fortawesome/free-brands-svg-icons'
-import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
+import YouTubeLiveBanner from '../components/YouTubeLiveBanner.vue'
 const search = ref('')
 const brokenLogos = ref({})
 

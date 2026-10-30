@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
+import YouTubeLiveBanner from '../components/YouTubeLiveBanner.vue'
 const BASE = (
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 ).trim().replace(/\/+$/, '')

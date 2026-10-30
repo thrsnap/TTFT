@@ -162,5 +162,5 @@
 import { courses } from '../store/course/coursename'
 import CourseHero from '../components/coursehero.vue'
 import PaidCourses from '../components/PaidCourse.vue'
-import YouTubeLiveBanner from '../components/YoutubeLiveBanner.vue'
+import YouTubeLiveBanner from '../components/YouTubeLiveBanner.vue'
 </script>
