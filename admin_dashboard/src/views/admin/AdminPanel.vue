@@ -264,15 +264,148 @@ const dashboardStats = ref(null);
 const dashboardLoading = ref(false);
 const dashboardError = ref("");
 const recordsLoaded = ref(false);
+// Keep the workspace profile when a section loads its own records.
+const adminProfileRecord = ref(null);
+const failedProfileImageUrl = ref("");
+const adminProfilePhotoUrl = ref("");
+const adminProfilePhotoLoading = ref(false);
+const adminProfilePhotoError = ref("");
+const adminProfilePhotoNotice = ref("");
+let adminProfilePhotoController;
+let adminProfilePhotoRequest = 0;
+let adminProfilePhotoDisposed = false;
+function replaceAdminProfilePhoto(nextUrl = "") {
+  const previous = adminProfilePhotoUrl.value;
+  adminProfilePhotoUrl.value = nextUrl;
+  if (previous) URL.revokeObjectURL(previous);
+}
+async function loadAdminProfilePhoto() {
+  if (adminProfilePhotoDisposed) return false;
+  const owner = identity.value._id || identity.value.id || identity.value.email;
+  if (!owner) return false;
+  adminProfilePhotoController?.abort();
+  const request = ++adminProfilePhotoRequest;
+  const controller = new AbortController();
+  adminProfilePhotoController = controller;
+  adminProfilePhotoLoading.value = true;
+  adminProfilePhotoError.value = "";
+  adminProfilePhotoNotice.value = "";
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, 45000);
+  const isCurrent = () => !adminProfilePhotoDisposed &&
+    request === adminProfilePhotoRequest &&
+    owner === (identity.value._id || identity.value.id || identity.value.email);
+  try {
+    // The photo API returns image bytes, so it cannot use the JSON adminApi helper.
+    const response = await fetch(`${signalApiBase}/api/profile/photo`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      if (!isCurrent()) return false;
+      if (response.status === 404 && data?.code === "PROFILE_PHOTO_NOT_SET") {
+        replaceAdminProfilePhoto();
+        adminProfilePhotoNotice.value = "No photo is saved for this admin account. Add one on your website Profile page, then click Reload photo.";
+        return true;
+      }
+      throw new Error(response.status === 401
+        ? "Your session has expired. Please sign in again."
+        : data?.message || `Could not load your profile photo (${response.status}).`);
+    }
+    if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/")) {
+      throw new Error("The profile photo endpoint did not return an image.");
+    }
+    const photo = await response.blob();
+    if (!photo.size) throw new Error("The saved profile photo is empty.");
+    if (!isCurrent()) return false;
+    replaceAdminProfilePhoto(URL.createObjectURL(photo));
+    return true;
+  } catch (failure) {
+    if (isCurrent()) {
+      if (timedOut) adminProfilePhotoError.value = "Loading your profile photo timed out. Click Reload photo to try again.";
+      else if (failure.name !== "AbortError") adminProfilePhotoError.value = failure.message || "Could not load your profile photo.";
+    }
+    return false;
+  } finally {
+    clearTimeout(timer);
+    if (isCurrent()) {
+      adminProfilePhotoLoading.value = false;
+      adminProfilePhotoController = undefined;
+    }
+  }
+}
+onUnmounted(() => {
+  adminProfilePhotoDisposed = true;
+  adminProfilePhotoRequest++;
+  adminProfilePhotoController?.abort();
+  replaceAdminProfilePhoto();
+});
+function rememberAdminProfile(data) {
+  const record = Array.isArray(data)
+    ? data.find((item) => item.kind === "profile")
+    : null;
+  if (record) adminProfileRecord.value = { ...record };
+}
+function resolveProfileImage(user) {
+  if (!user || typeof user !== "object") return "";
+  const candidates = [
+    user.avatarUrl,
+    user.profileImageUrl,
+    user.profileImage,
+    user.avatar,
+    user.photoURL,
+    user.photoUrl,
+    user.picture,
+    user.imageUrl,
+    user.attachment,
+  ];
+  for (const candidate of candidates) {
+    const path = typeof candidate === "string" ? candidate : candidate?.url;
+    if (typeof path !== "string" || !path.trim()) continue;
+    const url = fileUrl(path.trim());
+    if (url) return url;
+  }
+  return "";
+}
 const list = (kind) => records.value.filter((x) => x.kind === kind);
-const profile = computed(
-  () =>
-    list("profile")[0] || {
-      name: identity.value.name || "Administrator",
-      email: identity.value.email,
-      role: "Administrator",
-    },
+const profile = computed(() => {
+  const record = list("profile")[0] || adminProfileRecord.value || {};
+  return {
+    ...record,
+    name: record.name || identity.value.name || identity.value.username || "Administrator",
+    email: record.email || identity.value.email || "",
+    role: record.role || "Administrator",
+    avatarUrl: resolveProfileImage(record) || resolveProfileImage(identity.value),
+  };
+});
+// Keep the temporary blob URL out of profile records sent to the backend.
+const profileImageSrc = computed(() => adminProfilePhotoUrl.value || profile.value.avatarUrl);
+const showProfileImage = computed(
+  () => Boolean(profileImageSrc.value) &&
+    profileImageSrc.value !== failedProfileImageUrl.value,
 );
+watch(() => profileImageSrc.value, () => {
+  failedProfileImageUrl.value = "";
+}, { flush: "sync" });
+function onProfileImageError(event) {
+  // Ignore a late error from an image that has already been replaced.
+  if (event.currentTarget?.getAttribute("src") === profileImageSrc.value) {
+    failedProfileImageUrl.value = profileImageSrc.value;
+    adminProfilePhotoError.value = "The profile photo could not be displayed. Click Reload photo to try again.";
+  }
+}
+async function loadAdminProfile() {
+  try {
+    rememberAdminProfile(await api("data"));
+  } catch {
+    // The signed-in identity can still supply the avatar if profile data is unavailable.
+  }
+}
 const initials = (name) =>
   (name || "Admin")
     .split(" ")
@@ -350,6 +483,7 @@ async function loadRecords() {
     if (!Array.isArray(data))
       throw new Error("The endpoint must return an array of records.");
     records.value = data;
+    rememberAdminProfile(data);
     recordsLoaded.value = true;
   } catch (errorCaught) {
     error.value = errorCaught.message || "Could not load records.";
@@ -366,10 +500,14 @@ async function load() {
     loading.value = false;
     return;
   }
+  const photoRequest = loadAdminProfilePhoto();
   if (page.value === "Dashboard") {
     loading.value = false;
-    await fetchDashboard();
+    await Promise.all([fetchDashboard(), loadAdminProfile()]);
+  } else if (["News", "Analysis", "Academy", "Trading Journal"].includes(page.value)) {
+    await Promise.all([loadRecords(), loadAdminProfile()]);
   } else await loadRecords();
+  await photoRequest;
 }
 watch(page, async (section) => {
   error.value = "";
@@ -684,6 +822,7 @@ function open(kind, record) {
   }
   signalImage.value = null;
   modal.value = kind;
+  if (kind === "profile") record = { ...profile.value, ...record };
   draft.value = record
     ? { ...record }
     : {
@@ -1045,6 +1184,7 @@ async function save() {
     });
     records.value = records.value.filter((x) => x.id !== r.id);
     records.value.unshift(r);
+    if (modal.value === "profile") adminProfileRecord.value = { ...r };
     modal.value = null;
     notify("Saved successfully");
   } catch (e) {
@@ -1428,12 +1568,22 @@ onUnmounted(() => {
         </div>
         <button
           class="profile flex w-full items-center gap-3 border-t border-slate-200 dark:border-slate-700 px-2 pt-5 text-left [&_strong]:block [&_strong]:text-sm [&_small]:mt-1 [&_small]:block [&_small]:text-xs [&_small]:text-slate-500 [&>svg]:ml-auto [&>span:not(.avatar)]:min-w-0 [&_strong]:break-words max-[600px]:pt-4"
-          @click="open('profile', list('profile')[0])"
+          @click="open('profile', profile)"
         >
           <span
-            class="avatar grid size-10 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-            >{{ initials(profile.name) }}</span
+            class="avatar grid size-10 shrink-0 place-items-center overflow-hidden rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
           >
+            <img
+              v-if="showProfileImage"
+              :key="profileImageSrc"
+              :src="profileImageSrc"
+              :alt="`${profile.name} profile photo`"
+              referrerpolicy="no-referrer"
+              class="h-full w-full rounded-full object-cover"
+              @error="onProfileImageError"
+            />
+            <span v-else>{{ initials(profile.name) }}</span>
+          </span>
           <span
             ><strong>{{ profile.name }}</strong
             ><small>Administrator</small></span
@@ -1480,11 +1630,20 @@ onUnmounted(() => {
           </button>
           <div class="profile-dropdown relative">
             <button
-              class="top-avatar grid size-9 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+              class="top-avatar grid size-9 place-items-center overflow-hidden rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
               aria-label="Admin profile menu"
               @click="profileMenu = !profileMenu"
             >
-              {{ initials(profile.name) }}
+              <img
+                v-if="showProfileImage"
+                :key="profileImageSrc"
+                :src="profileImageSrc"
+                :alt="`${profile.name} profile photo`"
+                referrerpolicy="no-referrer"
+                class="h-full w-full rounded-full object-cover"
+                @error="onProfileImageError"
+              />
+              <span v-else>{{ initials(profile.name) }}</span>
             </button>
             <div
               v-if="profileMenu"
@@ -1495,7 +1654,7 @@ onUnmounted(() => {
               <button
                 @click="
                   profileMenu = false;
-                  open('profile', list('profile')[0]);
+                  open('profile', profile);
                 "
               >
                 <UserRound :size="16" />My profile</button
@@ -2773,17 +2932,36 @@ onUnmounted(() => {
                 class="profile-details my-5 flex items-center gap-4 [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-xs [&_p]:text-slate-500 min-w-0 [&>div]:min-w-0 [&_h3]:break-words [&_p]:[overflow-wrap:anywhere] max-[414px]:gap-3"
               >
                 <span
-                  class="avatar grid size-10 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                  >{{ initials(profile.name) }}</span
+                  class="avatar grid size-10 shrink-0 place-items-center overflow-hidden rounded-full border border-emerald-200 bg-emerald-50 text-xs font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
                 >
+                  <img
+                    v-if="showProfileImage"
+                    :key="profileImageSrc"
+                    :src="profileImageSrc"
+                    :alt="`${profile.name} profile photo`"
+                    referrerpolicy="no-referrer"
+                    class="h-full w-full rounded-full object-cover"
+                    @error="onProfileImageError"
+                  />
+                  <span v-else>{{ initials(profile.name) }}</span>
+                </span>
                 <div>
                   <h3>{{ profile.name }}</h3>
                   <p>{{ profile.email || "Administrator" }}</p>
                 </div>
               </div>
+              <div class="mb-4 space-y-2 text-sm">
+                <p v-if="adminProfilePhotoLoading" role="status" class="text-slate-500 dark:text-slate-400">Loading profile photo…</p>
+                <p v-else-if="adminProfilePhotoError" role="alert" class="text-red-600 dark:text-red-400">{{ adminProfilePhotoError }}</p>
+                <p v-else-if="adminProfilePhotoNotice && !showProfileImage" role="status" class="text-slate-500 dark:text-slate-400">{{ adminProfilePhotoNotice }}</p>
+                <button type="button" :disabled="adminProfilePhotoLoading" @click="loadAdminProfilePhoto"
+                  class="min-h-11 text-sm font-medium text-emerald-700 underline disabled:opacity-50 dark:text-emerald-300">
+                  {{ adminProfilePhotoLoading ? "Loading photo…" : "Reload photo" }}
+                </button>
+              </div>
               <button
                 class="btn-secondary inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 disabled:cursor-wait disabled:opacity-50 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 max-[768px]:min-h-11 max-[414px]:px-3"
-                @click="open('profile', list('profile')[0])"
+                @click="open('profile', profile)"
               >
                 <Pencil :size="16" />Edit profile
               </button>
@@ -2965,6 +3143,26 @@ onUnmounted(() => {
           </button>
         </div>
         <form @submit.prevent="save">
+          <div v-if="modal === 'profile'" class="mx-7 mt-5 rounded-lg border border-slate-200 p-4 dark:border-slate-700 max-[480px]:mx-4 max-[414px]:mx-3">
+            <div class="flex items-center gap-3">
+              <span class="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full bg-emerald-50 text-sm font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                <img v-if="showProfileImage" :key="profileImageSrc" :src="profileImageSrc"
+                  :alt="`${profile.name} profile photo`" class="h-full w-full rounded-full object-cover"
+                  referrerpolicy="no-referrer" @error="onProfileImageError" />
+                <span v-else>{{ initials(profile.name) }}</span>
+              </span>
+              <div>
+                <p class="text-sm font-medium">Account profile photo</p>
+                <button type="button" :disabled="adminProfilePhotoLoading" @click="loadAdminProfilePhoto"
+                  class="min-h-11 text-sm text-emerald-700 underline disabled:opacity-50 dark:text-emerald-300">
+                  {{ adminProfilePhotoLoading ? "Loading photo…" : "Reload photo" }}
+                </button>
+              </div>
+            </div>
+            <p v-if="adminProfilePhotoLoading" role="status" class="mt-2 text-sm text-slate-500 dark:text-slate-400">Loading profile photo…</p>
+            <p v-else-if="adminProfilePhotoError" role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ adminProfilePhotoError }}</p>
+            <p v-else-if="adminProfilePhotoNotice && !showProfileImage" role="status" class="mt-2 text-sm text-slate-500 dark:text-slate-400">{{ adminProfilePhotoNotice }}</p>
+          </div>
           <div
             class="form-grid grid grid-cols-2 gap-5 px-7 py-6 max-[480px]:grid-cols-1 max-[600px]:px-5 [&_label>span]:mb-2 [&_label>span]:block [&_label>span]:text-sm [&_label_b]:font-normal [&_label_b]:text-emerald-600 [&_input:not([type=file])]:w-full [&_input:not([type=file])]:min-w-0 [&_input:not([type=file])]:rounded-lg [&_input:not([type=file])]:border [&_input:not([type=file])]:border-slate-200 [&_input:not([type=file])]:bg-transparent [&_input:not([type=file])]:p-3 dark:[&_input:not([type=file])]:border-slate-700 [&_select]:w-full [&_select]:rounded-lg [&_select]:border [&_select]:border-slate-200 [&_select]:bg-white [&_select]:p-3 dark:[&_select]:border-slate-700 dark:[&_select]:bg-slate-900 [&_textarea]:w-full [&_textarea]:rounded-lg [&_textarea]:border [&_textarea]:border-slate-200 [&_textarea]:bg-transparent [&_textarea]:p-3 dark:[&_textarea]:border-slate-700 [&_input:focus]:outline-emerald-500 [&_textarea:focus]:outline-emerald-500 [&_select:focus]:outline-emerald-500 min-w-0 [&_label]:min-w-0 [&_input]:max-w-full [&_select]:min-w-0 max-[768px]:gap-4 max-[600px]:grid-cols-1 max-[480px]:px-4 max-[480px]:py-4 max-[414px]:px-3"
           >
