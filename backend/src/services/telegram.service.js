@@ -158,8 +158,8 @@ export async function sendSignalReleasedAlert(signal, type = 'News Signal') {
     return record?.sentAt ? record.messageId : null
   }
 
-  async function failed(reason, retrySeconds = 60) {
-    const retryMs = Math.max(60, Number(retrySeconds) || 60) * 1000
+  async function failed(reason, retrySeconds = 5) {
+  const retryMs = Math.max(5, Number(retrySeconds) || 5) * 1000
     await records.updateOne(
       { _id: key, claimId, sentAt: null },
       { $set: {

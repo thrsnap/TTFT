@@ -183,7 +183,7 @@ export function startSignalLifecycle() {
       .catch(() => {
         console.error('Signal lifecycle background check failed.')
       })
-  }, 60_000)
+  }, 10_000)
 
   timer.unref?.()
 }
