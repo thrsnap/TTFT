@@ -2,10 +2,10 @@
   
   <!-- Background image -->
   <img
-  src="../assets/static/coursesection/photo_2026-10-24_20-05-45.jpg"
+  src="../assets/static/coursesection/orderflow.jpg"
   alt=""
   class="absolute inset-0 -z-20 h-full w-full
-         object-cover object-center blur-[4px] scale-105"
+         object-cover object-center blur-[0.5px] scale-105"
 />
 
   <!-- Dark overlay -->
