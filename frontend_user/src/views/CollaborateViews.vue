@@ -209,7 +209,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 
-import exness from '../assets/static/partnerphoto/exness.jpg'
+import aftx from '../assets/static/broker/atfx.png'
 import cxm from '../assets/static/partnerphoto/cxm.jpg'
 import lerunex from '../assets/static/partnerphoto/lerunex.jpg'
 import { faSnapchat } from '@fortawesome/free-brands-svg-icons'
@@ -220,11 +220,11 @@ const brokenLogos = ref({})
 // Add your verified broker details in the empty fields.
 const brokers = [
   {
-    id: 'exness',
-    name: 'Exness',
+    id: 'ATFX',
+    name: 'ATFX',
     initials: 'EX',
     color: 'bg-yellow-300 text-slate-950',
-    logo: exness,
+    logo: aftx,
 
     description: 'Check detail below',
     platforms: 'MT-4 ,MT-5',
@@ -233,8 +233,8 @@ const brokers = [
     minimumDeposit: '10$',
     bank: 'ABA, Wing, ACLEDA',
 
-    referralLink: 'https://one.exnessonelink.com/a/q7fx6btblq',
-    videoLink: 'https://www.youtube.com/watch?v=FtHV2eAn_Vk&list=PLSvS4MF3vztZIP6SasMz_X-5Lwm5ZG6tU&index=4',
+    referralLink: 'comming soon',
+    videoLink: 'comming soon',
   },
 
   {

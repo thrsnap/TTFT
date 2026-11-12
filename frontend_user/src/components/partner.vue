@@ -25,7 +25,7 @@
     <!-- Exness -->
     <div class="flex min-w-0 flex-col items-center text-center">
       <img
-        src="../assets/static/broker/exness_icon.png"
+        src="../assets/static/broker/atfx.png"
         alt="Exness logo"
         class="aspect-square h-auto w-32 max-w-full rounded-2xl object-contain
                max-[768px]:w-28
@@ -43,7 +43,7 @@
                max-[414px]:text-xs
                max-[320px]:mt-2 max-[320px]:text-[11px]"
       >
-        EXNESS
+        ATFX
       </p>
 
       <RouterLink
