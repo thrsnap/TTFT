@@ -4,6 +4,7 @@ import mongoose from 'mongoose'
 import User from './src/models/user.model.js'
 import Payment from './src/models/payment.model.js'
 import PushSubscription from './src/models/pushSubscription.model.js'
+import { startSignalExpiryEmails } from './src/services/signalExpiryEmails.service.js'
 
 async function startServer() {
   try {
@@ -43,6 +44,7 @@ async function startServer() {
 
     const server = app.listen(port, '0.0.0.0', () => {
       console.log(`API listening on port ${port}`)
+      startSignalExpiryEmails()
     })
 
     server.on('error', error => {

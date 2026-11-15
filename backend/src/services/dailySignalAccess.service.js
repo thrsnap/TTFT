@@ -3,9 +3,8 @@ import DailySignalSubscription from '../models/dailySignalSubscription.model.js'
 import DailySignalGrant from '../models/dailySignalGrant.model.js'
 import { DAILY_PRODUCT_ID, addCalendarMonth } from './dailySignalTerms.js'
 
-export async function getDailySubscription(userId) {
+export async function getDailySubscription(userId, now = new Date()) {
   if (!mongoose.isObjectIdOrHexString(userId)) return { active: false, expiresAt: null }
-  const now = new Date()
   const filter = { userId, startsAt: { $lte: now }, expiresAt: { $gt: now } }
   const periods = await Promise.all([
     DailySignalSubscription.findOne(filter).sort({ expiresAt: -1 }).lean(),

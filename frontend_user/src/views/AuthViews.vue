@@ -90,6 +90,9 @@ function subscriptionRedirect() {
     return redirect
   }
 
+  const signalPayment =
+    /^\/(?:km\/)?payment\?productId=(?:news-signal-monthly|daily-signal-monthly)$/
+
   const coursePayment =
     /^\/(?:km\/)?payment\/course\/[a-f0-9]{24}$/i
 
@@ -97,6 +100,7 @@ function subscriptionRedirect() {
     /^\/(?:km\/)?academy\/course\/[a-f0-9]{24}\/lessons$/i
 
   if (
+    signalPayment.test(redirect) ||
     coursePayment.test(redirect) ||
     courseLessons.test(redirect)
   ) {

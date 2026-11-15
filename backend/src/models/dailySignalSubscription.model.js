@@ -9,6 +9,7 @@ const schema = new mongoose.Schema({
 }, { timestamps: true })
 
 schema.index({ userId: 1, expiresAt: -1 })
+schema.index({ expiresAt: 1 })
 // No TTL index: retain access and payment history after expiry.
 export default mongoose.models.DailySignalSubscription ||
   mongoose.model('DailySignalSubscription', schema)

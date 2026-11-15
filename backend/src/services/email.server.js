@@ -1,3 +1,16 @@
+export function requestResendEmail(apiKey, message, idempotencyKey) {
+  return fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
+    body: JSON.stringify(message),
+    signal: AbortSignal.timeout(15000),
+  })
+}
+
 export async function sendVerificationEmail(email, code) {
   const apiKey = process.env.RESEND_API_KEY?.trim()
   const from = process.env.EMAIL_FROM?.trim()
@@ -21,25 +34,14 @@ export async function sendVerificationEmail(email, code) {
   let response
 
   try {
-    response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-
-      body: JSON.stringify({
-        from,
-        to: [email.trim()],
-        subject: 'Your CMM-FT verification code',
-        text:
-          `Your verification code is ${code}.\n\n` +
-          'This code expires in 10 minutes.\n' +
-          'If you did not request it, ignore this email.',
-      }),
-
-      signal: AbortSignal.timeout(15000),
+    response = await requestResendEmail(apiKey, {
+      from,
+      to: [email.trim()],
+      subject: 'Your CMM-FT verification code',
+      text:
+        `Your verification code is ${code}.\n\n` +
+        'This code expires in 10 minutes.\n' +
+        'If you did not request it, ignore this email.',
     })
   } catch (error) {
     console.error('Email request failed:', {

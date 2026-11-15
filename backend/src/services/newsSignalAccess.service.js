@@ -3,7 +3,33 @@ import NewsSignalSubscription from '../models/newsSignalSubscription.model.js'
 import NewsSignalGrant from '../models/newsSignalGrant.model.js'
 import SignalAccess from '../models/signalAccess.model.js'
 import Payment from '../models/payment.model.js'
-import { addNewsCalendarMonth, isNewsPaymentProduct } from './newsSignalTerms.js'
+import { addNewsCalendarMonth, isNewsPaymentProduct, NEWS_PRODUCT_ID } from './newsSignalTerms.js'
+
+export function paidNewsReceiptFilter(paidAt) {
+  return {
+    status: 'paid',
+    currency: 'USD',
+    paidAt,
+    $or: [
+      { productId: NEWS_PRODUCT_ID },
+      { productId: { $regex: '^signal:[a-fA-F0-9]{24}$' } },
+    ],
+  }
+}
+
+export function findLatestPaidNewsReceipt(userId, now) {
+  // Payment.userId is a String in the existing payment model.
+  return Payment.findOne({
+    userId: String(userId),
+    ...paidNewsReceiptFilter({ $lte: now }),
+  }).select('paidAt amountCents').sort({ paidAt: -1 }).lean()
+}
+
+export function paidNewsReceiptExpiry(receipt) {
+  return receipt?.paidAt && Number.isSafeInteger(receipt.amountCents) && receipt.amountCents > 0
+    ? addNewsCalendarMonth(receipt.paidAt)
+    : null
+}
 
 export async function getNewsSubscription(userId, now = new Date()) {
   if (!mongoose.isObjectIdOrHexString(userId)) return { active: false, expiresAt: null }
@@ -12,23 +38,13 @@ export async function getNewsSubscription(userId, now = new Date()) {
     NewsSignalSubscription.findOne(filter).sort({ expiresAt: -1 }).lean(),
     NewsSignalGrant.findOne({ userId }).lean(),
     SignalAccess.findOne({ userId, createdAt: { $lte: now } }).sort({ createdAt: -1 }).lean(),
-    // Payment.userId is a String in the existing payment model.
     // Read verified receipts independently of a card/grant that may be deleted.
-    Payment.findOne({
-      userId: String(userId), status: 'paid', currency: 'USD',
-      paidAt: { $lte: now },
-      $or: [
-        { productId: 'news-signal-monthly' },
-        { productId: { $regex: '^signal:[a-fA-F0-9]{24}$' } },
-      ],
-    }).select('paidAt amountCents').sort({ paidAt: -1 }).lean(),
+    findLatestPaidNewsReceipt(userId, now),
   ])
   const periods = []
   if (paid) periods.push(paid)
-  if (receipt?.paidAt && Number.isSafeInteger(receipt.amountCents) && receipt.amountCents > 0) {
-    const expiresAt = addNewsCalendarMonth(receipt.paidAt)
-    if (expiresAt > now) periods.push({ expiresAt })
-  }
+  const receiptExpiresAt = paidNewsReceiptExpiry(receipt)
+  if (receiptExpiresAt && receiptExpiresAt > now) periods.push({ expiresAt: receiptExpiresAt })
   if (manual && new Date(manual.startsAt) <= now && new Date(manual.expiresAt) > now) {
     periods.push(manual)
   }

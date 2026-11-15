@@ -24,5 +24,6 @@ const paymentSchema = new mongoose.Schema({
 
 // The same verified transaction cannot fulfill multiple payment orders.
 paymentSchema.index({ transactionHash: 1 }, { unique: true, sparse: true })
+paymentSchema.index({ status: 1, currency: 1, paidAt: 1 })
 
 export default mongoose.models.Payment || mongoose.model('Payment', paymentSchema)
