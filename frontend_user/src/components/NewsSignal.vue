@@ -585,7 +585,7 @@ onUnmounted(() => {
                     <span v-if="!isSignalReleased(signal)" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60 motion-reduce:animate-none"></span>
                     <span class="relative inline-flex h-2.5 w-2.5 rounded-full" :class="isSignalReleased(signal) ? 'bg-emerald-500' : 'bg-red-500'"></span>
                   </span>
-                  <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'Coming soon' }}</span>
+                  <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'News Coming Soon' }}</span>
                 </span>
               </div>
 
