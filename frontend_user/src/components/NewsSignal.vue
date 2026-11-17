@@ -120,11 +120,11 @@ function formatDate(value) {
 function formatTime(value) {
   const date = validDate(value)
   if (!date) return 'Time not announced'
+
   return new Intl.DateTimeFormat('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
-    timeZoneName: 'shortOffset',
   }).format(date)
 }
 
