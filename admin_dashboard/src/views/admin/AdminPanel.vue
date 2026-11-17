@@ -73,7 +73,11 @@ async function signalAccessRequest(path, options = {}) {
     ...options, method, headers, credentials: "include", cache: "no-store",
   });
   const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.message || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const error = new Error(data?.message || `Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
+  }
   if (!data) throw new Error("The backend did not return JSON.");
   return data;
 }
@@ -109,6 +113,12 @@ async function approveUserSignalAccess() {
       body: JSON.stringify({ email: userSignalModal.value.email }),
     });
     userSignalModal.value = null;
+    const grantedUserId = String(result.userId ?? "").toLowerCase();
+    if (/^[a-f0-9]{24}$/.test(grantedUserId)) {
+      paymentUserIdFilter.value = grantedUserId;
+      paymentStatusFilter.value = "paid";
+      paymentProductFilter.value = "all";
+    }
     notify(result.message || "All News Signals are unlocked for one month.");
   } catch (e) {
     userSignalError.value = e.message || "Could not approve access.";
@@ -122,6 +132,8 @@ const paidSummary = ref(null);
 const paidPagination = ref({ page: 1, totalPages: 0, total: 0 });
 const paidLoading = ref(false);
 const paidError = ref("");
+const paidNewsAccessError = ref("");
+const selectedPaymentNews = ref(null);
 let paidRequestController;
 const paymentsAdminApiPath = (
   import.meta.env.VITE_ADMIN_API_PATH || "/api/admin"
@@ -142,23 +154,142 @@ const paidCards = computed(() => [
   },
 ]);
 
+async function resolvePaymentAccount(value, signal) {
+  const identifier = value.trim().toLowerCase();
+  if (!identifier) return null;
+  if (/^[a-f0-9]{24}$/.test(identifier)) return { userId: identifier };
+  if (!/^[^\s@]+@[^\s@]+$/.test(identifier)) {
+    throw new Error("Enter a registered email or a valid 24-character user ID.");
+  }
+
+  let page = 1;
+  while (true) {
+    const query = new URLSearchParams({ q: identifier.slice(0, 100), page: String(page) });
+    const result = await api("users?" + query, { signal });
+    const users = Array.isArray(result) ? result : result?.users;
+    if (!Array.isArray(users)) throw new Error("Invalid registered-user search response.");
+    const user = users.find(entry => String(entry.email).trim().toLowerCase() === identifier);
+    if (user) {
+      const userId = String(user.id ?? user._id ?? user.userId).toLowerCase();
+      if (!/^[a-f0-9]{24}$/.test(userId)) throw new Error("The registered user ID is unavailable.");
+      return { userId, name: user.username || user.name || "", email: user.email };
+    }
+    const totalPages = result?.pagination?.totalPages ?? result?.totalPages;
+    if (!Number.isSafeInteger(totalPages) || page >= totalPages) break;
+    page++;
+  }
+  throw new Error("No registered user matches that email.");
+}
+
+async function getUserNewsAccess(userId, signal) {
+  const result = await signalAccessRequest("/subscription/" + userId, { signal });
+  const access = result?.subscription;
+  if (String(result?.userId).toLowerCase() !== userId || typeof access?.active !== "boolean") {
+    throw new Error("Invalid News Signal subscription response.");
+  }
+  if (!access.active) return { active: false, expiresAt: null };
+  if (typeof access.expiresAt !== "string" || !Number.isFinite(Date.parse(access.expiresAt))) {
+    throw new Error("Invalid active News Signal expiry.");
+  }
+  return { active: true, expiresAt: access.expiresAt };
+}
+
+let paymentNewsRouteMissing = false;
+
+async function loadCurrentNewsAccess(payments, dailyPayments, signal, selectedNews) {
+  const userIds = [...new Set(dailyPayments.map(payment => String(payment.userId).toLowerCase()))]
+    .filter(userId => /^[a-f0-9]{24}$/.test(userId));
+  const responses = await Promise.allSettled(userIds.map(async userId => {
+    const access = selectedNews?.userId === userId
+      ? selectedNews.subscription : await getUserNewsAccess(userId, signal);
+    return [userId, access?.active ? access : null];
+  }));
+  const currentNewsByUser = new Map();
+  let failure;
+  for (const result of responses) {
+    if (result.status === "fulfilled") {
+      const [userId, access] = result.value;
+      if (access) currentNewsByUser.set(userId, access);
+    } else if (result.reason?.message !== "Registered user does not exist.") {
+      failure ??= result.reason;
+    }
+  }
+  const dailyOrders = new Set(dailyPayments);
+  return {
+    payments: payments.map(payment => {
+      const access = currentNewsByUser.get(String(payment.userId).toLowerCase());
+      return dailyOrders.has(payment) && access ? { ...payment, currentNewsAccess: access } : payment;
+    }),
+    warning: failure ? newsExpiryWarning(failure) : "",
+  };
+}
+
+function newsExpiryWarning(error) {
+  const status = Number.isInteger(error?.status) ? " (HTTP " + error.status + ")" : "";
+  return "Some News Signal expiry dates are unavailable" + status + ".";
+}
+
+async function loadPaymentNewsAccess(payments, signal, selectedNews) {
+  const dailyPayments = payments.filter(payment => payment.status === "paid" &&
+    payment.productId === "daily-signal-monthly" &&
+    !Object.hasOwn(payment, "newsAccessAfterPayment"));
+  if (!dailyPayments.length) return { payments, warning: "" };
+  const query = new URLSearchParams();
+  for (const payment of dailyPayments) {
+    if (/^[a-f0-9]{24}$/i.test(payment.orderId)) query.append("orderId", payment.orderId);
+  }
+  if (paymentNewsRouteMissing || !query.has("orderId")) {
+    return loadCurrentNewsAccess(payments, dailyPayments, signal, selectedNews);
+  }
+
+  let result;
+  try {
+    result = await api("payments/news-access?" + query, { signal });
+  } catch (error) {
+    if (error?.status !== 404 || signal?.aborted) throw error;
+    paymentNewsRouteMissing = true;
+    return loadCurrentNewsAccess(payments, dailyPayments, signal, selectedNews);
+  }
+  const accessByOrderId = result?.accessByOrderId;
+  if (!result?.success || !accessByOrderId || typeof accessByOrderId !== "object" || Array.isArray(accessByOrderId)) {
+    throw new Error("Invalid News Signal access response.");
+  }
+  return {
+    payments: payments.map(payment => {
+      const orderId = String(payment.orderId).toLowerCase();
+      return Object.hasOwn(accessByOrderId, orderId)
+        ? { ...payment, newsAccessAfterPayment: accessByOrderId[orderId] } : payment;
+    }),
+    warning: "",
+  };
+}
+
 async function fetchPaidPayments(requestedPage = 1) {
   paidRequestController?.abort();
   const controller = new AbortController();
   paidRequestController = controller;
   paidLoading.value = true;
+  paidNewsAccessError.value = "";
+  selectedPaymentNews.value = null;
   paidError.value = "";
   try {
-    const userId = paymentUserIdFilter.value.trim();
-    if (userId && !/^[a-f0-9]{24}$/i.test(userId)) {
-      throw new Error("Enter a valid 24-character user ID.");
-    }
+    const account = await resolvePaymentAccount(paymentUserIdFilter.value, controller.signal);
+    if (controller.signal.aborted) return;
+    const accountNews = account
+      ? getUserNewsAccess(account.userId, controller.signal).then(
+          subscription => ({ ...account, subscription }),
+          error => ({ ...account, error: newsExpiryWarning(error) }),
+        )
+      : Promise.resolve(null);
+    void accountNews.then(result => {
+      if (result && !controller.signal.aborted) selectedPaymentNews.value = result;
+    });
     const query = new URLSearchParams({
       page: String(requestedPage),
       status: paymentStatusFilter.value,
       productType: paymentProductFilter.value,
     });
-    if (userId) query.set("userId", userId);
+    if (account) query.set("userId", account.userId);
     const response = await fetch(
       `${signalApiBase}${paymentsAdminApiPath}/payments?${query}`,
       {
@@ -181,8 +312,28 @@ async function fetchPaidPayments(requestedPage = 1) {
       || !Number.isInteger(data.pagination.totalPages) || data.pagination.totalPages < 0) {
       throw new Error("Invalid payment totals or pagination.");
     }
+    const selectedNews = await accountNews;
     if (controller.signal.aborted) return;
-    paidPayments.value = data.payments;
+    let payments = data.payments;
+    if (selectedNews) {
+      const buyer = payments.find(payment => String(payment.userId).toLowerCase() === selectedNews.userId);
+      selectedPaymentNews.value = {
+        ...selectedNews,
+        name: selectedNews.name || buyer?.name,
+        email: selectedNews.email || buyer?.email,
+      };
+    }
+    try {
+      const newsAccess = await loadPaymentNewsAccess(payments, controller.signal, selectedNews);
+      if (controller.signal.aborted) return;
+      payments = newsAccess.payments;
+      paidNewsAccessError.value = newsAccess.warning;
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      paidNewsAccessError.value = newsExpiryWarning(error);
+    }
+    if (controller.signal.aborted) return;
+    paidPayments.value = payments;
     paidSummary.value = data.summary;
     paidPagination.value = data.pagination;
   } catch (e) {
@@ -203,14 +354,15 @@ function isMonthlySignalPayment(payment) {
     ['news-signal-monthly', 'daily-signal-monthly'].includes(payment.productId) || payment.productId?.startsWith('signal:');
 }
 function paymentPeriod(payment) {
-  return payment.subscription || payment.newsSubscription || payment.dailySubscription;
+  return payment.newsAccessAfterPayment || payment.currentNewsAccess || payment.subscription || payment.newsSubscription || payment.dailySubscription;
 }
 function subscriptionAccessLabel(payment) {
   if (payment.status !== 'paid') return 'Not activated';
   const period = paymentPeriod(payment);
   if (!period) return 'Expiry unavailable';
-  if (period.status === 'scheduled') return 'Starts later';
-  return period.active ? 'Active' : 'Expired';
+  const status = period.status === 'scheduled' ? 'Starts later' : period.active ? 'Active' : 'Expired';
+  if (payment.currentNewsAccess) return "Current News Signals · " + status;
+  return payment.newsAccessAfterPayment ? "News Signals · " + status : status;
 }
 function subscriptionExpiryLabel(payment) {
   const expiry = paymentPeriod(payment)?.expiresAt;
@@ -220,6 +372,7 @@ function subscriptionExpiryLabel(payment) {
 watch([paymentStatusFilter, paymentUserIdFilter, paymentProductFilter], () => {
   paidRequestController?.abort();
   paidPayments.value = [];
+  selectedPaymentNews.value = null;
   paidPagination.value = { page: 1, totalPages: 0, total: 0 };
   paidError.value = "Filters changed. Click Apply filters to load orders.";
 }, { flush: "sync" });
@@ -1773,7 +1926,7 @@ onUnmounted(() => {
             <div class="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div class="min-w-0">
                 <h2 id="paid-users-heading" class="text-lg font-semibold">Payment history</h2>
-                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Separate News and Daily Signal payments by product, user ID and status. Daily expiry comes from the saved subscription. Summary cards show all-time verified payments.</p>
+                <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Separate News and Daily Signal payments by product, user ID and status. Signal access shows the News expiry after a grant or for an active News subscription. Summary cards show all-time verified payments.</p>
               </div>
               <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="min-h-11 w-full shrink-0 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium disabled:opacity-50 sm:w-auto dark:border-slate-700">
                 {{ paidLoading ? "Loading…" : "Refresh payments" }}
@@ -1781,8 +1934,8 @@ onUnmounted(() => {
             </div>
             <form @submit.prevent="fetchPaidPayments(1)" class="mb-5 grid min-w-0 grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(110px,150px)] xl:grid-cols-[minmax(0,1fr)_minmax(110px,150px)_minmax(150px,180px)_auto_auto]">
               <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
-                <span class="mb-1 block">User ID (optional)</span>
-                <input v-model="paymentUserIdFilter" :disabled="paidLoading" maxlength="24" placeholder="Paste user ID" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 text-base sm:text-sm dark:border-slate-600" />
+                <span class="mb-1 block">Registered email or user ID</span>
+                <input v-model="paymentUserIdFilter" :disabled="paidLoading" maxlength="254" placeholder="Search a registered account" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-transparent px-3 text-base sm:text-sm dark:border-slate-600" />
               </label>
               <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
                 <span class="mb-1 block">Status</span>
@@ -1794,7 +1947,7 @@ onUnmounted(() => {
                 </select>
               </label>
               <label class="col-span-2 min-w-0 text-sm sm:col-span-1">
-                <span class="mb-1 block">Product</span>
+                <span class="mb-1 block">Purchased product</span>
                 <select v-model="paymentProductFilter" :disabled="paidLoading" class="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-base sm:text-sm dark:border-slate-600 dark:bg-slate-900">
                   <option value="all">All products</option>
                   <option value="news-signal">News Signals</option>
@@ -1805,6 +1958,17 @@ onUnmounted(() => {
               <button type="submit" :disabled="paidLoading" class="min-h-11 rounded-lg bg-emerald-700 px-4 py-2 font-medium text-white">Apply filters</button>
               <button type="button" :disabled="paidLoading" @click="paymentUserIdFilter = ''; paymentStatusFilter = 'paid'; paymentProductFilter = 'all'; fetchPaidPayments(1)" class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 dark:border-slate-600">Reset</button>
             </form>
+            <section v-if="selectedPaymentNews" aria-label="Current News access" class="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800">
+              <h3 class="text-sm font-semibold">Current News access</h3>
+              <p class="mt-2 break-words font-medium">{{ selectedPaymentNews.name || selectedPaymentNews.email || selectedPaymentNews.userId }}</p>
+              <p v-if="selectedPaymentNews.name && selectedPaymentNews.email" class="break-all text-sm text-slate-500 dark:text-slate-400">{{ selectedPaymentNews.email }}</p>
+              <p v-if="selectedPaymentNews.error" role="status" class="mt-2 text-sm text-amber-700 dark:text-amber-300">{{ selectedPaymentNews.error }}</p>
+              <div v-else-if="selectedPaymentNews.subscription.active" class="mt-2 text-sm">
+                <p class="font-medium text-emerald-700 dark:text-emerald-400">News Signals · Active</p>
+                <p>Expires {{ date(selectedPaymentNews.subscription.expiresAt) }} {{ time(selectedPaymentNews.subscription.expiresAt) }}</p>
+              </div>
+              <p v-else class="mt-2 text-sm text-slate-500 dark:text-slate-400">News Signals · Inactive</p>
+            </section>
             <div class="mb-5 grid min-w-0 grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:gap-3 xl:grid-cols-3 2xl:grid-cols-6">
               <article v-for="card in paidCards" :key="card.label" class="min-w-0 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4 dark:border-slate-700 dark:bg-slate-800">
                 <p class="text-sm text-slate-500 dark:text-slate-400">{{ card.label }}</p>
@@ -1817,6 +1981,7 @@ onUnmounted(() => {
               <button type="button" :disabled="paidLoading" @click="fetchPaidPayments(paidPagination.page)" class="ml-2 min-h-11 underline disabled:opacity-50">Try again</button>
               <p v-if="paidSummary" class="mt-1 text-xs">Counts above are from the last successful refresh.</p>
             </div>
+            <p v-if="paidNewsAccessError && !paidError" role="status" class="mb-4 text-sm text-amber-700 dark:text-amber-300">{{ paidNewsAccessError }}</p>
             <p v-if="paidLoading" role="status" class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading payment history…</p>
             <template v-else-if="!paidError">
               <div v-if="paidPayments.length" class="min-w-0">
@@ -1844,7 +2009,7 @@ onUnmounted(() => {
                         <dd class="mt-1 break-words">{{ payment.paidAt ? date(payment.paidAt) + ' ' + time(payment.paidAt) : '—' }}</dd>
                       </div>
                       <div v-if="isMonthlySignalPayment(payment)" class="min-w-0 min-[400px]:col-span-2">
-                        <dt class="text-xs text-slate-500 dark:text-slate-400">Access from this payment</dt>
+                        <dt class="text-xs text-slate-500 dark:text-slate-400">Signal access</dt>
                         <dd class="mt-1 font-medium">{{ subscriptionAccessLabel(payment) }}</dd>
                         <dd class="mt-1 break-words text-sm">Expires: {{ subscriptionExpiryLabel(payment) }}</dd>
                       </div>
@@ -1864,7 +2029,7 @@ onUnmounted(() => {
                       <th scope="col" class="px-4 py-3">Product</th>
                       <th scope="col" class="px-4 py-3">Amount</th>
                       <th scope="col" class="px-4 py-3">Paid at (local time)</th>
-                      <th scope="col" class="px-4 py-3">Access status / expires (local time)</th>
+                      <th scope="col" class="px-4 py-3">Signal access / expires (local time)</th>
                       <th scope="col" class="px-4 py-3">Status</th>
                     </tr>
                   </thead>
@@ -2289,6 +2454,7 @@ onUnmounted(() => {
                 list("signals").length
               }}</span>
             </button>
+            <!--
             <button
               type="button"
               :class="{ selected: tab === 'Daily' }"
@@ -2297,6 +2463,7 @@ onUnmounted(() => {
             >
               <TrendingUp :size="17" />Daily signals
             </button>
+          -->
             <button
               type="button"
               :class="{ selected: tab === 'History' }"

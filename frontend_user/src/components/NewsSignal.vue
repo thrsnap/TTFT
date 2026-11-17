@@ -580,7 +580,7 @@ onUnmounted(() => {
                     <span v-if="!isSignalReleased(signal)" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60 motion-reduce:animate-none"></span>
                     <span class="relative inline-flex h-2.5 w-2.5 rounded-full" :class="isSignalReleased(signal) ? 'bg-emerald-500' : 'bg-red-500'"></span>
                   </span>
-                  <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'Coming soon' }}</span>
+                  <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'News Coming Soon' }}</span>
                 </span>
               </div>
 
@@ -593,9 +593,12 @@ onUnmounted(() => {
                   {{ formatDate(signal.scheduledAt) }}, {{ formatTime(signal.scheduledAt) }}
                 </time>
                 <p v-else class="text-sm text-(--muted-color)">Date and time not announced.</p>
-                <span v-if="signal.newsType" class="mt-1 inline-flex max-w-full break-words rounded-md bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-400/10 dark:text-blue-300">
-                  {{ signal.newsType }}
-                </span>
+                <span
+  v-if="signal.newsType"
+  class="mt-1 inline-flex max-w-full wrap-break rounded-md bg-red-100 px-2 py-1 text-xs font-semibold text-red-700 dark:bg-red-400/20 dark:text-red-300"
+>
+  {{ signal.newsType }}
+</span>
               </div>
             </header>
 
