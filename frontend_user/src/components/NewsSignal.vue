@@ -106,7 +106,14 @@ function dateTimeValue(value) {
   return validDate(value)?.toISOString()
 }
 
-function formatDate(value) {
+function objectIdCreatedAt(id) {
+  // The first four bytes of a MongoDB ObjectId contain its creation time in seconds.
+  const timestamp = Number.parseInt(id.slice(0, 8), 16) * 1000
+  if (timestamp <= 0 || timestamp > Date.now()) return null
+  return dateTimeValue(timestamp)
+}
+
+function formatDate(value, options = {}) {
   const date = validDate(value)
   if (!date) return 'Date not announced'
   return new Intl.DateTimeFormat('en-GB', {
@@ -114,13 +121,13 @@ function formatDate(value) {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
+    ...options,
   }).format(date)
 }
 
 function formatTime(value) {
   const date = validDate(value)
   if (!date) return 'Time not announced'
-
   return new Intl.DateTimeFormat('en-GB', {
     hour: '2-digit',
     minute: '2-digit',
@@ -304,6 +311,7 @@ function syncSignals(incoming) {
         ...raw,
         _id: id,
         scheduledAt: dateTimeValue(raw.scheduledAt) || null,
+        postedAt: dateTimeValue(raw.createdAt) || objectIdCreatedAt(id),
         hasAccess,
         details: hasAccess ? String(raw.details || '') : '',
         news: hasAccess ? String(raw.news || '') : '',
@@ -435,6 +443,7 @@ async function loadSignals(background = false) {
 
 function refreshVisibleSignals() {
   if (!active || document.visibilityState !== 'visible') return
+  currentTime.value = Date.now()
   // Focus and visibilitychange can fire together when returning to a tab.
   if (Date.now() - lastRefreshAttempt < 1000) return
   void loadSignals(true)
@@ -447,11 +456,9 @@ function startRefresh() {
   window.addEventListener('focus', refreshVisibleSignals)
   document.addEventListener('visibilitychange', refreshVisibleSignals)
   refreshTimer = window.setInterval(refreshVisibleSignals, 60_000)
-  if (IS_DAILY) {
-    updateTimer = window.setInterval(() => {
-      currentTime.value = Date.now()
-    }, 15_000)
-  }
+  updateTimer = window.setInterval(() => {
+    currentTime.value = Date.now()
+  }, 15_000)
 }
 
 function stopRefresh() {
@@ -510,8 +517,6 @@ onUnmounted(() => {
           One monthly subscription covers all CPI, NFP, FOMC, PPI and other News Signals.
         </p>
       </div>
-
-
 
       <div v-if="subscription.active && showSubscriptionNotice" role="status" class="mb-6 rounded-xl border border-emerald-300 bg-emerald-500/10 p-4 text-sm text-emerald-700 dark:text-emerald-300">
         <p class="font-bold">News Signal subscription active</p>
@@ -580,25 +585,32 @@ onUnmounted(() => {
                     <span v-if="!isSignalReleased(signal)" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60 motion-reduce:animate-none"></span>
                     <span class="relative inline-flex h-2.5 w-2.5 rounded-full" :class="isSignalReleased(signal) ? 'bg-emerald-500' : 'bg-red-500'"></span>
                   </span>
-                  <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'News Coming Soon' }}</span>
+                  <span>{{ isSignalReleased(signal) ? 'Signal Released' : 'Coming soon' }}</span>
                 </span>
               </div>
 
               <h3 class="mt-3 min-h-7 break-words text-base font-bold">{{ signal.title }}</h3>
-              <p class="mt-2 text-xs font-medium text-(--muted-color)">by Thun Tula</p>
+              <p class="mt-2 text-xs font-medium text-(--muted-color)">
+                by Thun Tula
+                <template v-if="signal.postedAt">
+                  <span aria-hidden="true"> · </span>
+                  <time :datetime="signal.postedAt">Posted {{ timeAgo(signal.postedAt) }}</time>
+                </template>
+              </p>
 
               <div class="mt-3 min-h-24 rounded-xl border border-(--border-color) bg-(--page-bg) p-3">
                 <p class="mb-2 text-xs font-semibold text-(--muted-color)">News date and time</p>
                 <time v-if="signal.scheduledAt" :datetime="signal.scheduledAt" class="block break-words text-sm font-semibold text-(--text-color)">
-                  {{ formatDate(signal.scheduledAt) }}, {{ formatTime(signal.scheduledAt) }}
+                  {{ formatDate(signal.scheduledAt, { weekday: 'long' }) }},
+                  {{ formatTime(signal.scheduledAt) }}
                 </time>
                 <p v-else class="text-sm text-(--muted-color)">Date and time not announced.</p>
                 <span
-  v-if="signal.newsType"
-  class="mt-1 inline-flex max-w-full wrap-break rounded-md bg-red-100 px-2 py-1 text-xs font-semibold text-red-700 dark:bg-red-400/20 dark:text-red-300"
->
-  {{ signal.newsType }}
-</span>
+                  v-if="signal.newsType"
+                  class="mt-1 inline-flex max-w-full wrap-break rounded-md bg-red-100 px-2 py-1 text-xs font-semibold text-red-700 dark:bg-red-400/20 dark:text-red-300"
+                >
+                  {{ signal.newsType }}
+                </span>
               </div>
             </header>
 
