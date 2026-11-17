@@ -126,7 +126,7 @@ onUnmounted(() => {
 <template>
    <YouTubeLiveBanner />
   <main class="min-w-0 bg-(--page-bg)">
-    <!-- Active News and Daily Signals -->
+    <!-- Active News and  -->
     <div
       ref="signalGrid"
       class="mx-auto grid w-full max-w-4xl grid-cols-1
@@ -139,9 +139,11 @@ onUnmounted(() => {
         <NewsSignal />
       </div>
       
+       <!-- Active  Daily Signals 
       <div data-signal-column="daily" class="min-w-0">
         <DailySignal />
       </div>
+      -->
     </div>
 
     <!-- History below both sections -->
