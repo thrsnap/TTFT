@@ -181,6 +181,17 @@
         />
 
       </div>
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+
+        <img
+
+          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
+
+          src="../assets/static/certification/certi10.jpg"
+
+        />
+
+      </div>
 
 
 
@@ -302,6 +313,17 @@
           class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
 
           src="../assets/static/certification/certi9.jpg"
+
+        />
+
+      </div>
+      <div class="w-80 h-70 shrink-0 rounded-[15px] mr-3.75 overflow-hidden">
+
+        <img
+
+          class="w-full h-full object-cover block transition-all duration-300 hover:grayscale-0 hover:scale-[1.06]"
+
+          src="../assets/static/certification/certi10.jpg"
 
         />
 
